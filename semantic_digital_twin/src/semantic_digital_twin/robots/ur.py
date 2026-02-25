@@ -133,7 +133,7 @@ class UR10Bolt(AbstractRobot, SpecifiesLeftRightArm):
             robot.add_arm(arm)
             world.add_semantic_annotation(robot)
 
-            vel_limits = defaultdict(lambda: 1.0)
+            vel_limits = defaultdict(lambda: 0.5)
             robot.tighten_dof_velocity_limits_of_1dof_connections(new_limits=vel_limits)
 
             return robot
