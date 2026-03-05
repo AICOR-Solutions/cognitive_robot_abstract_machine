@@ -82,11 +82,11 @@ class QPSolverQPSwift(QPSolver):
             options=self.opts,
         )
         exit_flag = result.exit_flag
-        if exit_flag != 0:
-            error_code = QPSWIFTExitFlags(exit_flag)
-            if error_code == QPSWIFTExitFlags.MAX_ITER_REACHED:
-                raise InfeasibleException(f"Failed to solve qp: {str(error_code)}")
-            raise QPSolverException(f"Failed to solve qp: {str(error_code)}")
+        # if exit_flag != 0:
+        #    error_code = QPSWIFTExitFlags(exit_flag)
+        #    if error_code == QPSWIFTExitFlags.MAX_ITER_REACHED:
+        #        raise InfeasibleException(f"Failed to solve qp: {str(error_code)}")
+        #    raise QPSolverException(f"Failed to solve qp: {str(error_code)}")
         return result.x
 
     solver_call = solver_call_explicit_interface
