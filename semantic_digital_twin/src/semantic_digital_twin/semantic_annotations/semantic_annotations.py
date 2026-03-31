@@ -10,7 +10,7 @@ from typing_extensions import List, Type
 
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
-from .mixins import (
+from semantic_digital_twin.semantic_annotations.mixins import (
     HasSupportingSurface,
     HasRootRegion,
     HasDrawers,
@@ -24,25 +24,34 @@ from .mixins import (
     HasRootBody,
     HasStorageSpace,
 )
-from ..datastructures.prefixed_name import PrefixedName
-from ..datastructures.variables import SpatialVariables
-from ..exceptions import (
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.datastructures.variables import SpatialVariables
+from semantic_digital_twin.exceptions import (
     InvalidPlaneDimensions,
     InvalidHingeActiveAxis,
     MissingSemanticAnnotationError,
 )
-from ..reasoning.predicates import InsideOf
-from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
-from ..world import World
-from ..world_description.connections import (
+from semantic_digital_twin.reasoning.predicates import InsideOf
+from semantic_digital_twin.spatial_types import (
+    Point3,
+    HomogeneousTransformationMatrix,
+    Vector3,
+)
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     PrismaticConnection,
     FixedConnection,
 )
-from ..world_description.degree_of_freedom import DegreeOfFreedomLimits
-from ..world_description.geometry import Scale, TriangleMesh
-from ..world_description.shape_collection import BoundingBoxCollection, ShapeCollection
-from ..world_description.world_entity import (
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedomLimits,
+)
+from semantic_digital_twin.world_description.geometry import Scale, Mesh
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+    ShapeCollection,
+)
+from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
     Region,
@@ -114,7 +123,7 @@ class Handle(HasRootBody):
 
         z_interval = closed(-scale.z / 2, scale.z / 2)
 
-        return SimpleEvent(
+        return SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: x_interval,
                 SpatialVariables.y.value: y_interval,
@@ -166,9 +175,7 @@ class Aperture(HasRootRegion):
         body: Body,
         parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
-
-        world._forward_kinematic_manager.recompile()
-        world._forward_kinematic_manager.recompute()
+        world.update_forward_kinematics()
         body_scale = (
             body.collision.as_bounding_box_collection_in_frame(body)
             .bounding_box()
@@ -247,7 +254,7 @@ class Door(HasHandle, HasHinge):
         )
         entry_way_region = Region(
             name=entry_way_region_name,
-            area=ShapeCollection([TriangleMesh(mesh=door_body.combined_mesh)]),
+            area=ShapeCollection([Mesh.from_trimesh(mesh=door_body.combined_mesh)]),
         )
         entry_way = EntryWay(name=entry_way_name, root=entry_way_region)
         world.add_region(entry_way.root)
@@ -274,7 +281,7 @@ class Door(HasHandle, HasHinge):
         connection = self.handle.root.parent_connection
         door_P_handle = connection.origin_expression.to_position()
         scale = self.root.collision.scale
-        world_T_door = self.root.global_pose
+        world_T_door = self.root.global_transform
 
         match opening_axis.to_np().tolist():
             case [0, 1, 0, 0]:
@@ -330,9 +337,9 @@ class DoubleDoor(SemanticAnnotation):
 
         :return: A tuple containing the left and right door. the first door is the left door, the second door is the right door.
         """
-        world_T_door_0 = self.door_0.root.global_pose
+        world_T_door_0 = self.door_0.root.global_transform
         view_point_T_door_0 = world_T_view_point.inverse() @ world_T_door_0
-        world_T_door_1 = self.door_1.root.global_pose
+        world_T_door_1 = self.door_1.root.global_transform
         view_point_T_door_1 = world_T_view_point.inverse() @ world_T_door_1
         if view_point_T_door_0.y > view_point_T_door_1.y:
             return self.door_0, self.door_1
@@ -513,7 +520,7 @@ class Wall(HasApertures):
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(0, scale.z)
 
-        return SimpleEvent(
+        return SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: x_interval,
                 SpatialVariables.y.value: y_interval,

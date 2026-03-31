@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation
 from typing_extensions import Optional, Dict
 from xml.etree import ElementTree as ET
 
-from .multi_sim import (
+from semantic_digital_twin.adapters.multi_sim import (
     MujocoActuator,
     GeomVisibilityAndCollisionType,
     MujocoCamera,
@@ -18,41 +18,44 @@ from .multi_sim import (
     MujocoJoint,
     MujocoTendon,
 )
-from ..datastructures.prefixed_name import PrefixedName
-from ..exceptions import WorldEntityNotFoundError
-from ..spatial_types import (
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import WorldEntityNotFoundError
+from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
     Point3,
     Vector3,
 )
-from ..spatial_types.derivatives import DerivativeMap
-from ..world import World, Body
-from ..world_description.connection_properties import JointDynamics
-from ..world_description.connections import (
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.world import World, Body
+from semantic_digital_twin.world_description.connection_properties import JointDynamics
+from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     PrismaticConnection,
     FixedConnection,
     Connection6DoF,
 )
-from ..world_description.degree_of_freedom import DegreeOfFreedom, DegreeOfFreedomLimits
-from ..world_description.geometry import (
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
+from semantic_digital_twin.world_description.geometry import (
     Box,
     Sphere,
     Cylinder,
     Scale,
     Shape,
     Color,
-    FileMesh,
+    Mesh,
 )
-from ..world_description.inertial_properties import (
+from semantic_digital_twin.world_description.inertial_properties import (
     Inertial,
     InertiaTensor,
     PrincipalMoments,
     PrincipalAxes,
 )
-from ..world_description.shape_collection import ShapeCollection
-from ..world_description.world_entity import Actuator
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from semantic_digital_twin.world_description.world_entity import Actuator
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +301,7 @@ class MJCFParser:
                 )
                 meshscale = Scale(*mujoco_mesh.scale)
                 if mujoco_material is None:
-                    return FileMesh(
+                    return Mesh(
                         filename=filename,
                         origin=origin_transform,
                         color=color,
@@ -309,7 +312,7 @@ class MJCFParser:
                     mujoco_texture: mujoco.MjsTexture = self.spec.texture(texture_name)
                     if mujoco_texture is None:
                         color = Color(*mujoco_material.rgba)
-                        return FileMesh(
+                        return Mesh(
                             filename=filename,
                             origin=origin_transform,
                             color=color,
@@ -320,7 +323,7 @@ class MJCFParser:
                     )
                     texture_file_path = os.path.join(texturedir, mujoco_texture.file)
                     if os.path.isfile(texture_file_path):
-                        return FileMesh.from_file(
+                        return Mesh.from_file(
                             file_path=filename,
                             origin=origin_transform,
                             color=color,
@@ -328,7 +331,7 @@ class MJCFParser:
                             scale=meshscale,
                         )
                     else:
-                        return FileMesh(
+                        return Mesh(
                             filename=filename,
                             origin=origin_transform,
                             color=color,
