@@ -30,7 +30,8 @@ class ExecutionEnvironment:
     collision_avoidance: bool = False
     """
     Whether an :class:`~giskardpy.motion_statechart.goals.collision_avoidance.ExternalCollisionAvoidance`
-    is added to every motion state chart created within this environment.
+    and a :class:`~giskardpy.motion_statechart.goals.collision_avoidance.SelfCollisionAvoidance`
+    are added to every motion state chart created within this environment.
     """
 
     previous_type: ExecutionType = field(init=False, default=None)
@@ -67,13 +68,14 @@ class ExecutionEnvironment:
         GiskardExecutable.execution_type = self.previous_type
         GiskardExecutable.collision_avoidance = self.previous_collision_avoidance
 
-    def __call__(self, collision_avoidance: bool = False):
+    def __call__(self, collision_avoidance: bool = False) -> ExecutionEnvironment:
         """
         Configure the environment for use as a context manager, allowing
         ``with simulated_robot(collision_avoidance=True):``.
         """
-        self.collision_avoidance = collision_avoidance
-        return self
+        return ExecutionEnvironment(
+            self.execution_type, collision_avoidance=collision_avoidance
+        )
 
 
 # These are imported, so they don't have to be initialized when executing with

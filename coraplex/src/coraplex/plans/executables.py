@@ -15,6 +15,7 @@ from giskardpy.motion_statechart.data_types import (
 )
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
+    SelfCollisionAvoidance,
 )
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import EndMotion, Task
@@ -120,7 +121,8 @@ class GiskardExecutable(Executable):
     collision_avoidance: ClassVar[bool] = False
     """
     Whether an :class:`~giskardpy.motion_statechart.goals.collision_avoidance.ExternalCollisionAvoidance`
-    is added to the motion state chart, managed by
+    and a :class:`~giskardpy.motion_statechart.goals.collision_avoidance.SelfCollisionAvoidance`
+    are added to the motion state chart, managed by
     :py:class:`pycram.motion_executor.ExecutionEnvironment`.
     """
 
@@ -148,6 +150,7 @@ class GiskardExecutable(Executable):
             self._current_motion_state_chart.add_node(
                 seq := Sequence(list(self.motion_mappings.values()))
             )
+            self._add_collision_avoidance()
             self._current_motion_state_chart.add_node(EndMotion.when_true(seq))
             return self._current_motion_state_chart
 
@@ -167,13 +170,22 @@ class GiskardExecutable(Executable):
                 end_trigger = trinary_logic_or(end_trigger, *skip_end_conditions)
 
             self._add_condition_monitors(first_task, end_trigger)
-        if GiskardExecutable.collision_avoidance:
-            self._current_motion_state_chart.add_node(ExternalCollisionAvoidance())
+        self._add_collision_avoidance()
 
         end_motion = EndMotion()
         end_motion.start_condition = end_trigger
         self._current_motion_state_chart.add_node(end_motion)
         return self._current_motion_state_chart
+
+    def _add_collision_avoidance(self) -> None:
+        """
+        Add external and self collision avoidance to the chart being built, if this
+        environment enables it.
+        """
+        if not GiskardExecutable.collision_avoidance:
+            return
+        self._current_motion_state_chart.add_node(ExternalCollisionAvoidance())
+        self._current_motion_state_chart.add_node(SelfCollisionAvoidance())
 
     def _add_condition_monitors(
         self, first_task: Task, end_trigger: ObservationStateValues
