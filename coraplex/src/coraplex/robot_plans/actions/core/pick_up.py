@@ -21,7 +21,7 @@ from coraplex.datastructures.enums import (
     Arms,
     MovementType,
 )
-from coraplex.datastructures.grasp import GraspDescription
+from coraplex.datastructures.grasp import GraspDescription, GraspPoseProvider
 from coraplex.plans.factories import sequential, execute_single
 from coraplex.querying.predicates import GripperIsFree
 from coraplex.robot_plans.actions.base import ActionDescription
@@ -150,25 +150,27 @@ class PickUpAction(ActionDescription):
     The arm that should be used for pick up
     """
 
-    grasp_description: GraspDescription
+    grasp_description: GraspPoseProvider
     """
-    The GraspDescription that should be used for picking up the object
+    The grasp pose provider that should be used for picking up the object
     """
 
     @property
     def _action_plan(self) -> PlanNode:
-
-        _, _, lift_to_pose = self.grasp_description.grasp_pose_sequence(
-            self.object_designator
+        pre_grasp_pose, grasp_pose, lift_pose = (
+            self.grasp_description.grasp_pose_sequence(self.object_designator)
         )
         return sequential(
             children=[
                 MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
-                ReachAction(
-                    target_pose=self.object_designator.global_pose,
-                    object_designator=self.object_designator,
-                    arm=self.arm,
-                    grasp_description=self.grasp_description,
+                MoveToolCenterPointMotion(
+                    pre_grasp_pose, self.arm, allow_gripper_collision=False
+                ),
+                MoveToolCenterPointMotion(
+                    grasp_pose,
+                    self.arm,
+                    allow_gripper_collision=False,
+                    movement_type=MovementType.CARTESIAN,
                 ),
                 MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
                 AttachNode(
@@ -178,7 +180,7 @@ class PickUpAction(ActionDescription):
                     ).tool_frame,
                 ),
                 MoveToolCenterPointMotion(
-                    lift_to_pose,
+                    lift_pose,
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.TRANSLATION,
@@ -241,20 +243,20 @@ class GraspingAction(ActionDescription):
     """
     The arm that should be used to grasp
     """
-    grasp_description: GraspDescription
+    grasp_description: GraspPoseProvider
     """
-    The grasp description that should be used to grasp the object
+    The grasp pose provider that should be used to grasp the object
     """
 
     @property
     def _action_plan(self) -> PlanNode:
-        pre_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
+        pre_grasp_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
             self.object_designator
         )
 
         return sequential(
             [
-                MoveToolCenterPointMotion(pre_pose, self.arm),
+                MoveToolCenterPointMotion(pre_grasp_pose, self.arm),
                 MoveGripperMotion(GripperState.OPEN, self.arm),
                 MoveToolCenterPointMotion(
                     grasp_pose, self.arm, allow_gripper_collision=True

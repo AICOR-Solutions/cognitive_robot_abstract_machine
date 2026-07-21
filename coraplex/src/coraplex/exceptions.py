@@ -13,7 +13,9 @@ if TYPE_CHECKING:
     from coraplex.plans.designator import Designator
     from coraplex.robot_plans.actions.base import ActionDescription
     from semantic_digital_twin.robots.robot_parts import AbstractRobot
+    from semantic_digital_twin.semantic_annotations.mixins import HasGraspPose
     from semantic_digital_twin.world_description.world_entity import (
+        Body,
         KinematicStructureEntity,
     )
 
@@ -110,3 +112,47 @@ class UnknownExecutionType(DataclassException):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class NoGraspPoseAvailable(DataclassException):
+    """
+    Raised when an annotated object yields no grasp poses.
+    """
+
+    grasp_object: HasGraspPose
+    """
+    The object that provided no grasp poses.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.grasp_object} provides no grasp poses."
+
+    def suggest_correction(self) -> str:
+        return "implement grasp_poses to yield at least one pose."
+
+
+@dataclass
+class GraspTargetMismatch(DataclassException):
+    """
+    Raised when a grasp is requested for a body other than the annotated object's root.
+    """
+
+    grasp_object: HasGraspPose
+    """
+    The object whose grasp poses were requested.
+    """
+
+    body: Body
+    """
+    The body that does not match the object's root.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.body} is not the root of {self.grasp_object}, "
+            f"which is {self.grasp_object.root}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "pass the annotated object's own root as the grasp target."

@@ -9,6 +9,7 @@ import numpy as np
 import trimesh
 from typing_extensions import (
     TYPE_CHECKING,
+    Generator,
     Generic,
     List,
     Optional,
@@ -63,6 +64,7 @@ from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
 )
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
@@ -295,6 +297,20 @@ class HasRootBody(HasRootKinematicStructureEntity[TBody], ABC):
             active_axis=active_axis,
             connection_limits=connection_limits,
         )
+
+
+@dataclass(eq=False)
+class HasGraspPose(HasRootBody, ABC):
+    """
+    A mixin class for semantic annotations that have a grasp pose.
+    """
+
+    @abstractmethod
+    def grasp_poses(self) -> Generator[Pose, None, None]:
+        """
+        Yield candidate grasp poses in the frame of the root body.
+        """
+        ...
 
 
 TRegion = TypeVar("TRegion", bound=Region)

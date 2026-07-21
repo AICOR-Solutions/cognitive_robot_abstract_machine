@@ -17,7 +17,7 @@ from coraplex.plans.plan_node import ActionNode, MotionNode
 from coraplex.alternative_motion_mapping import AlternativeMotion
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
-from coraplex.datastructures.grasp import GraspDescription
+from coraplex.datastructures.grasp import GraspDescription, GraspPoseProvider
 from coraplex.exceptions import TipLinkDoesNotMatchAnyArm
 from coraplex.locations.base import PoseValidator
 from coraplex.plans.plan import Plan
@@ -294,10 +294,11 @@ class IsObjectReachableBy(PoseValidator):
     The object that should be reachable.
     """
 
-    grasp_description: GraspDescription = field(default=None)
+    grasp_description: GraspPoseProvider = field(default=None)
     """
-    Grasp description used to build the pose sequence. Required unless
-    ``as_single_grasp`` is set.
+    Grasp pose provider used to build the pose sequence. Required unless
+    ``as_single_grasp`` is set. A ``target_pose`` requires a
+    :class:`~coraplex.datastructures.grasp.GraspDescription`.
     """
 
     target_pose: Pose = field(default=None)

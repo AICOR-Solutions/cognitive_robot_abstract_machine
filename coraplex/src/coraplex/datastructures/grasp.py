@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Tuple
@@ -28,13 +29,29 @@ from coraplex.datastructures.enums import (
 )
 from coraplex.tf_transformations import quaternion_multiply
 from coraplex.utils import translate_pose_along_local_axis
+from coraplex.exceptions import GraspTargetMismatch, NoGraspPoseAvailable
 
 if TYPE_CHECKING:
     from semantic_digital_twin.robots.robot_parts import EndEffector
+    from semantic_digital_twin.semantic_annotations.mixins import HasGraspPose
 
 
 @dataclass
-class GraspDescription:
+class GraspPoseProvider(ABC):
+    """
+    Provides the pose sequence to grasp a body: approach, grasp, then lift.
+    """
+
+    @abstractmethod
+    def grasp_pose_sequence(self, body: Body) -> List[Pose]:
+        """
+        The pre-grasp, grasp and lift poses to grasp the body.
+        """
+        ...
+
+
+@dataclass
+class GraspDescription(GraspPoseProvider):
     """
     Describes a grasp configuration for a end_effector the description consists of the approach direction (the side from
     which to grasp e.g. FRONT, LEFT, etc and the vertical alignment (TOP, BOTTOM).
@@ -143,10 +160,9 @@ class GraspDescription:
             sequence.reverse()
         return sequence
 
-    def grasp_pose_sequence(self, body: Body):
+    def grasp_pose_sequence(self, body: Body) -> List[Pose]:
         """
-        Calculates the pose sequence to grasp the body. The sequence is 3 poses, one in front of the body (taking body
-        geometry into account), one at the center of the body, and the last one above the body to lift it.
+        Calculates the pose sequence to grasp the body, taking its geometry into account.
 
         :param body: The body of the grasp.
         :return: The pose sequence.
@@ -403,6 +419,83 @@ class GraspDescription:
 
     def __hash__(self):
         return id(self)
+
+
+@dataclass
+class SemanticGraspDescription(GraspPoseProvider):
+    """
+    Builds a grasp pose sequence from the grasp poses annotated on an object.
+    """
+
+    object: HasGraspPose
+    """
+    The annotated object providing candidate grasp poses.
+    """
+
+    manipulation_offset: float = 0.05
+    """
+    The distance between the poses in the grasp sequence.
+    """
+
+    alignment: Optional[Vector3] = None
+    """
+    The direction the selected grasp should approach along. Defaults to the world -z-axis (top-down).
+    """
+
+    def grasp_pose_sequence(self, body: Body) -> List[Pose]:
+        """
+        The pre-grasp, grasp and lift poses to grasp the annotated object.
+
+        :param body: The root body of the annotated object.
+        :raises GraspTargetMismatch: If the body is not the object's root.
+        """
+        if body is not self.object.root:
+            raise GraspTargetMismatch(self.object, body)
+        grasp = self._select_grasp_pose()
+        pre_grasp = translate_pose_along_local_axis(
+            grasp, AxisIdentifier.Z.value, -self.manipulation_offset
+        )
+        lift = self._lift_pose(grasp, self.manipulation_offset)
+        return [pre_grasp, grasp, lift]
+
+    def _lift_pose(self, grasp_pose: Pose, offset: float) -> Pose:
+        """
+        Move the grasp pose up along the object's local z-axis by the offset, keeping its orientation.
+        """
+        frame = grasp_pose.reference_frame
+        lifted_position = grasp_pose.to_position() + Vector3(
+            0, 0, offset, reference_frame=frame
+        )
+        return Pose(lifted_position, grasp_pose.to_quaternion(), reference_frame=frame)
+
+    def _select_grasp_pose(self) -> Pose:
+        """
+        The candidate grasp pose whose approach axis is most aligned with :attr:`alignment`.
+
+        :raises NoGraspPoseAvailable: If the object yields no candidates.
+        """
+        world = self.object.root._world
+        alignment = self.alignment or Vector3(0, 0, -1, reference_frame=world.root)
+        alignment_direction = world.transform(alignment, world.root).to_np()[:3]
+        world_T_object = world.compute_forward_kinematics(world.root, self.object.root)
+
+        best_pose = None
+        best_score = None
+        for candidate in self.object.grasp_poses():
+            grasp_axis = (
+                (world_T_object @ candidate.to_homogeneous_matrix())
+                .to_rotation_matrix()
+                .z_vector()
+                .to_np()[:3]
+            )
+            score = float(grasp_axis @ alignment_direction)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_pose = candidate
+
+        if best_pose is None:
+            raise NoGraspPoseAvailable(self.object)
+        return best_pose
 
 
 @dataclass
