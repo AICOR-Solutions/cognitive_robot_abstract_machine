@@ -456,7 +456,9 @@ class SemanticGraspDescription(GraspPoseProvider):
 
     alignment: Optional[Vector3] = None
     """
-    The direction the selected grasp should approach along. Defaults to the world -z-axis (top-down).
+    The direction the selected grasp should approach along.
+
+    Defaults to the world -z-axis (top-down).
     """
 
     def grasp_pose_sequence(self, body: Body) -> List[Pose]:
@@ -477,17 +479,19 @@ class SemanticGraspDescription(GraspPoseProvider):
 
     def _lift_pose(self, grasp_pose: Pose, offset: float) -> Pose:
         """
-        Move the grasp pose up along the object's local z-axis by the offset, keeping its orientation.
+        Move the grasp pose up along the world z-axis by the offset, keeping its
+        orientation.
         """
         frame = grasp_pose.reference_frame
-        lifted_position = grasp_pose.to_position() + Vector3(
-            0, 0, offset, reference_frame=frame
-        )
+        world = frame._world
+        world_up = Vector3(0, 0, offset, reference_frame=world.root)
+        lifted_position = grasp_pose.to_position() + world.transform(world_up, frame)
         return Pose(lifted_position, grasp_pose.to_quaternion(), reference_frame=frame)
 
     def _select_grasp_pose(self) -> Pose:
         """
-        The candidate grasp pose whose approach axis is most aligned with :attr:`alignment`.
+        The candidate grasp pose whose approach axis is most aligned with
+        :attr:`alignment`.
 
         :raises NoGraspPoseAvailable: If the object yields no candidates.
         """
