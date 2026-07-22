@@ -264,9 +264,8 @@ def test_cart_goal_simple(pr2_world_state_reset: World):
     kin_sim.tick_until_end()
 
     fk = pr2_world_state_reset.compute_forward_kinematics_np(root, tip)
-    expected = tip_goal.to_np()
-    assert np.allclose(fk[:3, 3], expected[:3, 3], atol=cart_goal.linear_threshold)
-    assert np.allclose(fk[:3, :3], expected[:3, :3], atol=cart_goal.angular_threshold)
+    assert np.allclose(fk, tip_goal, atol=cart_goal.linear_threshold)
+    assert np.allclose(fk, tip_goal, atol=cart_goal.angular_threshold)
 
 
 def test_compressed_copy_can_be_plotted(pr2_world_state_reset: World, tmp_path):

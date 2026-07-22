@@ -312,15 +312,14 @@ class TestCartesianTasks:
         executor.compile(motion_statechart=motion_statechart)
         executor.tick_until_end()
 
-        forward_kinematics = cylinder_bot_world.compute_forward_kinematics_np(
+        forward_kinematics = cylinder_bot_world.compute_forward_kinematics(
             cylinder_bot_world.root, tip
         )
-        expected = goal.goal_pose.to_np()
         assert np.allclose(
-            forward_kinematics[:3, 3], expected[:3, 3], atol=goal.linear_threshold
+            forward_kinematics, goal.goal_pose, atol=goal.linear_threshold
         )
         assert np.allclose(
-            forward_kinematics[:3, :3], expected[:3, :3], atol=goal.angular_threshold
+            forward_kinematics, goal.goal_pose, atol=goal.angular_threshold
         )
 
     def test_long_goal(self, pr2_world_state_reset: World):
@@ -403,18 +402,17 @@ class TestCartesianTasks:
         executor.compile(motion_statechart=motion_statechart)
         executor.tick_until_end()
 
-        forward_kinematics = executor.context.world.compute_forward_kinematics_np(
+        forward_kinematics = executor.context.world.compute_forward_kinematics(
             root, tip
         )
-        expected_np = expected.to_np()
         assert np.allclose(
-            forward_kinematics[:3, 3],
-            expected_np[:3, 3],
+            forward_kinematics,
+            expected,
             atol=cart_goal.linear_threshold,
         )
         assert np.allclose(
-            forward_kinematics[:3, :3],
-            expected_np[:3, :3],
+            forward_kinematics,
+            expected,
             atol=cart_goal.angular_threshold,
         )
 
@@ -517,16 +515,15 @@ class TestCartesianTasks:
         executor.compile(motion_statechart=motion_statechart)
         executor.tick_until_end()
 
-        forward_kinematics = pr2_world_state_reset.compute_forward_kinematics_np(
+        forward_kinematics = pr2_world_state_reset.compute_forward_kinematics(
             root, tip
         )
-        expected = tip_goal2.to_np()
         assert np.allclose(
-            forward_kinematics[:3, 3], expected[:3, 3], atol=cart_goal2.linear_threshold
+            forward_kinematics, tip_goal2, atol=cart_goal2.linear_threshold
         )
         assert np.allclose(
-            forward_kinematics[:3, :3],
-            expected[:3, :3],
+            forward_kinematics,
+            tip_goal2,
             atol=cart_goal2.angular_threshold,
         )
 
@@ -581,11 +578,11 @@ class TestCartesianTasks:
         )
         expected = np.eye(4)
         assert np.allclose(
-            forward_kinematics[:3, 3], expected[:3, 3], atol=cart_goal2.linear_threshold
+            forward_kinematics, expected, atol=cart_goal2.linear_threshold
         )
         assert np.allclose(
-            forward_kinematics[:3, :3],
-            expected[:3, :3],
+            forward_kinematics,
+            expected,
             atol=cart_goal2.angular_threshold,
         )
 

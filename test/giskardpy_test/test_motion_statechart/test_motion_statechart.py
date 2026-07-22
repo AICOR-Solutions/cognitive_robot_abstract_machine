@@ -1820,8 +1820,7 @@ class TestMaxManipulability:
         fk = pr2_world_state_reset.compute_forward_kinematics_np(
             pr2_world_state_reset.root, tip
         )
-        expected = goal_pose.to_np()
-        assert np.allclose(fk[:3, 3], expected[:3, 3], atol=cart_goal.linear_threshold)
+        assert np.allclose(fk, goal_pose, atol=cart_goal.linear_threshold)
         assert np.allclose(
-            fk[:3, :3], expected[:3, :3], atol=cart_goal.angular_threshold
+            fk, goal_pose, atol=cart_goal.angular_threshold
         )
