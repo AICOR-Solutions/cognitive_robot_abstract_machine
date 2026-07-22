@@ -26,6 +26,7 @@ from coraplex.datastructures.enums import (
     MovementType,
     WaypointsMovementType,
 )
+from coraplex.datastructures.cartesian_tolerance import CartesianTolerance
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.view_manager import ViewManager
 from coraplex.utils import translate_pose_along_local_axis
@@ -154,6 +155,10 @@ class MoveToolCenterPointMotion(BaseMotion):
     """
     The type of movement that should be performed.
     """
+    tolerance: Optional[CartesianTolerance] = None
+    """
+    Cartesian accuracy and speed for the move.
+    """
 
     def perform(self):
         return
@@ -167,24 +172,26 @@ class MoveToolCenterPointMotion(BaseMotion):
             and self.robot.mobile_base.full_body_controlled
             else self.robot.root
         )
-        task = None
+        tolerance = self.tolerance or CartesianTolerance()
         if self.movement_type == MovementType.TRANSLATION:
-            task = CartesianPosition(
+            return CartesianPosition(
                 root_link=root,
                 tip_link=tip,
                 goal_point=self.target.to_position(),
                 name="MoveTCP",
                 weight=DefaultWeights.WEIGHT_BELOW_CA,
+                threshold=tolerance.linear_threshold,
+                reference_velocity=tolerance.reference_linear_velocity,
             )
-        else:
-            task = CartesianPose(
-                root_link=root,
-                tip_link=tip,
-                goal_pose=self.target,
-                name="MoveTCP",
-                weight=DefaultWeights.WEIGHT_BELOW_CA,
-            )
-        return task
+        return CartesianPose(
+            root_link=root,
+            tip_link=tip,
+            goal_pose=self.target,
+            name="MoveTCP",
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
+            linear_threshold=tolerance.linear_threshold,
+            reference_linear_velocity=tolerance.reference_linear_velocity,
+        )
 
 
 @dataclass

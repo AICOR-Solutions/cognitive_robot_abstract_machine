@@ -20,6 +20,7 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
+from coraplex.datastructures.cartesian_tolerance import CartesianTolerance
 from coraplex.datastructures.rotations import Rotations
 from coraplex.datastructures.enums import (
     AxisIdentifier,
@@ -42,6 +43,15 @@ class GraspPoseProvider(ABC):
     Provides the pose sequence to grasp a body: approach, grasp, then lift.
     """
 
+    grasp_tolerance: CartesianTolerance = field(
+        default_factory=CartesianTolerance, kw_only=True
+    )
+    """
+    Cartesian accuracy and speed for the contact moves (grasp and lift).
+
+    Tighten it for small objects that need a precise, slow approach.
+    """
+
     @abstractmethod
     def grasp_pose_sequence(self, body: Body) -> List[Pose]:
         """
@@ -60,7 +70,9 @@ class GraspDescription(GraspPoseProvider):
 
     approach_direction: ApproachDirection
     """
-    The direction from which the body should be grasped. These are the four directions in the x-y plane (FRONT, BACK, LEFT, RIGHT).
+    The direction from which the body should be grasped.
+
+    These are the four directions in the x-y plane (FRONT, BACK, LEFT, RIGHT).
     """
 
     vertical_alignment: VerticalAlignment

@@ -172,6 +172,7 @@ class PickUpAction(ActionDescription):
                     self.arm,
                     allow_gripper_collision=False,
                     movement_type=MovementType.CARTESIAN,
+                    tolerance=self.grasp_description.grasp_tolerance,
                 ),
                 MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
                 AttachNode(
@@ -185,6 +186,7 @@ class PickUpAction(ActionDescription):
                     self.arm,
                     allow_gripper_collision=True,
                     movement_type=MovementType.TRANSLATION,
+                    tolerance=self.grasp_description.grasp_tolerance,
                 ),
             ],
         )
@@ -263,7 +265,10 @@ class GraspingAction(ActionDescription):
                 MoveToolCenterPointMotion(pre_grasp_pose, self.arm),
                 MoveGripperMotion(GripperState.OPEN, self.arm),
                 MoveToolCenterPointMotion(
-                    grasp_pose, self.arm, allow_gripper_collision=True
+                    grasp_pose,
+                    self.arm,
+                    allow_gripper_collision=True,
+                    tolerance=self.grasp_description.grasp_tolerance,
                 ),
                 MoveGripperMotion(
                     GripperState.CLOSE, self.arm, allow_gripper_collision=True
