@@ -461,7 +461,7 @@ class SemanticGraspDescription(GraspPoseProvider):
     The annotated object providing candidate grasp poses.
     """
 
-    manipulation_offset: float = 0.05
+    manipulation_offset: float = 0.1
     """
     The distance between the poses in the grasp sequence.
     """
