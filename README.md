@@ -145,6 +145,12 @@ plan dashboards) end to end, in order.
   mode, without writing any code. The "Resolve"/"Resume"/"Reconsider" button
   on a blocked/in-progress/deferred item's dashboard card copies the
   invoking command for this skill.
+- **[`.claude/skills/add-plan-item/`](.claude/skills/add-plan-item/SKILL.md)** -
+  decides where a newly described piece of work belongs - folded into an
+  unlanded item, a new item in an existing plan, a plan of its own, or
+  tracked nowhere - by running the shared scope check in
+  [`scope-decision.md`](.claude/skills/add-plan-item/scope-decision.md)
+  against live branch and PR state, then proposes the outcome via plan mode.
 - **[`.claude/skills/local-code-review/`](.claude/skills/local-code-review/SKILL.md)** -
   reviews the current branch against upstream `main` for bugs and
   `AGENTS.md` adherence, then hands back an approval-gated plan to fix every
