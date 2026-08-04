@@ -4,6 +4,7 @@ import numpy as np
 
 from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
+from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.goals.tracebot import InsertCylinder
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
@@ -74,10 +75,11 @@ def test_insert_cylinder_with_tracy(tracy_world):
             GripperState.CLOSE
         )
     )
-    msc.add_node(close_gripper)
-    msc.add_node(goal)
-    goal.start_condition = close_gripper.observation_variable
-    msc.add_node(EndMotion.when_true(goal))
+    msc.add_node(
+        Sequence(
+            [close_gripper, goal],
+        )
+    )
 
     executor = Executor(
         MotionStatechartContext(world=world),
