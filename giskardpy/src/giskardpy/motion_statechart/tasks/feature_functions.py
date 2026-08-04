@@ -311,7 +311,7 @@ class ReachPoint(FeatureFunctionGoal):
     The target point to reach, defined in the root link frame.
     """
 
-    weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_CA, kw_only=True)
+    weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True)
     """
     Priority weight for the reach constraint in the optimization problem.
     """
