@@ -1,6 +1,7 @@
-from __future__ import division
+from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing_extensions import Optional
 
 import numpy as np
 
@@ -213,7 +214,7 @@ class InsertCylinder(Goal):
     Angle in rad by which the cylinder is tilted during the approach.
     """
 
-    weight: float = DefaultWeights.WEIGHT_ABOVE_CA
+    weight: float = DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE
     """
     Task priority relative to other tasks.
     """

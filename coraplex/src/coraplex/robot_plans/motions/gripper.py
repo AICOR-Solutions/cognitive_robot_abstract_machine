@@ -179,7 +179,7 @@ class MoveToolCenterPointMotion(BaseMotion):
                 tip_link=tip,
                 goal_point=self.target.to_position(),
                 name="MoveTCP",
-                weight=DefaultWeights.WEIGHT_BELOW_CA,
+                weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
                 threshold=tolerance.linear_threshold,
                 reference_velocity=tolerance.reference_linear_velocity,
             )
@@ -188,7 +188,7 @@ class MoveToolCenterPointMotion(BaseMotion):
             tip_link=tip,
             goal_pose=self.target,
             name="MoveTCP",
-            weight=DefaultWeights.WEIGHT_BELOW_CA,
+            weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
             linear_threshold=tolerance.linear_threshold,
             reference_linear_velocity=tolerance.reference_linear_velocity,
         )
@@ -299,7 +299,7 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
             root_link=root_link,
             tip_normal=Vector3.X(torso_tip),
             goal_normal=Vector3.Z(root_link),
-            weight=DefaultWeights.WEIGHT_ABOVE_CA.value,
+            weight=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE.value,
         )
 
     @property
@@ -320,7 +320,7 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
                 tip_link=tip_link,
                 goal_points=self.waypoints,
                 maximum_skip_ahead=2,
-                weight=float(DefaultWeights.WEIGHT_BELOW_CA),
+                weight=float(DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE),
                 name="MoveTCPWaypointsAligned",
             )
         ]
@@ -330,7 +330,7 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
                 root_link=root_link,
                 tip_normal=pair.tip_normal,
                 goal_normal=pair.goal_normal,
-                weight=DefaultWeights.WEIGHT_BELOW_CA.value,
+                weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE.value,
             )
             for pair in self.alignment_pairs
         )

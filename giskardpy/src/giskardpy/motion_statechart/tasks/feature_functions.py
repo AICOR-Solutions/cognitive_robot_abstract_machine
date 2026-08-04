@@ -1,8 +1,7 @@
-from __future__ import division
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import field, dataclass
-from typing import Union
 
 import krrood.symbolic_math.symbolic_math as sm
 from semantic_digital_twin.spatial_types import Point3, Vector3
@@ -21,45 +20,35 @@ class FeatureFunctionGoal(Task, ABC):
     """
     Base for feature tasks operating on geometric features.
 
-    Transforms the controlled feature (from `tip_link`) and the reference feature (from
-    `root_link`) into a common frame and registers debug visualizations.
+    Transforms the controlled feature (from `tip_link`) and the reference feature
+    (from `root_link`) into a common frame and registers debug visualizations.
     """
 
     tip_link: KinematicStructureEntity = field(kw_only=True)
     """
-    The link where the controlled feature is attached.
-
-    Defines the moving frame of reference.
+    The link where the controlled feature is attached. Defines the moving frame of reference.
     """
-
     root_link: KinematicStructureEntity = field(kw_only=True)
     """
-    The static reference link.
-
-    Defines the fixed frame of reference.
+    The static reference link. Defines the fixed frame of reference.
     """
-
-    controlled_feature: Union[Point3, Vector3] = field(init=False)
+    controlled_feature: Point3 | Vector3 = field(init=False)
     """
-    The geometric feature (point or vector) that is being controlled, expressed in the
-    tip link frame.
+    The geometric feature (point or vector) that is being controlled, expressed in the tip link frame.
     """
-
-    reference_feature: Union[Point3, Vector3] = field(init=False)
+    reference_feature: Point3 | Vector3 = field(init=False)
     """
-    The geometric feature (point or vector) that serves as reference, expressed in the
-    root link frame.
+    The geometric feature (point or vector) that serves as reference, expressed in the root link frame.
     """
 
     @abstractmethod
     def get_controlled_and_reference_features(
         self,
-    ) -> tuple[Union[Point3, Vector3], Union[Point3, Vector3]]:
+    ) -> tuple[Point3 | Vector3, Point3 | Vector3]:
         """
         Return the controlled and reference features.
 
-        :return: Tuple (controlled_feature, reference_feature), each a Point3 or
-            Vector3.
+        :return: Tuple (controlled_feature, reference_feature), each a Point3 or Vector3.
         """
         raise NotImplementedError
 
@@ -134,28 +123,24 @@ class AlignPerpendicular(FeatureFunctionGoal):
     """
     The normal vector to be controlled, defined in the tip link frame.
     """
-
     reference_normal: Vector3 = field(kw_only=True)
     """
     The reference normal vector to align against, defined in the root link frame.
     """
-
-    weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
+    )
     """
     Priority weight for the alignment constraint in the optimization problem.
     """
-
     maximum_velocity: float = field(default=0.2, kw_only=True)
     """
     Maximum allowed angular velocity for the alignment motion in radians per second.
     """
-
     threshold: float = field(default=0.01, kw_only=True)
     """
-    Tolerance threshold in radians.
-
-    The goal is considered achieved when the absolute difference between the current
-    angle and 90 degrees is below this value.
+    Tolerance threshold in radians. The goal is considered achieved when the absolute
+    difference between the current angle and 90 degrees is below this value.
     """
 
     def get_controlled_and_reference_features(self):
@@ -188,27 +173,24 @@ class HeightGoal(FeatureFunctionGoal):
     """
     Tip point to be controlled.
     """
-
     reference_point: Point3 = field(kw_only=True)
     """
     Reference point to measure the distance against.
     """
-
     lower_limit: float = field(kw_only=True)
     """
     Lower limit to control the distance away from the `reference_point`.
     """
-
     upper_limit: float = field(kw_only=True)
     """
     Upper limit to control the distance away from the `reference_point`.
     """
-
-    weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
+    )
     """
     Priority weight for the height constraint in the optimization problem.
     """
-
     maximum_velocity: float = field(default=0.2, kw_only=True)
     """
     Maximum allowed velocity for the height motion in meters per second.
@@ -252,27 +234,24 @@ class DistanceGoal(FeatureFunctionGoal):
     """
     Tip point to be controlled.
     """
-
     reference_point: Point3 = field(kw_only=True)
     """
     Reference point to measure the distance against.
     """
-
     lower_limit: float = field(kw_only=True)
     """
     Lower limit to control the distance away from the `reference_point`.
     """
-
     upper_limit: float = field(kw_only=True)
     """
     Upper limit to control the distance away from the `reference_point`.
     """
-
-    weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
+    )
     """
     Priority weight for the distance constraint in the optimization problem.
     """
-
     maximum_velocity: float = field(default=0.2, kw_only=True)
     """
     Maximum allowed velocity for the distance motion in meters per second.
@@ -312,6 +291,7 @@ class DistanceGoal(FeatureFunctionGoal):
             sm.if_less_eq(expr, self.upper_limit, sm.Scalar(1), sm.Scalar(0)),
             sm.if_greater_eq(expr, self.lower_limit, sm.Scalar(1), sm.Scalar(0)),
         )
+
         return artifacts
 
 
@@ -378,29 +358,24 @@ class AngleGoal(FeatureFunctionGoal):
     """
     Tip vector to be controlled.
     """
-
     reference_vector: Vector3 = field(kw_only=True)
     """
     Reference vector to measure the angle against.
     """
-
     lower_angle: float = field(kw_only=True)
     """
-    Lower limit to control the angle between the `tip_vector` and the
-    `reference_vector`.
+    Lower limit to control the angle between the `tip_vector` and the `reference_vector`.
     """
-
     upper_angle: float = field(kw_only=True)
     """
-    Upper limit to control the angle between the `tip_vector` and the
-    `reference_vector`.
+    Upper limit to control the angle between the `tip_vector` and the `reference_vector`.
     """
-
-    weight: float = field(default=DefaultWeights.WEIGHT_BELOW_CA, kw_only=True)
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
+    )
     """
     Priority weight for the angle constraint in the optimization problem.
     """
-
     maximum_velocity: float = field(default=0.2, kw_only=True)
     """
     Maximum allowed angular velocity for the angle motion in radians per second.
