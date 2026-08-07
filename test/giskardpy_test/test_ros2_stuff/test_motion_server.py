@@ -30,7 +30,7 @@ from giskardpy.motion_statechart.monitors.payload_monitors import (
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.adapters.json_serializer import from_json
-from semantic_digital_twin.adapters.ros.messages import MetaData, StateWatermark
+from semantic_digital_twin.adapters.ros.messages import MetaData, StreamPosition
 from semantic_digital_twin.callbacks.callback import StateChangeCallback
 from semantic_digital_twin.world import World
 
@@ -163,7 +163,7 @@ class WorldUpdatesMimic:
     it never does.
     """
 
-    awaited_watermarks: List[StateWatermark] = field(default_factory=list)
+    awaited_positions: List[StreamPosition] = field(default_factory=list)
     """
     Every position this mimic was asked about.
     """
@@ -180,8 +180,8 @@ class WorldUpdatesMimic:
     def apply_state_updates(self) -> None:
         self.applied_state_update_batches += 1
 
-    def has_applied(self, watermark: StateWatermark) -> bool:
-        self.awaited_watermarks.append(watermark)
+    def has_applied(self, position: StreamPosition) -> bool:
+        self.awaited_positions.append(position)
         self.compiled_while_waiting.append(
             self.executor is not None and self.executor.motion_statechart is not None
         )
@@ -220,8 +220,8 @@ class PublicationProgressMimic:
         self.published_sequence_number += 1
 
     @property
-    def latest_published_watermark(self) -> StateWatermark:
-        return StateWatermark(
+    def latest_published_position(self) -> StreamPosition:
+        return StreamPosition(
             origin=self.origin, sequence_number=self.published_sequence_number
         )
 
@@ -479,7 +479,7 @@ def feedback_data(message: Any) -> dict:
 
 
 def create_goal_json(
-    seconds: float = 0.5, required_watermark: Optional[StateWatermark] = None
+    seconds: float = 0.5, required_position: Optional[StreamPosition] = None
 ) -> str:
     """
     Build the json of a goal whose motion ends after the given simulated time.
@@ -488,7 +488,7 @@ def create_goal_json(
     motion_statechart.add_node(counter := CountSimulationTimeSeconds(seconds=seconds))
     motion_statechart.add_node(EndMotion.when_true(counter))
     goal = MotionGoal.for_motion_statechart(
-        motion_statechart, required_watermark=required_watermark
+        motion_statechart, required_position=required_position
     )
     return json.dumps(goal.to_json())
 
@@ -599,26 +599,26 @@ class TestGoalResult:
         motion_server.motion_server.run_idle_cycle()
 
         result = json.loads(motion_server.action_server.sent_results[0].result)
-        watermark = from_json(result["state_watermark"])
-        assert watermark.sequence_number > published_before_goal
+        position = from_json(result["published_position"])
+        assert position.sequence_number > published_before_goal
         assert (
-            watermark.sequence_number
+            position.sequence_number
             == motion_server.publication_progress.published_sequence_number
         )
 
-    def test_a_goal_that_changed_nothing_reports_no_watermark(
+    def test_a_goal_that_changed_nothing_reports_no_position(
         self, motion_server: MotionServerFixture
     ):
         """
         There is nothing to catch up with when the world published nothing, and waiting
-        for a watermark that was already passed before the goal would never return.
+        for a position that was already passed before the goal would never return.
         """
         motion_server.action_server.goal_json = create_goal_json()
 
         motion_server.motion_server.run_idle_cycle()
 
         result = json.loads(motion_server.action_server.sent_results[0].result)
-        assert "state_watermark" not in result
+        assert "published_position" not in result
 
     def test_canceled_goal_is_reported_as_canceled(
         self, motion_server: MotionServerFixture
@@ -1118,23 +1118,23 @@ class TestWaitingForTheWorldOfTheClient:
         motion_server.motion_server.run_idle_cycle()
 
         assert motion_server.action_server.outcome == GoalOutcome.SUCCEEDED
-        assert motion_server.world_updates.awaited_watermarks == []
+        assert motion_server.world_updates.awaited_positions == []
 
     def test_a_goal_waits_until_the_change_it_requires_arrived(
         self, motion_server: MotionServerFixture
     ):
-        watermark = StateWatermark(
+        position = StreamPosition(
             origin=MetaData(node_name="client", process_id=1), sequence_number=4
         )
         motion_server.world_updates.drains_until_caught_up = 3
         motion_server.action_server.goal_json = create_goal_json(
-            required_watermark=watermark
+            required_position=position
         )
 
         motion_server.motion_server.run_idle_cycle()
 
         assert motion_server.action_server.outcome == GoalOutcome.SUCCEEDED
-        assert motion_server.world_updates.awaited_watermarks[0] == watermark
+        assert motion_server.world_updates.awaited_positions[0] == position
         assert motion_server.world_updates.applied_batches == 3
 
     def test_the_goal_is_not_compiled_before_the_change_arrived(
@@ -1146,14 +1146,14 @@ class TestWaitingForTheWorldOfTheClient:
         """
         motion_server.world_updates.drains_until_caught_up = 3
         motion_server.action_server.goal_json = create_goal_json(
-            required_watermark=StateWatermark(
+            required_position=StreamPosition(
                 origin=MetaData(node_name="client", process_id=1), sequence_number=4
             )
         )
 
         motion_server.motion_server.run_idle_cycle()
 
-        waiting_rounds = len(motion_server.world_updates.awaited_watermarks)
+        waiting_rounds = len(motion_server.world_updates.awaited_positions)
         assert waiting_rounds > 0, "the goal did not wait at all"
         assert (
             motion_server.world_updates.compiled_while_waiting
@@ -1165,7 +1165,7 @@ class TestWaitingForTheWorldOfTheClient:
     ):
         motion_server.motion_server.world_update_timeout = 0.2
         motion_server.action_server.goal_json = create_goal_json(
-            required_watermark=StateWatermark(
+            required_position=StreamPosition(
                 origin=MetaData(node_name="client", process_id=1), sequence_number=4
             )
         )

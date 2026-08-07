@@ -6,7 +6,7 @@ from time import sleep
 from typing import Any, Dict, Optional
 
 from krrood.adapters.json_serializer import from_json
-from semantic_digital_twin.adapters.ros.messages import StateWatermark
+from semantic_digital_twin.adapters.ros.messages import StreamPosition
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelReloadSynchronizer,
     WorldSynchronizer,
@@ -72,12 +72,12 @@ class IncomingWorldUpdates:
             return
         self.model_reload_synchronizer.apply_pending_reload()
 
-    def has_applied(self, watermark: StateWatermark) -> bool:
+    def has_applied(self, position: StreamPosition) -> bool:
         """
-        Whether everything the publisher of ``watermark`` sent up to that position was
-        applied to the world.
+        Whether everything the publisher of ``position`` sent up to it was applied to
+        the world.
         """
-        return self.world_synchronizer.has_applied(watermark)
+        return self.world_synchronizer.has_applied(position)
 
 
 # %% the world of a client
@@ -107,14 +107,14 @@ class ClientWorldUpdates:
     Seconds between two looks at what the world caught up with.
     """
 
-    def required_watermark(self) -> Optional[StateWatermark]:
+    def required_position(self) -> Optional[StreamPosition]:
         """
         The position a goal built on this world requires, or ``None`` if this world
         never published a change.
         """
         if self.world_synchronizer.published_sequence_number == 0:
             return None
-        return self.world_synchronizer.latest_published_watermark
+        return self.world_synchronizer.latest_published_position
 
     def wait_for_the_changes_of_a_goal(self, result: Dict[str, Any]) -> None:
         """
@@ -123,15 +123,15 @@ class ClientWorldUpdates:
         :raises GiskardWorldUpdateNotReceivedError: If they do not arrive within
             ``timeout``.
         """
-        published_watermark = result.get("state_watermark")
-        if published_watermark is None:
+        published_position = result.get("published_position")
+        if published_position is None:
             return
-        watermark = from_json(published_watermark)
+        position = from_json(published_position)
         deadline = time.monotonic() + self.timeout
-        while not self.world_synchronizer.has_applied(watermark):
+        while not self.world_synchronizer.has_applied(position):
             if time.monotonic() >= deadline:
                 raise GiskardWorldUpdateNotReceivedError(
-                    awaited_sequence_number=watermark.sequence_number,
+                    awaited_sequence_number=position.sequence_number,
                     timeout=self.timeout,
                 )
             sleep(self.poll_interval)

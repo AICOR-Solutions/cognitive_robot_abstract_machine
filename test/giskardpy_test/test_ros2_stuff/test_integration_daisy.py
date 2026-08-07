@@ -27,7 +27,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.datastructures.definitions import StaticJointState
-from semantic_digital_twin.robots.daisy import DAiSy
+from semantic_digital_twin.robots.daisy import DAiSy, DAiSyJoint
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
 )
@@ -40,36 +40,36 @@ from semantic_digital_twin.world_description.world_entity import (
 @pytest.fixture()
 def default_joint_state():
     return {
-        "left_shoulder_pan_joint": 0,
-        "left_shoulder_lift_joint": -1.57,
-        "left_elbow_joint": 1,
-        "left_wrist_1_joint": 0,
-        "left_wrist_2_joint": 0,
-        "left_wrist_3_joint": 0,
-        "right_shoulder_pan_joint": 0,
-        "right_shoulder_lift_joint": -1.57,
-        "right_elbow_joint": 1,
-        "right_wrist_1_joint": 0,
-        "right_wrist_2_joint": 0,
-        "right_wrist_3_joint": 0,
+        DAiSyJoint.LEFT_SHOULDER_PAN: 0,
+        DAiSyJoint.LEFT_SHOULDER_LIFT: -1.57,
+        DAiSyJoint.LEFT_ELBOW: 1,
+        DAiSyJoint.LEFT_WRIST_1: 0,
+        DAiSyJoint.LEFT_WRIST_2: 0,
+        DAiSyJoint.LEFT_WRIST_3: 0,
+        DAiSyJoint.RIGHT_SHOULDER_PAN: 0,
+        DAiSyJoint.RIGHT_SHOULDER_LIFT: -1.57,
+        DAiSyJoint.RIGHT_ELBOW: 1,
+        DAiSyJoint.RIGHT_WRIST_1: 0,
+        DAiSyJoint.RIGHT_WRIST_2: 0,
+        DAiSyJoint.RIGHT_WRIST_3: 0,
     }
 
 
 @pytest.fixture()
 def better_pose(default_joint_state):
     return {
-        "left_shoulder_pan_joint": 0,
-        "left_shoulder_lift_joint": -1.57,
-        "left_elbow_joint": 1,
-        "left_wrist_1_joint": 0,
-        "left_wrist_2_joint": 0,
-        "left_wrist_3_joint": np.pi / 4,
-        "right_shoulder_pan_joint": 3 / 4 * 3.14,
-        "right_shoulder_lift_joint": -1.57,
-        "right_elbow_joint": 1,
-        "right_wrist_1_joint": 0,
-        "right_wrist_2_joint": 0,
-        "right_wrist_3_joint": np.pi / 4,
+        DAiSyJoint.LEFT_SHOULDER_PAN: 0,
+        DAiSyJoint.LEFT_SHOULDER_LIFT: -1.57,
+        DAiSyJoint.LEFT_ELBOW: 1,
+        DAiSyJoint.LEFT_WRIST_1: 0,
+        DAiSyJoint.LEFT_WRIST_2: 0,
+        DAiSyJoint.LEFT_WRIST_3: np.pi / 4,
+        DAiSyJoint.RIGHT_SHOULDER_PAN: 3 / 4 * 3.14,
+        DAiSyJoint.RIGHT_SHOULDER_LIFT: -1.57,
+        DAiSyJoint.RIGHT_ELBOW: 1,
+        DAiSyJoint.RIGHT_WRIST_1: 0,
+        DAiSyJoint.RIGHT_WRIST_2: 0,
+        DAiSyJoint.RIGHT_WRIST_3: np.pi / 4,
     }
 
 

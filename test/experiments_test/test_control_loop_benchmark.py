@@ -14,8 +14,8 @@ from experiments.control_loop_experiments.scenarios import (
     PlotterMode,
     ScenarioRunner,
 )
-from experiments.experiment_definitions import MeanAndStandardDeviation
-from giskardpy.middleware.ros2.control_loop_profiler import (
+from experiments.experiment_definitions import MeanAndStandardDeviation, Unit
+from experiments.control_loop_experiments.control_loop_profiler import (
     CallTreeProfile,
     PhaseSamples,
 )
@@ -108,17 +108,15 @@ class TestRepetitionAggregation:
         assert result.scenario_name == "measured_motion"
         assert result.plotter_mode is PlotterMode.PLAIN
         # cycle means are 20 ms and 30 ms, so the budget of 50 ms is 40% and 60% used
-        assert (
-            result.cycle_mean_milliseconds
-            == MeanAndStandardDeviation.from_measurements([20.0, 30.0])
-        )
+        assert result.cycle_mean == MeanAndStandardDeviation.from_measurements(
+            [0.02, 0.03], unit=Unit.SECONDS
+        ).to(Unit.MILLISECONDS)
         assert result.budget_utilization == MeanAndStandardDeviation.from_measurements(
             [0.4, 0.6]
         )
-        assert (
-            result.compile_milliseconds
-            == MeanAndStandardDeviation.from_measurements([400.0, 600.0])
-        )
+        assert result.compile_duration == MeanAndStandardDeviation.from_measurements(
+            [0.4, 0.6], unit=Unit.SECONDS
+        ).to(Unit.MILLISECONDS)
         assert result.control_cycles == MeanAndStandardDeviation.from_measurements(
             [2, 2]
         )
@@ -131,10 +129,9 @@ class TestRepetitionAggregation:
 
         result = ControlLoopBenchmarkResult.from_profiles(PlotterMode.DEBUG, profiles)
 
-        assert (
-            result.cycle_maximum_milliseconds
-            == MeanAndStandardDeviation.from_measurements([90.0, 30.0])
-        )
+        assert result.cycle_maximum == MeanAndStandardDeviation.from_measurements(
+            [0.09, 0.03], unit=Unit.SECONDS
+        ).to(Unit.MILLISECONDS)
 
     def test_a_configuration_that_was_never_measured_is_rejected(self):
         with pytest.raises(NoProfilesMeasuredError):
@@ -145,12 +142,12 @@ class TestRepetitionAggregation:
             "scenario_name",
             "plotter_mode",
             "control_cycles",
-            "cycle_mean_milliseconds",
-            "cycle_p95_milliseconds",
-            "cycle_maximum_milliseconds",
+            "cycle_mean",
+            "cycle_p95",
+            "cycle_maximum",
             "budget_utilization",
             "cycles_per_second",
-            "compile_milliseconds",
+            "compile_duration",
         ]
 
 

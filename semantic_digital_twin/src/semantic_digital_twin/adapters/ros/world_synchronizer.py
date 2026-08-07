@@ -26,7 +26,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     Message,
     ModificationBlock,
     LoadModel,
-    StateWatermark,
+    StreamPosition,
     WorldUpdate,
 )
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
@@ -53,7 +53,7 @@ class PublicationProgress(ABC):
     """
     Reports how far its own changes were published to the other processes.
 
-    Whoever hands out a :class:`StateWatermark` of its own stream tells others what they
+    Whoever hands out a :class:`StreamPosition` of its own stream tells others what they
     have to catch up with before they may read the world it publishes.
     """
 
@@ -67,7 +67,7 @@ class PublicationProgress(ABC):
 
     @property
     @abstractmethod
-    def latest_published_watermark(self) -> StateWatermark:
+    def latest_published_position(self) -> StreamPosition:
         """
         The position of the last published message, together with its publisher.
         """
@@ -184,21 +184,21 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
             return self._published_sequence_number
 
     @property
-    def latest_published_watermark(self) -> StateWatermark:
-        return StateWatermark(
+    def latest_published_position(self) -> StreamPosition:
+        return StreamPosition(
             origin=self.meta_data, sequence_number=self.published_sequence_number
         )
 
-    def has_applied(self, watermark: StateWatermark) -> bool:
+    def has_applied(self, position: StreamPosition) -> bool:
         """
-        Whether everything up to ``watermark`` was applied to this world.
+        Whether everything up to ``position`` was applied to this world.
 
         A publisher this world never heard from is treated as being at the start of its
         stream, so its first message is still awaited.
         """
         with self._sequence_number_lock:
-            applied = self._applied_sequence_numbers.get(watermark.origin, 0)
-        return applied >= watermark.sequence_number
+            applied = self._applied_sequence_numbers.get(position.origin, 0)
+        return applied >= position.sequence_number
 
     def record_applied(self, message: Message):
         """
@@ -207,10 +207,11 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
         Called when a message is applied rather than when it is received, so that a
         buffered message does not count as caught up with.
         """
+        position = message.position
         with self._sequence_number_lock:
-            origin = message.meta_data
-            self._applied_sequence_numbers[origin] = max(
-                self._applied_sequence_numbers.get(origin, 0), message.sequence_number
+            self._applied_sequence_numbers[position.origin] = max(
+                self._applied_sequence_numbers.get(position.origin, 0),
+                position.sequence_number,
             )
 
     @abstractmethod
@@ -405,7 +406,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
     """
 
     @classmethod
-    def for_world(cls, world: World) -> WorldSynchronizer:
+    def of_world(cls, world: World) -> WorldSynchronizer:
         """
         The synchronizer that publishes the changes of ``world``.
 

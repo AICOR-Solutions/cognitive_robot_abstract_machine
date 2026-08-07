@@ -9,7 +9,7 @@ from urdf_parser_py import urdf as urdfpy
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
-from semantic_digital_twin.robots.tiago import Tiago
+from semantic_digital_twin.robots.tiago import Tiago, TiagoJoint
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -133,7 +133,7 @@ def test_mimic_joints(pr2_parser):
 
 def test_declared_joint_dynamics_are_imported(tiago_parser):
     world = tiago_parser.parse()
-    dynamics = world.get_connection_by_name("arm_left_1_joint").dynamics
+    dynamics = world.get_connection_by_name(TiagoJoint.LEFT_ARM_1).dynamics
     assert dynamics.damping == 40.0
     assert dynamics.dry_friction == 1.0
 

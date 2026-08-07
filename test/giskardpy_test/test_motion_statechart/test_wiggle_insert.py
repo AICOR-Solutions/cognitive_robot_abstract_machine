@@ -14,21 +14,19 @@ from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetSeedConfiguration,
 )
 from giskardpy.motion_statechart.monitors.payload_monitors import (
-    CountControlCycles,
     CountSimulationTimeSeconds,
 )
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from giskardpy.motion_statechart.tasks.wiggle_insert import WiggleInsert
-from giskardpy.ros_executor import Ros2Executor
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.datastructures.joint_state import JointState
+from semantic_digital_twin.robots.hsrb import HSRBJoint
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world import World
 from test.semantic_digital_twin_test.test_orm.test_orm import hsr_world_state_reset
-from semantic_digital_twin.robots.pr2 import PR2Joint
 
 
 def _hole_at_current_tip(world: World, tip, root) -> Point3:
@@ -144,13 +142,13 @@ def test_wiggle_insert_on_tick_updates_noise(pr2_world_state_reset: World):
 
 def test_wiggle_insert(hsr_world_state_reset):
     goal_state = {
-        "arm_flex_joint": -1.5,
-        "arm_lift_joint": 0.5,
-        "arm_roll_joint": 0.0,
-        PR2Joint.HEAD_PAN: 0.0,
-        PR2Joint.HEAD_TILT: 0.0,
-        "wrist_flex_joint": -1.5,
-        "wrist_roll_joint": 0.0,
+        HSRBJoint.ARM_FLEX: -1.5,
+        HSRBJoint.ARM_LIFT: 0.5,
+        HSRBJoint.ARM_ROLL: 0.0,
+        HSRBJoint.HEAD_PAN: 0.0,
+        HSRBJoint.HEAD_TILT: 0.0,
+        HSRBJoint.WRIST_FLEX: -1.5,
+        HSRBJoint.WRIST_ROLL: 0.0,
     }
 
     hpl = hsr_world_state_reset.get_body_by_name("hand_gripper_tool_frame")

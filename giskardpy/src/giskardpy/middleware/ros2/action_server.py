@@ -182,7 +182,9 @@ class ActionServerHandler:
         :raises MissingGoalOutcomeError: If the goal is answered without an outcome.
         """
         if outcome is None:
-            raise MissingGoalOutcomeError()
+            raise MissingGoalOutcomeError(
+                action_server_name=self.action_name, goal_id=self.goal_id
+            )
         outcome.report_to(goal_handle)
 
     def accept_goal(self) -> None:
@@ -199,8 +201,15 @@ class ActionServerHandler:
 
     @property
     def result_msg(self) -> Any:
+        """
+        The result built for the current goal.
+
+        :raises MissingActionResultError: If no result was set for the current goal.
+        """
         if self._result_msg is None:
-            raise MissingActionResultError()
+            raise MissingActionResultError(
+                action_server_name=self.action_name, goal_id=self.goal_id
+            )
         return self._result_msg
 
     @result_msg.setter

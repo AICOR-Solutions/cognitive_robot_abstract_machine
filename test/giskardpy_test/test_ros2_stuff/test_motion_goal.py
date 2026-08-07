@@ -6,7 +6,7 @@ from giskardpy.motion_statechart.monitors.payload_monitors import (
     CountSimulationTimeSeconds,
 )
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from semantic_digital_twin.adapters.ros.messages import MetaData, StateWatermark
+from semantic_digital_twin.adapters.ros.messages import MetaData, StreamPosition
 
 # %% the payload a client sends
 
@@ -36,20 +36,20 @@ class TestMotionGoalPayload:
         assert restored.motion_statechart_json_data == motion_statechart.to_json()
 
     def test_a_goal_built_on_a_change_names_it(self):
-        watermark = StateWatermark(
+        position = StreamPosition(
             origin=MetaData(node_name="client", process_id=3), sequence_number=11
         )
         goal = MotionGoal.for_motion_statechart(
-            create_motion_statechart(), required_watermark=watermark
+            create_motion_statechart(), required_position=position
         )
 
         restored = MotionGoal.from_json(json.loads(json.dumps(goal.to_json())))
 
-        assert restored.required_watermark == watermark
+        assert restored.required_position == position
 
     def test_a_goal_built_on_nothing_requires_nothing(self):
         goal = MotionGoal.for_motion_statechart(create_motion_statechart())
 
         restored = MotionGoal.from_json(json.loads(json.dumps(goal.to_json())))
 
-        assert restored.required_watermark is None
+        assert restored.required_position is None

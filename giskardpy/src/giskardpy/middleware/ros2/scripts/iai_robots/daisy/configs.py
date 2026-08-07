@@ -6,7 +6,7 @@ from giskardpy.middleware.ros2.robot_interface_config import (
     RobotInterfaceConfig,
 )
 from giskardpy.model.world_config import WorldWithFixedRobot
-from semantic_digital_twin.robots.daisy import DAiSy
+from semantic_digital_twin.robots.daisy import DAiSy, DAiSyJoint
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -21,24 +21,24 @@ class DAiSyVelocityInterface(RobotInterfaceConfig):
     def setup(self):
         self.sync_joint_state_topic("/joint_states")
         joints_left = [
-            "left_shoulder_pan_joint",
-            "left_shoulder_lift_joint",
-            "left_elbow_joint",
-            "left_wrist_1_joint",
-            "left_wrist_2_joint",
-            "left_wrist_3_joint",
+            DAiSyJoint.LEFT_SHOULDER_PAN,
+            DAiSyJoint.LEFT_SHOULDER_LIFT,
+            DAiSyJoint.LEFT_ELBOW,
+            DAiSyJoint.LEFT_WRIST_1,
+            DAiSyJoint.LEFT_WRIST_2,
+            DAiSyJoint.LEFT_WRIST_3,
         ]
         self.add_joint_velocity_group_controller(
             cmd_topic="/left_forward_velocity_controller/commands",
             connections=joints_left,
         )
         joints_right = [
-            "right_shoulder_pan_joint",
-            "right_shoulder_lift_joint",
-            "right_elbow_joint",
-            "right_wrist_1_joint",
-            "right_wrist_2_joint",
-            "right_wrist_3_joint",
+            DAiSyJoint.RIGHT_SHOULDER_PAN,
+            DAiSyJoint.RIGHT_SHOULDER_LIFT,
+            DAiSyJoint.RIGHT_ELBOW,
+            DAiSyJoint.RIGHT_WRIST_1,
+            DAiSyJoint.RIGHT_WRIST_2,
+            DAiSyJoint.RIGHT_WRIST_3,
         ]
         self.add_joint_velocity_group_controller(
             cmd_topic="/right_forward_velocity_controller/commands",
@@ -76,22 +76,22 @@ class DaisyStandAloneRobotInterfaceConfig(StandAloneRobotInterfaceConfig):
     joint_names: List[str] = field(
         init=False,
         default_factory=lambda: [
-            "left_shoulder_pan_joint",
-            "left_shoulder_lift_joint",
-            "left_elbow_joint",
-            "left_wrist_1_joint",
-            "left_wrist_2_joint",
-            "left_wrist_3_joint",
-            "right_shoulder_pan_joint",
-            "right_shoulder_lift_joint",
-            "right_elbow_joint",
-            "right_wrist_1_joint",
-            "right_wrist_2_joint",
-            "right_wrist_3_joint",
-            "left_gripper_finger_joint",
-            "left_gripper_right_finger_joint",
-            "right_gripper_finger_joint",
-            "right_gripper_right_finger_joint",
+            DAiSyJoint.LEFT_SHOULDER_PAN,
+            DAiSyJoint.LEFT_SHOULDER_LIFT,
+            DAiSyJoint.LEFT_ELBOW,
+            DAiSyJoint.LEFT_WRIST_1,
+            DAiSyJoint.LEFT_WRIST_2,
+            DAiSyJoint.LEFT_WRIST_3,
+            DAiSyJoint.RIGHT_SHOULDER_PAN,
+            DAiSyJoint.RIGHT_SHOULDER_LIFT,
+            DAiSyJoint.RIGHT_ELBOW,
+            DAiSyJoint.RIGHT_WRIST_1,
+            DAiSyJoint.RIGHT_WRIST_2,
+            DAiSyJoint.RIGHT_WRIST_3,
+            DAiSyJoint.LEFT_GRIPPER_FINGER,
+            DAiSyJoint.LEFT_GRIPPER_RIGHT_FINGER,
+            DAiSyJoint.RIGHT_GRIPPER_FINGER,
+            DAiSyJoint.RIGHT_GRIPPER_RIGHT_FINGER,
         ],
     )
     """

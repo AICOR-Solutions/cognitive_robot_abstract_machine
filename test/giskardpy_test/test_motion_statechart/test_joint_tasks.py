@@ -278,7 +278,7 @@ def test_joint_velocity_limit_caps_a_fast_goal(pr2_world_state_reset):
     hint -- the joint's velocity must stay within max_velocity on every single tick,
     all the way until the goal is actually reached.
     """
-    head_pan_joint = pr2_world_state_reset.get_connection_by_name("head_pan_joint")
+    head_pan_joint = pr2_world_state_reset.get_connection_by_name(PR2Joint.HEAD_PAN)
     max_velocity = 0.05
 
     msc = MotionStatechart()

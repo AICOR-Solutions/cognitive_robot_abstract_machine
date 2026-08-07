@@ -862,7 +862,7 @@ class WorldHasNoSynchronizerError(UsageError):
 class WorldHasMultipleSynchronizersError(UsageError):
     """
     Raised when the synchronizer of a world is asked for, but several of them publish
-    its changes, leaving it undecided which stream a watermark would refer to.
+    its changes, leaving it undecided which stream a position would refer to.
     """
 
     world: World

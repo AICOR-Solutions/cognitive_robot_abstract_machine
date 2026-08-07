@@ -67,7 +67,7 @@ class GiskardWrapper:
             self.node_handle.get_logger().info("world synced")
             WorldSynchronizer(_world=self.world, node=self.node_handle)
         self.world_updates = ClientWorldUpdates(
-            world_synchronizer=WorldSynchronizer.for_world(self.world)
+            world_synchronizer=WorldSynchronizer.of_world(self.world)
         )
         giskard_topic = f"{self.giskard_node_name}/command"
         self._client = MyActionClient(self.node_handle, JsonAction, giskard_topic)
@@ -137,7 +137,7 @@ class GiskardWrapper:
         goal_msg = JsonAction.Goal()
         goal = MotionGoal.for_motion_statechart(
             motion_statechart,
-            required_watermark=self.world_updates.required_watermark(),
+            required_position=self.world_updates.required_position(),
         )
         goal_msg.goal = json.dumps(goal.to_json())
         return goal_msg

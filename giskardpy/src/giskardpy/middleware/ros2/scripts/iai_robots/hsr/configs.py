@@ -5,7 +5,7 @@ from giskardpy.middleware.ros2.robot_interface_config import (
     RobotInterfaceConfig,
 )
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.hsrb import HSRB, HSRBJoint
 from semantic_digital_twin.world_description.connections import (
     OmniDrive,
     Connection6DoF,
@@ -26,13 +26,13 @@ class HSRStandaloneInterface(RobotInterfaceConfig):
     def setup(self):
         self.register_controlled_joints(
             [
-                "arm_flex_joint",
-                "arm_lift_joint",
-                "arm_roll_joint",
-                "head_pan_joint",
-                "head_tilt_joint",
-                "wrist_flex_joint",
-                "wrist_roll_joint",
+                HSRBJoint.ARM_FLEX,
+                HSRBJoint.ARM_LIFT,
+                HSRBJoint.ARM_ROLL,
+                HSRBJoint.HEAD_PAN,
+                HSRBJoint.HEAD_TILT,
+                HSRBJoint.WRIST_FLEX,
+                HSRBJoint.WRIST_ROLL,
                 self.world.get_connections_by_type(OmniDrive)[0].name,
             ]
         )
@@ -63,13 +63,13 @@ class HSRVelocityInterface(RobotInterfaceConfig):
 
         self.sync_joint_state_topic("/joint_states")
         joints_left = [
-            "arm_flex_joint",
-            "arm_lift_joint",
-            "arm_roll_joint",
-            "wrist_flex_joint",
-            "wrist_roll_joint",
-            "head_pan_joint",
-            "head_tilt_joint",
+            HSRBJoint.ARM_FLEX,
+            HSRBJoint.ARM_LIFT,
+            HSRBJoint.ARM_ROLL,
+            HSRBJoint.WRIST_FLEX,
+            HSRBJoint.WRIST_ROLL,
+            HSRBJoint.HEAD_PAN,
+            HSRBJoint.HEAD_TILT,
         ]
         self.add_joint_velocity_group_controller(
             cmd_topic="/realtime_body_controller_real/command", connections=joints_left

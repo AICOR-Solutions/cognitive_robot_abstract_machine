@@ -1,9 +1,25 @@
 from dataclasses import dataclass, field
 from typing import List
 
-from giskardpy.middleware.ros2.action_server import GoalOutcome
+import pytest
+
+from giskardpy.data_types.exceptions import (
+    MissingActionResultError,
+    MissingGoalOutcomeError,
+)
+from giskardpy.middleware.ros2.action_server import ActionServerHandler, GoalOutcome
 
 # %% mimics
+
+
+@dataclass
+class HandlerWithoutRosAdvertisement(ActionServerHandler):
+    """
+    Exercises the handler's goal bookkeeping without advertising a ROS action.
+    """
+
+    def __post_init__(self):
+        pass
 
 
 @dataclass
@@ -61,3 +77,56 @@ def test_every_outcome_reports_exactly_one_transition():
         outcome.report_to(goal_handle)
 
         assert len(goal_handle.transitions) == 1
+
+
+# %% errors identify the goal they are about
+
+
+def test_answering_a_goal_without_an_outcome_reports_which_goal_it_was():
+    handler = HandlerWithoutRosAdvertisement(
+        action_name="giskard/command", action_type=None
+    )
+    handler.goal_id = 3
+
+    with pytest.raises(MissingGoalOutcomeError) as error:
+        handler.report_outcome(GoalStateRecorder(), None)
+
+    assert error.value.action_server_name == handler.action_name
+    assert error.value.goal_id == handler.goal_id
+
+
+def test_reading_an_unset_result_reports_which_goal_it_was():
+    handler = HandlerWithoutRosAdvertisement(
+        action_name="giskard/command", action_type=None
+    )
+    handler.goal_id = 7
+
+    with pytest.raises(MissingActionResultError) as error:
+        handler.result_msg
+
+    assert error.value.action_server_name == handler.action_name
+    assert error.value.goal_id == handler.goal_id
+
+
+def test_a_set_result_is_returned_unchanged():
+    handler = HandlerWithoutRosAdvertisement(
+        action_name="giskard/command", action_type=None
+    )
+
+    handler.result_msg = "result"
+
+    assert handler.result_msg == "result"
+
+
+def test_missing_outcome_message_names_the_action_server_and_the_goal():
+    error = MissingGoalOutcomeError(action_server_name="giskard/command", goal_id=3)
+
+    assert "'giskard/command'" in str(error)
+    assert "#3" in str(error)
+
+
+def test_missing_result_message_names_the_action_server_and_the_goal():
+    error = MissingActionResultError(action_server_name="giskard/command", goal_id=3)
+
+    assert "'giskard/command'" in str(error)
+    assert "#3" in str(error)

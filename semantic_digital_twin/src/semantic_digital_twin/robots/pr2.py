@@ -51,13 +51,13 @@ from semantic_digital_twin.world_description.world_entity import (
 
 class PR2Joint(StrEnum):
     """
-    Names of the PR2's actuated connections, as spelled in its URDF.
+    Names of the PR2's commandable connections, as spelled in its URDF.
 
     Members are usable wherever a connection name is expected, so a configuration keyed by
     them stays a plain mapping of names to positions.
 
-    ..note:: The fixed connections that only tie the structure together are left out; a
-        joint goal cannot address them.
+    ..note:: Connections that no controller commands, such as the caster wheels and the
+        grippers' screw, slider and finger tip joints, are left out.
     """
 
     TORSO_LIFT = "torso_lift_joint"

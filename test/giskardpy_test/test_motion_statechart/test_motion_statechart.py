@@ -412,7 +412,7 @@ def test_parallel_local_minimum_reached_tolerates_stall(pr2_world_state_reset: W
     observation: the goal's observation still means "goal reached", nothing else, and
     the ``Parallel`` node is what tolerates the stall.
     """
-    torso_joint = pr2_world_state_reset.get_connection_by_name("torso_lift_joint")
+    torso_joint = pr2_world_state_reset.get_connection_by_name(PR2Joint.TORSO_LIFT)
     torso_joint.raw_dof.limits.lower.velocity = -1e-3
     torso_joint.raw_dof.limits.upper.velocity = 1e-3
 
@@ -458,7 +458,7 @@ def test_joint_position_list_alone_times_out_on_stall(
     :class:`LocalMinimumReached`, must never reach EndMotion in the same stalled
     scenario -- proving the monitor is what unblocks it, not some unrelated change.
     """
-    torso_joint = pr2_world_state_reset.get_connection_by_name("torso_lift_joint")
+    torso_joint = pr2_world_state_reset.get_connection_by_name(PR2Joint.TORSO_LIFT)
     torso_joint.raw_dof.limits.lower.velocity = -1e-3
     torso_joint.raw_dof.limits.upper.velocity = 1e-3
 
@@ -486,8 +486,10 @@ def test_local_minimum_reached_only_depends_on_given_degrees_of_freedom(
     subset to tolerate a stall on one joint could be defeated by unrelated motion
     elsewhere in the robot.
     """
-    torso_joint = pr2_world_state_reset.get_connection_by_name("torso_lift_joint")
-    moving_joint = pr2_world_state_reset.get_connection_by_name("r_wrist_roll_joint")
+    torso_joint = pr2_world_state_reset.get_connection_by_name(PR2Joint.TORSO_LIFT)
+    moving_joint = pr2_world_state_reset.get_connection_by_name(
+        PR2Joint.RIGHT_WRIST_ROLL
+    )
 
     msc = MotionStatechart()
     msc.add_nodes(

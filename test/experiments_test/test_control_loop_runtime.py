@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from giskardpy.middleware.ros2.control_loop_profiler import (
+from experiments.control_loop_experiments.control_loop_profiler import (
     CONTROL_CYCLE_PHASES,
     ControlLoopProfiler,
     PhaseDefinition,

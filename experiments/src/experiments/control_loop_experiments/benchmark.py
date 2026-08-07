@@ -36,8 +36,9 @@ from experiments.experiment_definitions import (
     ExperimentsTable,
     MeanAndStandardDeviation,
     TypstRenderer,
+    Unit,
 )
-from giskardpy.middleware.ros2.control_loop_profiler import (
+from experiments.control_loop_experiments.control_loop_profiler import (
     CONTROL_CYCLE_PHASE,
     CallTreeProfile,
     PhasePath,
@@ -45,15 +46,6 @@ from giskardpy.middleware.ros2.control_loop_profiler import (
 from krrood.exceptions import DataclassException
 
 # %% one configuration of the sweep
-
-
-def _milliseconds(measurements: List[float]) -> MeanAndStandardDeviation:
-    """
-    Aggregate measurements given in seconds, reported in milliseconds.
-    """
-    return MeanAndStandardDeviation.from_measurements(
-        [seconds * 1000.0 for seconds in measurements]
-    )
 
 
 @dataclass
@@ -77,17 +69,17 @@ class ControlLoopBenchmarkResult(ExperimentResult):
     How many cycles the motion took.
     """
 
-    cycle_mean_milliseconds: MeanAndStandardDeviation
+    cycle_mean: MeanAndStandardDeviation
     """
     How long an average control cycle took.
     """
 
-    cycle_p95_milliseconds: MeanAndStandardDeviation
+    cycle_p95: MeanAndStandardDeviation
     """
     How long the slower cycles took, ignoring the worst twentieth.
     """
 
-    cycle_maximum_milliseconds: MeanAndStandardDeviation
+    cycle_maximum: MeanAndStandardDeviation
     """
     How long the slowest cycle took.
     """
@@ -103,7 +95,7 @@ class ControlLoopBenchmarkResult(ExperimentResult):
     How many cycles the loop sustains per second of cycle time.
     """
 
-    compile_milliseconds: MeanAndStandardDeviation
+    compile_duration: MeanAndStandardDeviation
     """
     How long turning the motion statechart into a controller took.
     """
@@ -126,24 +118,25 @@ class ControlLoopBenchmarkResult(ExperimentResult):
             control_cycles=MeanAndStandardDeviation.from_measurements(
                 [profile.control_cycles for profile in profiles]
             ),
-            cycle_mean_milliseconds=_milliseconds(
-                [cycle.inclusive_mean for cycle in cycles]
-            ),
-            cycle_p95_milliseconds=_milliseconds(
-                [cycle.inclusive_percentile(95) for cycle in cycles]
-            ),
-            cycle_maximum_milliseconds=_milliseconds(
-                [cycle.inclusive_maximum for cycle in cycles]
-            ),
+            cycle_mean=MeanAndStandardDeviation.from_measurements(
+                [cycle.inclusive_mean for cycle in cycles], unit=Unit.SECONDS
+            ).to(Unit.MILLISECONDS),
+            cycle_p95=MeanAndStandardDeviation.from_measurements(
+                [cycle.inclusive_percentile(95) for cycle in cycles],
+                unit=Unit.SECONDS,
+            ).to(Unit.MILLISECONDS),
+            cycle_maximum=MeanAndStandardDeviation.from_measurements(
+                [cycle.inclusive_maximum for cycle in cycles], unit=Unit.SECONDS
+            ).to(Unit.MILLISECONDS),
             budget_utilization=MeanAndStandardDeviation.from_measurements(
                 [profile.budget_utilization for profile in profiles]
             ),
             cycles_per_second=MeanAndStandardDeviation.from_measurements(
                 [profile.cycles_per_second for profile in profiles]
             ),
-            compile_milliseconds=_milliseconds(
-                [profile.compile_duration for profile in profiles]
-            ),
+            compile_duration=MeanAndStandardDeviation.from_measurements(
+                [profile.compile_duration for profile in profiles], unit=Unit.SECONDS
+            ).to(Unit.MILLISECONDS),
         )
 
 

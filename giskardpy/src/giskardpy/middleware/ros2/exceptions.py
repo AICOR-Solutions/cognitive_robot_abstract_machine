@@ -116,6 +116,11 @@ class RequiredWorldUpdateNotReceivedError(ExecutionException, DontPrintStackTrac
     The node whose change was waited for.
     """
 
+    current_sequence_number: int
+    """
+    The position in the stream that we have.
+    """
+
     awaited_sequence_number: int
     """
     The position in that node's stream that was waited for.
@@ -129,7 +134,7 @@ class RequiredWorldUpdateNotReceivedError(ExecutionException, DontPrintStackTrac
     def error_message(self) -> str:
         return (
             f"Update #{self.awaited_sequence_number} of '{self.publisher_name}' did not "
-            f"arrive within {self.timeout}s."
+            f"arrive within {self.timeout}s. Current update is #{self.current_sequence_number}."
         )
 
     def suggest_correction(self) -> str:

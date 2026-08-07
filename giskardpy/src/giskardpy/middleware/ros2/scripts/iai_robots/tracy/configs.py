@@ -8,7 +8,7 @@ from giskardpy.middleware.ros2.robot_interface_config import (
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.robots.tracy import Tracy
+from semantic_digital_twin.robots.tracy import Tracy, TracyJoint
 
 
 @dataclass
@@ -23,24 +23,24 @@ class TracyVelocityInterface(RobotInterfaceConfig):
         self.sync_joint_state_topic("/right_gripper/joint_states")
         self.sync_joint_state_topic("/left_gripper/joint_states")
         joints_left = [
-            "left_shoulder_pan_joint",
-            "left_shoulder_lift_joint",
-            "left_elbow_joint",
-            "left_wrist_1_joint",
-            "left_wrist_2_joint",
-            "left_wrist_3_joint",
+            TracyJoint.LEFT_SHOULDER_PAN,
+            TracyJoint.LEFT_SHOULDER_LIFT,
+            TracyJoint.LEFT_ELBOW,
+            TracyJoint.LEFT_WRIST_1,
+            TracyJoint.LEFT_WRIST_2,
+            TracyJoint.LEFT_WRIST_3,
         ]
         self.add_joint_velocity_group_controller(
             cmd_topic="/left_arm/forward_velocity_controller/commands",
             connections=joints_left,
         )
         joints_right = [
-            "right_shoulder_pan_joint",
-            "right_shoulder_lift_joint",
-            "right_elbow_joint",
-            "right_wrist_1_joint",
-            "right_wrist_2_joint",
-            "right_wrist_3_joint",
+            TracyJoint.RIGHT_SHOULDER_PAN,
+            TracyJoint.RIGHT_SHOULDER_LIFT,
+            TracyJoint.RIGHT_ELBOW,
+            TracyJoint.RIGHT_WRIST_1,
+            TracyJoint.RIGHT_WRIST_2,
+            TracyJoint.RIGHT_WRIST_3,
         ]
         self.add_joint_velocity_group_controller(
             cmd_topic="/right_arm/forward_velocity_controller/commands",
@@ -84,18 +84,18 @@ class TracyStandAloneRobotInterfaceConfig(StandAloneRobotInterfaceConfig):
     joint_names: List[str] = field(
         init=False,
         default_factory=lambda: [
-            "left_shoulder_pan_joint",
-            "left_shoulder_lift_joint",
-            "left_elbow_joint",
-            "left_wrist_1_joint",
-            "left_wrist_2_joint",
-            "left_wrist_3_joint",
-            "right_shoulder_pan_joint",
-            "right_shoulder_lift_joint",
-            "right_elbow_joint",
-            "right_wrist_1_joint",
-            "right_wrist_2_joint",
-            "right_wrist_3_joint",
+            TracyJoint.LEFT_SHOULDER_PAN,
+            TracyJoint.LEFT_SHOULDER_LIFT,
+            TracyJoint.LEFT_ELBOW,
+            TracyJoint.LEFT_WRIST_1,
+            TracyJoint.LEFT_WRIST_2,
+            TracyJoint.LEFT_WRIST_3,
+            TracyJoint.RIGHT_SHOULDER_PAN,
+            TracyJoint.RIGHT_SHOULDER_LIFT,
+            TracyJoint.RIGHT_ELBOW,
+            TracyJoint.RIGHT_WRIST_1,
+            TracyJoint.RIGHT_WRIST_2,
+            TracyJoint.RIGHT_WRIST_3,
         ],
     )
     """

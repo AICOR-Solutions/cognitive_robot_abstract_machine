@@ -51,12 +51,12 @@ class MetaData(SubclassJSONSerializer):
 
 
 @dataclass
-class StateWatermark:
+class StreamPosition:
     """
     A position in the stream of messages that one publisher sent.
 
     Positions of different publishers are not comparable, which is why the publisher is
-    part of the watermark. A process that has to know whether it caught up with a change
+    part of the position. A process that has to know whether it caught up with a change
     of another process compares this against what it applied from that publisher.
     """
 
@@ -65,8 +65,6 @@ class StateWatermark:
 
     sequence_number: int
     """The position in the stream of that publisher."""
-
-
 
 
 @dataclass
@@ -85,6 +83,15 @@ class Message(ABC):
     with that publisher, and a publisher can tell others what to catch up with. Assigned
     when the message is published; a message that was never published has no position.
     """
+
+    @property
+    def position(self) -> StreamPosition:
+        """
+        Where this message sits in the stream of its publisher.
+        """
+        return StreamPosition(
+            origin=self.meta_data, sequence_number=self.sequence_number
+        )
 
 
 @dataclass

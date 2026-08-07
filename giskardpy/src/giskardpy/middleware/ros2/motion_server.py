@@ -25,7 +25,7 @@ from giskardpy.middleware.ros2.motion_goal import MotionGoal
 from giskardpy.middleware.ros2.post_goal_plotters import PostGoalPlotter
 from giskardpy.middleware.ros2.world_updates import IncomingWorldUpdates
 from krrood.adapters.json_serializer import to_json
-from semantic_digital_twin.adapters.ros.messages import StateWatermark
+from semantic_digital_twin.adapters.ros.messages import StreamPosition
 from semantic_digital_twin.adapters.ros.world_synchronizer import PublicationProgress
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
@@ -154,7 +154,7 @@ class MotionServer:
         error: Exception | None = None
         try:
             goal = MotionGoal.from_json(json.loads(self.action_server.goal_msg.goal))
-            self.wait_for_required_world_updates(goal.required_watermark)
+            self.wait_for_required_world_updates(goal.required_position)
             self.compile_goal(goal)
             self.control_loop.run()
         except Exception as exception:
@@ -167,7 +167,7 @@ class MotionServer:
             self.finish_goal(error)
 
     def wait_for_required_world_updates(
-        self, required_watermark: StateWatermark | None
+        self, required_position: StreamPosition | None
     ) -> None:
         """
         Wait until the world contains the change the goal was built on.
@@ -175,17 +175,18 @@ class MotionServer:
         :raises RequiredWorldUpdateNotReceivedError: If that change does not arrive
             within ``world_update_timeout``.
         """
-        if required_watermark is None:
+        if required_position is None:
             return
         deadline = time.monotonic() + self.world_update_timeout
         while True:
             self.world_updates.apply_all()
-            if self.world_updates.has_applied(required_watermark):
+            if self.world_updates.has_applied(required_position):
                 return
             if time.monotonic() >= deadline:
                 raise RequiredWorldUpdateNotReceivedError(
-                    publisher_name=required_watermark.origin.node_name,
-                    awaited_sequence_number=required_watermark.sequence_number,
+                    current_sequence_number=self.world_synchronizer.published_sequence_number,
+                    publisher_name=required_position.origin.node_name,
+                    awaited_sequence_number=required_position.sequence_number,
                     timeout=self.world_update_timeout,
                 )
             self.idle_pacer.sleep()
@@ -245,14 +246,14 @@ class MotionServer:
         states = self.create_states()
         if error is not None:
             states["error"] = to_json(error)
-        published_watermark = self.published_watermark_of_goal()
-        if published_watermark is not None:
-            states["state_watermark"] = to_json(published_watermark)
+        published_position = self.published_position_of_goal()
+        if published_position is not None:
+            states["published_position"] = to_json(published_position)
         result = JsonAction.Result()
         result.result = json.dumps(states)
         return result
 
-    def published_watermark_of_goal(self) -> StateWatermark | None:
+    def published_position_of_goal(self) -> StreamPosition | None:
         """
         The position this world published up to while the goal was running, or ``None``
         if the goal published nothing.
@@ -262,7 +263,7 @@ class MotionServer:
             == self._published_sequence_number_before_goal
         ):
             return None
-        return self.world_synchronizer.latest_published_watermark
+        return self.world_synchronizer.latest_published_position
 
     def create_states(self) -> Dict[str, Any]:
         """

@@ -38,8 +38,20 @@ class MissingActionResultError(GiskardException):
     Raised when a result message is requested before one has been set.
     """
 
+    action_server_name: str
+    """
+    The name of the action server whose result was requested.
+    """
+
+    goal_id: int
+    """
+    The id of the goal whose result was requested.
+    """
+
     def error_message(self) -> str:
-        return "No result message set."
+        return (
+            f"'{self.action_server_name}' goal #{self.goal_id} has no result message."
+        )
 
     def suggest_correction(self) -> str:
         return "You tried to access something before it was set."
@@ -52,8 +64,21 @@ class MissingGoalOutcomeError(GiskardException):
     canceled.
     """
 
+    action_server_name: str
+    """
+    The name of the action server whose goal is being answered.
+    """
+
+    goal_id: int
+    """
+    The id of the goal that is being answered.
+    """
+
     def error_message(self) -> str:
-        return "No outcome set for the goal that is being answered."
+        return (
+            f"'{self.action_server_name}' goal #{self.goal_id} is being answered "
+            f"without an outcome."
+        )
 
     def suggest_correction(self) -> str:
         return (

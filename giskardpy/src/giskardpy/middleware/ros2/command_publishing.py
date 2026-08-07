@@ -1,3 +1,13 @@
+"""
+Publishes commanded velocities from the world state to the robot's hardware interfaces.
+
+Throughout this module, *joint* refers to the real robot's hardware actuators and the
+ROS topics/parameters used to command them, while *connection* refers to our internal
+kinematic representation (:class:`~semantic_digital_twin.world_description.connections.ActiveConnection1DOF`
+and related types). A connection is read from the world state and translated into a
+velocity published to a joint.
+"""
+
 from __future__ import annotations
 
 import math

@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from typing_extensions import Self
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
-from semantic_digital_twin.adapters.ros.messages import StateWatermark
+from semantic_digital_twin.adapters.ros.messages import StreamPosition
 
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 
@@ -21,7 +21,7 @@ class MotionGoal(SubclassJSONSerializer):
 
     The motion statechart stays serialized until it is parsed, because parsing resolves
     the entities it refers to against a world that still has to catch up with
-    ``required_watermark``.
+    ``required_position``.
     """
 
     motion_statechart_json_data: Dict[str, Any]
@@ -29,7 +29,7 @@ class MotionGoal(SubclassJSONSerializer):
     The motion statechart to execute, as json.
     """
 
-    required_watermark: Optional[StateWatermark] = field(default=None, kw_only=True)
+    required_position: Optional[StreamPosition] = field(default=None, kw_only=True)
     """
     The position in the client's stream that the world has to contain before the motion
     statechart may be parsed.
@@ -42,24 +42,24 @@ class MotionGoal(SubclassJSONSerializer):
     def for_motion_statechart(
         cls,
         motion_statechart: MotionStatechart,
-        required_watermark: Optional[StateWatermark] = None,
+        required_position: Optional[StreamPosition] = None,
     ) -> MotionGoal:
         """
         Build the goal that asks for the given motion statechart.
         """
         return cls(
             motion_statechart_json_data=motion_statechart.to_json(),
-            required_watermark=required_watermark,
+            required_position=required_position,
         )
 
     def to_json(self) -> Dict[str, Any]:
         return {
             **super().to_json(),
             "motion_statechart": self.motion_statechart_json_data,
-            "required_watermark": (
+            "required_position": (
                 None
-                if self.required_watermark is None
-                else to_json(self.required_watermark)
+                if self.required_position is None
+                else to_json(self.required_position)
             ),
         }
 
@@ -68,11 +68,11 @@ class MotionGoal(SubclassJSONSerializer):
         """
         Rebuild a goal from what a client sent.
         """
-        required_watermark = data.get("required_watermark")
+        required_position = data.get("required_position")
         return cls(
             motion_statechart_json_data=data["motion_statechart"],
-            required_watermark=(
-                None if required_watermark is None else from_json(required_watermark)
+            required_position=(
+                None if required_position is None else from_json(required_position)
             ),
         )
 

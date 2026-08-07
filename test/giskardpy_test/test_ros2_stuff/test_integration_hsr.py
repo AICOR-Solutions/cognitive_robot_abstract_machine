@@ -25,7 +25,7 @@ from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, Joi
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from numpy import pi
-from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.hsrb import HSRB, HSRBJoint
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -41,13 +41,13 @@ from semantic_digital_twin.world_description.world_entity import (
 @pytest.fixture()
 def default_joint_state():
     return {
-        "arm_flex_joint": -0.03,
-        "arm_lift_joint": 0.01,
-        "arm_roll_joint": 0.0,
-        "head_pan_joint": 0.0,
-        "head_tilt_joint": 0.0,
-        "wrist_flex_joint": 0.0,
-        "wrist_roll_joint": 0.0,
+        HSRBJoint.ARM_FLEX: -0.03,
+        HSRBJoint.ARM_LIFT: 0.01,
+        HSRBJoint.ARM_ROLL: 0.0,
+        HSRBJoint.HEAD_PAN: 0.0,
+        HSRBJoint.HEAD_TILT: 0.0,
+        HSRBJoint.WRIST_FLEX: 0.0,
+        HSRBJoint.WRIST_ROLL: 0.0,
     }
 
 
@@ -126,7 +126,7 @@ class TestJointGoals:
         msc.add_node(
             joint_goal := JointPositionList(
                 goal_state=JointState.from_str_dict(
-                    {"torso_lift_joint": 0.1, "hand_motor_joint": 1.23},
+                    {HSRBJoint.TORSO_LIFT: 0.1, HSRBJoint.HAND_MOTOR: 1.23},
                     giskard.api.world,
                 )
             ),
@@ -135,7 +135,7 @@ class TestJointGoals:
         giskard.api.execute(msc)
 
         arm_lift_joint: ActiveConnection1DOF = giskard.world.get_connection_by_name(
-            "arm_lift_joint"
+            HSRBJoint.ARM_LIFT
         )
         hand_palm_link = giskard.world.get_kinematic_structure_entity_by_name(
             "hand_palm_link"
@@ -186,7 +186,7 @@ class TestJointGoals:
         giskard.api.execute(msc)
 
         arm_lift_joint: ActiveConnection1DOF = giskard.world.get_connection_by_name(
-            "arm_lift_joint"
+            HSRBJoint.ARM_LIFT
         )
         np.testing.assert_almost_equal(
             arm_lift_joint.position,
@@ -219,7 +219,7 @@ class TestJointGoals:
         giskard.api.execute(msc)
 
         arm_lift_joint: ActiveConnection1DOF = giskard.world.get_connection_by_name(
-            "arm_lift_joint"
+            HSRBJoint.ARM_LIFT
         )
         np.testing.assert_almost_equal(
             arm_lift_joint.position,
@@ -236,12 +236,12 @@ class TestJointGoals:
 
     def test_mimic_joints4(self, giskard: HSRTester):
         arm_lift_joints: ActiveConnection1DOF = (
-            giskard.api.world.get_connection_by_name("arm_lift_joint")
+            giskard.api.world.get_connection_by_name(HSRBJoint.ARM_LIFT)
         )
         assert arm_lift_joints.dof.limits.lower.velocity == -0.15
         assert arm_lift_joints.dof.limits.upper.velocity == 0.15
         torso_lift_joints: ActiveConnection1DOF = (
-            giskard.api.world.get_connection_by_name("torso_lift_joint")
+            giskard.api.world.get_connection_by_name(HSRBJoint.TORSO_LIFT)
         )
         assert torso_lift_joints.dof.limits.lower.velocity == -0.075
         assert torso_lift_joints.dof.limits.upper.velocity == 0.075
@@ -249,7 +249,7 @@ class TestJointGoals:
         msc.add_node(
             joint_goal := JointPositionList(
                 goal_state=JointState.from_str_dict(
-                    {"torso_lift_joint": 0.25},
+                    {HSRBJoint.TORSO_LIFT: 0.25},
                     giskard.api.world,
                 )
             ),
@@ -402,13 +402,13 @@ class TestCartGoals:
     @pytest.mark.skip(reason="not yet fixed")
     def test_wiggle_insert(self, default_pose_giskard: HSRTester):
         goal_state = {
-            "arm_flex_joint": -1.5,
-            "arm_lift_joint": 0.5,
-            "arm_roll_joint": 0.0,
-            "head_pan_joint": 0.0,
-            "head_tilt_joint": 0.0,
-            "wrist_flex_joint": -1.5,
-            "wrist_roll_joint": 0.0,
+            HSRBJoint.ARM_FLEX: -1.5,
+            HSRBJoint.ARM_LIFT: 0.5,
+            HSRBJoint.ARM_ROLL: 0.0,
+            HSRBJoint.HEAD_PAN: 0.0,
+            HSRBJoint.HEAD_TILT: 0.0,
+            HSRBJoint.WRIST_FLEX: -1.5,
+            HSRBJoint.WRIST_ROLL: 0.0,
         }
 
         default_pose_giskard.api.monitors.add_set_seed_configuration(
@@ -545,13 +545,13 @@ class TestCollisionAvoidanceGoals:
                         SetSeedConfiguration(
                             seed_configuration=JointState.from_str_dict(
                                 {
-                                    "arm_flex_joint": 0.0,
-                                    "arm_lift_joint": 0.0,
-                                    "arm_roll_joint": -1.52,
-                                    "head_pan_joint": -0.09,
-                                    "head_tilt_joint": -0.62,
-                                    "wrist_flex_joint": -1.55,
-                                    "wrist_roll_joint": 0.11,
+                                    HSRBJoint.ARM_FLEX: 0.0,
+                                    HSRBJoint.ARM_LIFT: 0.0,
+                                    HSRBJoint.ARM_ROLL: -1.52,
+                                    HSRBJoint.HEAD_PAN: -0.09,
+                                    HSRBJoint.HEAD_TILT: -0.62,
+                                    HSRBJoint.WRIST_FLEX: -1.55,
+                                    HSRBJoint.WRIST_ROLL: 0.11,
                                 },
                                 giskard.api.world,
                             )
@@ -589,7 +589,7 @@ class TestAddObject:
         msc.add_node(
             joint_goal := JointPositionList(
                 goal_state=JointState.from_str_dict(
-                    {"arm_flex_joint": -0.7},
+                    {HSRBJoint.ARM_FLEX: -0.7},
                     giskard.api.world,
                 )
             ),

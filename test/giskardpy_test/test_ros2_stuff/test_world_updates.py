@@ -27,7 +27,7 @@ from giskardpy.motion_statechart.monitors.payload_monitors import (
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.adapters.json_serializer import to_json
-from semantic_digital_twin.adapters.ros.messages import MetaData, StateWatermark
+from semantic_digital_twin.adapters.ros.messages import MetaData, StreamPosition
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import Vector3
@@ -71,7 +71,7 @@ class BufferingSynchronizerMimic:
     The answer this mimic gives about every position it is asked about.
     """
 
-    asked_about_watermarks: List[StateWatermark] = field(default_factory=list)
+    asked_about_positions: List[StreamPosition] = field(default_factory=list)
     """
     Every position this mimic was asked about.
     """
@@ -87,8 +87,8 @@ class BufferingSynchronizerMimic:
         self.applied_message_batches += 1
         self.buffered_model_modification = False
 
-    def has_applied(self, watermark: StateWatermark) -> bool:
-        self.asked_about_watermarks.append(watermark)
+    def has_applied(self, position: StreamPosition) -> bool:
+        self.asked_about_positions.append(position)
         return self.caught_up
 
 
@@ -117,13 +117,13 @@ class PublishingSynchronizerMimic:
     """
 
     @property
-    def latest_published_watermark(self) -> StateWatermark:
-        return StateWatermark(
+    def latest_published_position(self) -> StreamPosition:
+        return StreamPosition(
             origin=self.origin, sequence_number=self.published_sequence_number
         )
 
-    def has_applied(self, watermark: StateWatermark) -> bool:
-        return self.applied_sequence_number >= watermark.sequence_number
+    def has_applied(self, position: StreamPosition) -> bool:
+        return self.applied_sequence_number >= position.sequence_number
 
 
 @dataclass
@@ -221,12 +221,12 @@ class TestCatchingUp:
     def test_the_position_to_catch_up_with_reaches_the_synchronizer(self):
         world_synchronizer = BufferingSynchronizerMimic(caught_up=True)
         world_updates = IncomingWorldUpdates(world_synchronizer=world_synchronizer)
-        watermark = StateWatermark(
+        position = StreamPosition(
             origin=MetaData(node_name="publisher", process_id=1), sequence_number=7
         )
 
-        assert world_updates.has_applied(watermark)
-        assert world_synchronizer.asked_about_watermarks == [watermark]
+        assert world_updates.has_applied(position)
+        assert world_synchronizer.asked_about_positions == [position]
 
     def test_a_position_that_was_not_reached_is_reported_as_such(self):
         world_updates = IncomingWorldUpdates(
@@ -234,7 +234,7 @@ class TestCatchingUp:
         )
 
         assert not world_updates.has_applied(
-            StateWatermark(
+            StreamPosition(
                 origin=MetaData(node_name="publisher", process_id=1), sequence_number=7
             )
         )
@@ -254,13 +254,13 @@ class TestClientWorldUpdates:
             world_synchronizer=PublishingSynchronizerMimic()
         )
 
-        assert world_updates.required_watermark() is None
+        assert world_updates.required_position() is None
 
     def test_a_goal_requires_the_last_change_of_this_world(self):
         synchronizer = PublishingSynchronizerMimic(published_sequence_number=4)
         world_updates = ClientWorldUpdates(world_synchronizer=synchronizer)
 
-        assert world_updates.required_watermark() == StateWatermark(
+        assert world_updates.required_position() == StreamPosition(
             origin=synchronizer.origin, sequence_number=4
         )
 
@@ -279,8 +279,8 @@ class TestClientWorldUpdates:
 
         world_updates.wait_for_the_changes_of_a_goal(
             {
-                "state_watermark": to_json(
-                    StateWatermark(
+                "published_position": to_json(
+                    StreamPosition(
                         origin=MetaData(node_name="giskard", process_id=1),
                         sequence_number=9,
                     )
@@ -298,8 +298,8 @@ class TestClientWorldUpdates:
         with pytest.raises(GiskardWorldUpdateNotReceivedError) as raised:
             world_updates.wait_for_the_changes_of_a_goal(
                 {
-                    "state_watermark": to_json(
-                        StateWatermark(
+                    "published_position": to_json(
+                        StreamPosition(
                             origin=MetaData(node_name="giskard", process_id=1),
                             sequence_number=9,
                         )

@@ -26,7 +26,7 @@ from semantic_digital_twin.adapters.ros.messages import (
     MetaData,
     WorldStateUpdate,
     LoadModel,
-    StateWatermark,
+    StreamPosition,
     WorldUpdate,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
@@ -2389,6 +2389,18 @@ def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
 # %% positions in the stream of a publisher
 
 
+def test_a_message_reports_where_it_sits_in_the_stream_of_its_publisher():
+    """
+    A message carries everything a reader needs to tell how far it caught up with the
+    publisher that sent it.
+    """
+    meta_data = MetaData(node_name="publisher", process_id=1)
+
+    message = WorldUpdate(meta_data=meta_data, sequence_number=3)
+
+    assert message.position == StreamPosition(origin=meta_data, sequence_number=3)
+
+
 def test_every_publication_advances_the_stream_position(rclpy_node):
     """
     Positions count the messages one synchronizer sent, so a reader of the stream can
@@ -2412,10 +2424,10 @@ def test_every_publication_advances_the_stream_position(rclpy_node):
             )
             assert synchronizer.published_sequence_number == expected_position
             assert (
-                synchronizer.latest_published_watermark.sequence_number
+                synchronizer.latest_published_position.sequence_number
                 == expected_position
             )
-            assert synchronizer.latest_published_watermark.origin == (
+            assert synchronizer.latest_published_position.origin == (
                 synchronizer.meta_data
             )
     finally:
@@ -2435,19 +2447,19 @@ def test_applying_an_update_records_the_position_of_its_publisher(rclpy_node):
     ) = create_connected_worlds(rclpy_node, "applied_position")
     try:
         publish_position(publisher_world, 0.75)
-        watermark = publisher_synchronizer.latest_published_watermark
+        position = publisher_synchronizer.latest_published_position
 
         assert wait_for_condition(
-            lambda: receiver_synchronizer.has_applied(watermark)
+            lambda: receiver_synchronizer.has_applied(position)
         ), "the receiver never caught up with the published position"
         assert receiver_synchronizer.has_applied(
-            StateWatermark(
-                origin=watermark.origin, sequence_number=watermark.sequence_number - 1
+            StreamPosition(
+                origin=position.origin, sequence_number=position.sequence_number - 1
             )
         )
         assert not receiver_synchronizer.has_applied(
-            StateWatermark(
-                origin=watermark.origin, sequence_number=watermark.sequence_number + 1
+            StreamPosition(
+                origin=position.origin, sequence_number=position.sequence_number + 1
             )
         )
     finally:
@@ -2468,10 +2480,10 @@ def test_a_publisher_that_was_never_heard_from_is_at_the_start_of_its_stream(
     stranger = MetaData(node_name="stranger", process_id=1)
     try:
         assert synchronizer.has_applied(
-            StateWatermark(origin=stranger, sequence_number=0)
+            StreamPosition(origin=stranger, sequence_number=0)
         )
         assert not synchronizer.has_applied(
-            StateWatermark(origin=stranger, sequence_number=1)
+            StreamPosition(origin=stranger, sequence_number=1)
         )
     finally:
         synchronizer.close()
@@ -2491,16 +2503,16 @@ def test_a_buffered_update_does_not_count_as_caught_up_with(rclpy_node):
     receiver_synchronizer.defer_incoming_updates = True
     try:
         publish_position(publisher_world, 0.5)
-        watermark = publisher_synchronizer.latest_published_watermark
+        position = publisher_synchronizer.latest_published_position
         assert wait_for_condition(
             lambda: len(receiver_synchronizer.missed_messages) == 1
         ), "the update was never received"
 
-        assert not receiver_synchronizer.has_applied(watermark)
+        assert not receiver_synchronizer.has_applied(position)
 
         receiver_synchronizer.apply_missed_messages()
 
-        assert receiver_synchronizer.has_applied(watermark)
+        assert receiver_synchronizer.has_applied(position)
     finally:
         publisher_synchronizer.close()
         receiver_synchronizer.close()
@@ -2509,14 +2521,14 @@ def test_a_buffered_update_does_not_count_as_caught_up_with(rclpy_node):
 def test_the_synchronizer_of_a_world_is_found_through_the_world(rclpy_node):
     """
     A client that was handed a world, but not the synchronizer publishing its changes,
-    still has to name the stream its watermarks belong to.
+    still has to name the stream its positions belong to.
     """
     world = World(name="synchronizer_lookup")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/synchronizer_lookup_{uuid4().hex}"
     )
     try:
-        assert WorldSynchronizer.for_world(world) is synchronizer
+        assert WorldSynchronizer.of_world(world) is synchronizer
     finally:
         synchronizer.close()
 
@@ -2528,12 +2540,12 @@ def test_a_world_that_publishes_nowhere_has_no_synchronizer():
     world = World(name="no_synchronizer")
 
     with pytest.raises(WorldHasNoSynchronizerError):
-        WorldSynchronizer.for_world(world)
+        WorldSynchronizer.of_world(world)
 
 
 def test_several_synchronizers_leave_the_stream_of_a_world_undecided(rclpy_node):
     """
-    Watermarks name one stream, so a world publishing through several synchronizers
+    Positions name one stream, so a world publishing through several synchronizers
     cannot answer which one is meant.
     """
     world = World(name="ambiguous_synchronizer")
@@ -2545,7 +2557,7 @@ def test_several_synchronizers_leave_the_stream_of_a_world_undecided(rclpy_node)
     )
     try:
         with pytest.raises(WorldHasMultipleSynchronizersError):
-            WorldSynchronizer.for_world(world)
+            WorldSynchronizer.of_world(world)
     finally:
         first.close()
         second.close()
