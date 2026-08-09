@@ -11,6 +11,7 @@ import numpy as np
 import objgraph
 import pytest
 from numpy.testing import assert_raises
+from typing_extensions import Tuple
 
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -1947,3 +1948,128 @@ def test_is_kinematic_structure_entity_in_world_by_name(world_setup):
     world, l1, *_ = world_setup
     assert world.is_kinematic_structure_entity_in_world_by_name("l1")
     assert not world.is_kinematic_structure_entity_in_world_by_name("nonexistent")
+
+
+# %% moving a branch keeps both worlds replayable
+
+
+def world_with_branch(branch_length: int) -> Tuple[World, Body]:
+    """
+    Build a world whose root carries one branch of the requested length.
+
+    :param branch_length: Number of bodies hanging below the branch root.
+    :return: The world and the root of its branch.
+    """
+    world = World(name="source")
+    branch_root = Body(name=PrefixedName("branch_root"))
+    with world.modify_world():
+        world.add_connection(
+            FixedConnection(parent=Body(name=PrefixedName("root")), child=branch_root)
+        )
+        parent = branch_root
+        for index in range(branch_length):
+            child = Body(name=PrefixedName(f"branch_body_{index}"))
+            world.add_connection(FixedConnection(parent=parent, child=child))
+            parent = child
+    return world, branch_root
+
+
+def assert_rebuilds_to_same_structure(world: World, other_world: World) -> None:
+    """
+    Assert that replaying a world's own history onto an empty world reproduces it.
+
+    Both worlds release their entities first, because a world loaded from the database
+    replays a history whose entities belong to no world yet, and an entity can belong to
+    at most one world.
+
+    :param world: The world whose recorded history is replayed.
+    :param other_world: The other side of the move, which must let its entities go.
+    """
+    entity_names = {entity.name.name for entity in world.kinematic_structure_entities}
+    connection_count = len(world.connections)
+    recorded_blocks = list(world.get_world_model_manager().model_modification_blocks)
+
+    for world_to_release in (world, other_world):
+        with world_to_release.modify_world():
+            world_to_release._clear_world_entities()
+
+    rebuilt = World(name=world.name)
+    with rebuilt.modify_world():
+        for block in recorded_blocks:
+            block.apply(rebuilt)
+
+    assert {
+        entity.name.name for entity in rebuilt.kinematic_structure_entities
+    } == entity_names
+    assert len(rebuilt.connections) == connection_count
+
+
+def test_world_a_multi_body_branch_moved_into_replays_from_its_own_history():
+    """
+    The world a branch is moved into records a history that starts from nothing.
+
+    Every connection has to leave the world that holds it. Cleaning it up in the new
+    world instead opens that world's history with the removal of a connection it never
+    added, and the history no longer rebuilds it.
+    """
+    world, branch_root = world_with_branch(branch_length=2)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(new_world, world)
+
+
+def test_world_a_multi_body_branch_moved_out_of_replays_from_its_own_history():
+    """
+    The world a branch is moved out of keeps a history that still rebuilds it.
+
+    Entities may only leave after the connections naming them, otherwise the recorded
+    removal of a connection refers to entities the replay has dropped.
+    """
+    world, branch_root = world_with_branch(branch_length=2)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(world, new_world)
+
+
+def test_world_a_single_body_branch_moved_into_replays_from_its_own_history():
+    """
+    A branch of a single body detaches its connection before its body, and the world it
+    moves into stays replayable.
+    """
+    world, branch_root = world_with_branch(branch_length=0)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(new_world, world)
+
+
+def test_world_a_single_body_branch_moved_out_of_replays_from_its_own_history():
+    """
+    A branch of a single body leaves behind a world that stays replayable.
+    """
+    world, branch_root = world_with_branch(branch_length=0)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(world, new_world)
+
+
+def test_world_does_not_record_removing_a_connection_it_does_not_hold():
+    """
+    A world only records the removal of a connection it actually holds.
+
+    Recording it regardless is what lets a history open with the removal of something
+    nothing ever added, which no replay can reproduce.
+    """
+    world, branch_root = world_with_branch(branch_length=1)
+    connection = branch_root.parent_connection
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_connection(connection)
+
+    recorded_modifications = [
+        modification
+        for block in other_world.get_world_model_manager().model_modification_blocks
+        for modification in block
+    ]
+    assert recorded_modifications == []
+    assert connection in world.connections

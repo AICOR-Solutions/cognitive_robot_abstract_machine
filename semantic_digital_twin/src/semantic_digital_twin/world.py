@@ -1004,6 +1004,10 @@ class World(HasSimulatorProperties):
 
         Might create disconnected entities, so make sure to add a new connection or delete the child kinematic_structure_entity.
 
+        Removing a connection this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of a connection
+        nothing added.
+
         :param connection: The connection to be removed
 
         .. warning::
@@ -1013,8 +1017,11 @@ class World(HasSimulatorProperties):
             if we want to remove the parent or child from the world, before removing the connection from the world.
             In that case, rustworkx automatically removes the edge representing the connection, which results in
             self.is_connection_in_world returning False, even though we have not cleaned up the connection properly on
-            our side.
+            our side. The ownership the connection itself records survives that,
+            which is what makes it usable as the check here.
         """
+        if connection._world is not self:
+            return
         self._remove_connection(connection)
 
     @atomic_world_modification(modification=RemoveConnectionModification)
@@ -1764,19 +1771,21 @@ class World(HasSimulatorProperties):
             for dof in child_body_dofs:
                 self.remove_degree_of_freedom(dof)
                 new_world.add_degree_of_freedom(dof)
-            for connection in child_body_parent_connections:
-                self.remove_kinematic_structure_entity(connection.parent)
-                self.remove_kinematic_structure_entity(connection.child)
-                # Clean the connection up in the world that actually holds it.
-                # Removing its parent and child above already dropped the edge
-                # from this world's kinematic structure, which is exactly the
-                # case `remove_connection` documents as still needing an explicit
-                # removal on our side. Doing this to `new_world` instead records
-                # a removal as the first entry of a history that has not added
-                # anything yet, and that history can no longer be replayed.
-                self.remove_connection(connection)
-                new_world.add_connection(connection)
+
+            # connections must be removed before the kinematic structure entities:
+            # removing a node makes rustworkx silently drop its edges, so a
+            # connection removed afterwards is recorded against entities its own
+            # history has already dropped, and can no longer be replayed
             self.remove_connection(root_connection)
+            for connection in child_body_parent_connections:
+                self.remove_connection(connection)
+
+            self.remove_kinematic_structure_entity(new_root)
+            for child_body in child_bodies:
+                self.remove_kinematic_structure_entity(child_body)
+
+            for connection in child_body_parent_connections:
+                new_world.add_connection(connection)
 
         return new_world
 
