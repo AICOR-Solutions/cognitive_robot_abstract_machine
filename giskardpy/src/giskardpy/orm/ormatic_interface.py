@@ -5607,6 +5607,38 @@ class MotionStatechartErrorDAO(
     }
 
 
+class ActionClientTypeMismatchErrorDAO(
+    MotionStatechartErrorDAO,
+    DataAccessObject[
+        giskardpy.motion_statechart.exceptions.ActionClientTypeMismatchError
+    ],
+):
+    __tablename__ = "ActionClientTypeMismatchErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(MotionStatechartErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    action_topic: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    existing_message_type: Mapped[TypeType] = mapped_column(
+        TypeType, nullable=False, use_existing_column=True
+    )
+    requested_message_type: Mapped[TypeType] = mapped_column(
+        TypeType, nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ActionClientTypeMismatchErrorDAO",
+        "inherit_condition": database_id == MotionStatechartErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class DuplicateContextExtensionErrorDAO(
     MotionStatechartErrorDAO,
     DataAccessObject[
@@ -6104,6 +6136,34 @@ class UnexpectedWorldEntityCountErrorDAO(
     __mapper_args__ = {
         "polymorphic_identity": "UnexpectedWorldEntityCountErrorDAO",
         "inherit_condition": database_id == NodeInitializationErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class WorldStateArrayReplacedErrorDAO(
+    MotionStatechartErrorDAO,
+    DataAccessObject[
+        giskardpy.motion_statechart.exceptions.WorldStateArrayReplacedError
+    ],
+):
+    __tablename__ = "WorldStateArrayReplacedErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(MotionStatechartErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    compiled_degrees_of_freedom: Mapped[builtins.int] = mapped_column(
+        use_existing_column=True
+    )
+    current_degrees_of_freedom: Mapped[builtins.int] = mapped_column(
+        use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "WorldStateArrayReplacedErrorDAO",
+        "inherit_condition": database_id == MotionStatechartErrorDAO.database_id,
         "polymorphic_load": "selectin",
     }
 
@@ -12513,6 +12573,23 @@ class PackageUriResolverDAO(
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
+    )
+
+
+class PrefixPathPackageLocatorDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.package_resolver.PrefixPathPackageLocator
+    ],
+):
+    __tablename__ = "PrefixPathPackageLocatorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    additional_prefixes: Mapped[typing.List[builtins.str]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
     )
 
 
@@ -20601,6 +20678,34 @@ class GraphOfConvexSetsDAO(
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "GraphOfConvexSetsDAO",
     }
+
+
+class BoundingBoxAdjacencyDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.boxes.BoundingBoxAdjacency
+    ],
+):
+    __tablename__ = "BoundingBoxAdjacencyDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    distance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    intersection_id: Mapped[int] = mapped_column(
+        ForeignKey("BoundingBoxDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    intersection: Mapped[BoundingBoxDAO] = relationship(
+        "BoundingBoxDAO",
+        uselist=False,
+        foreign_keys=[intersection_id],
+        post_update=True,
+    )
 
 
 class GraphOfBoundingBoxesDAO(

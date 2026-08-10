@@ -3925,6 +3925,23 @@ class PackageUriResolverDAO(
     )
 
 
+class PrefixPathPackageLocatorDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.adapters.package_resolver.PrefixPathPackageLocator
+    ],
+):
+    __tablename__ = "PrefixPathPackageLocatorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    additional_prefixes: Mapped[typing.List[builtins.str]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+
+
 class ROSPackageLocatorDAO(
     Base,
     DataAccessObject[semantic_digital_twin.adapters.package_resolver.ROSPackageLocator],
@@ -11984,6 +12001,34 @@ class GraphOfConvexSetsDAO(
         "polymorphic_on": "polymorphic_type",
         "polymorphic_identity": "GraphOfConvexSetsDAO",
     }
+
+
+class BoundingBoxAdjacencyDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.boxes.BoundingBoxAdjacency
+    ],
+):
+    __tablename__ = "BoundingBoxAdjacencyDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    distance: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    intersection_id: Mapped[int] = mapped_column(
+        ForeignKey("BoundingBoxDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    intersection: Mapped[BoundingBoxDAO] = relationship(
+        "BoundingBoxDAO",
+        uselist=False,
+        foreign_keys=[intersection_id],
+        post_update=True,
+    )
 
 
 class GraphOfBoundingBoxesDAO(

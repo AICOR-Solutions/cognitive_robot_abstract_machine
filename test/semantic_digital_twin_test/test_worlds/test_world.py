@@ -1638,6 +1638,100 @@ def test_move_branch_preserves_active_connection(world_setup):
     assert np.allclose(r2.global_transform, old_pose)
 
 
+# %% re-parenting a free-floating branch
+
+
+def create_world_with_free_floating_child() -> tuple[World, Body, Body]:
+    """
+    Builds a world where ``free_child`` hangs off the root by a :class:`Connection6DoF`
+    and ``new_parent`` sits elsewhere under the root.
+
+    :return: The world, the free-floating child and the body to re-parent it onto.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    new_parent = Body(name=PrefixedName("new_parent"))
+    free_child = Body(name=PrefixedName("free_child"))
+    with world.modify_world():
+        for body in [root, new_parent, free_child]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=new_parent,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            Connection6DoF.create_with_dofs(parent=root, child=free_child, world=world)
+        )
+    free_child.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=0.3, y=-0.7, z=0.2, yaw=1.1
+    )
+    return world, free_child, new_parent
+
+
+def test_move_branch_preserves_free_connection_degrees_of_freedom():
+    """
+    move_branch keeps a Connection6DoF's degrees of freedom instead of replacing them
+    with fresh ones, while preserving the branch's global pose.
+
+    Re-using the degrees of freedom is what keeps the world state layout stable across
+    the move.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    old_dof_ids = [dof.id for dof in free_child.parent_connection.passive_dofs]
+    old_pose = free_child.global_transform
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    assert free_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(free_child.parent_connection, Connection6DoF)
+    assert [dof.id for dof in free_child.parent_connection.passive_dofs] == old_dof_ids
+    assert np.allclose(free_child.global_transform, old_pose)
+
+
+def test_move_branch_keeps_world_state_array_identity():
+    """
+    move_branch of a Connection6DoF branch must not reallocate the world state array.
+
+    Compiled functions bind memory views of that array, so replacing it silently
+    detaches them from the live state.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    state_data_before_move = world.state._data
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    assert world.state._data is state_data_before_move
+
+
+def test_move_branch_resets_free_connection_derivatives():
+    """
+    move_branch leaves the re-used degrees of freedom without any residual motion.
+
+    The world integrates every degree of freedom, including passive ones, so a leftover
+    velocity would make the re-parented branch drift away from its new parent.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    for dof in free_child.parent_connection.passive_dofs:
+        world.state[dof.id].velocity = 0.3
+        world.state[dof.id].acceleration = 0.2
+        world.state[dof.id].jerk = 0.1
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    for dof in free_child.parent_connection.passive_dofs:
+        assert world.state[dof.id].velocity == 0
+        assert world.state[dof.id].acceleration == 0
+        assert world.state[dof.id].jerk == 0
+
+
 def test_reset_state_context(pr2_world_state_reset):
     state_copy = pr2_world_state_reset.state._data.copy()
     with pr2_world_state_reset.reset_state_context():
