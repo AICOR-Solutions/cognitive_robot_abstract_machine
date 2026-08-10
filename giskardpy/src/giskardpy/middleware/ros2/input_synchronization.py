@@ -333,5 +333,7 @@ class TfFrameSynchronizer(InputSynchronizer):
                 quat_x=parent_T_child.orientation.x,
                 quat_y=parent_T_child.orientation.y,
                 quat_z=parent_T_child.orientation.z,
+                reference_frame=connection.parent,
+                child_frame=connection.child,
             )
         return bool(self.connection_to_frames)

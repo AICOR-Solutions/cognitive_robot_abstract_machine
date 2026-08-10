@@ -9,6 +9,14 @@ import numpy as np
 import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.middleware.ros2.giskard import Giskard
 from giskardpy.middleware.ros2.python_interface import GiskardWrapperNode
+from giskardpy.middleware.ros2.scripts.iai_robots.stretch.configs import (
+    StretchStandaloneInterface,
+    WorldWithStretchConfigDiffDrive,
+)
+from giskardpy.middleware.ros2.server_config import ExecutionMode, GiskardServerConfig
+from giskardpy.middleware.ros2.utils.utils import load_xacro
+from giskardpy.qp.qp_controller_config import QPControllerConfig
+from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.collision_checking.collision_detector import (
     CollisionCheckingResult,
@@ -72,9 +80,7 @@ def compare_points(
 
     :param decimal: Number of decimal places the two have to agree on.
     """
-    np.testing.assert_array_almost_equal(
-        actual_point, desired_point, decimal=decimal
-    )
+    np.testing.assert_array_almost_equal(actual_point, desired_point, decimal=decimal)
 
 
 def compare_orientations(
@@ -301,3 +307,41 @@ class GiskardTester(ABC):
             f"{min_contact.distance} > {distance_threshold} "
             f"({min_contact.body_a} with {min_contact.body_b})"
         )
+
+
+@dataclass
+class StretchTester(GiskardTester):
+    """
+    A standalone Giskard driving Stretch through the same configuration the robot's own
+    ``stretch_standalone`` launcher uses.
+
+    Lives here rather than beside one test module because both the controller tests and
+    the demo's integration test drive the same standalone setup.
+    """
+
+    tool_frame: KinematicStructureEntity = field(init=False)
+    """
+    The frame the demo's pick and place actions drive.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.tool_frame = self.api.world.get_kinematic_structure_entity_by_name(
+            "link_grasp_center"
+        )
+
+    def setup_giskard(self) -> Giskard:
+        return Giskard(
+            world_config=WorldWithStretchConfigDiffDrive(
+                urdf=load_xacro(Stretch.get_ros_file_path())
+            ),
+            robot_interface_config=StretchStandaloneInterface(),
+            server_config=GiskardServerConfig(
+                execution_mode=ExecutionMode.STANDALONE, debug_mode=True
+            ),
+            qp_controller_config=QPControllerConfig.create_with_simulation_defaults(),
+        )
+
+    @property
+    def robot(self) -> AbstractRobot:
+        return self.world.get_semantic_annotations_by_type(Stretch)[0]

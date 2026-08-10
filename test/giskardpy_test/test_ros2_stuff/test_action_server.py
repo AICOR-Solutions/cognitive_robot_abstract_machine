@@ -102,7 +102,7 @@ def test_reading_an_unset_result_reports_which_goal_it_was():
     handler.goal_id = 7
 
     with pytest.raises(MissingActionResultError) as error:
-        handler.result_msg
+        handler.result_message
 
     assert error.value.action_server_name == handler.action_name
     assert error.value.goal_id == handler.goal_id
