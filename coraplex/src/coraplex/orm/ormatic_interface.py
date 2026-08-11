@@ -69,17 +69,9 @@ import datetime
 import enum
 import giskardpy.data_types.exceptions
 import giskardpy.executor
-import giskardpy.middleware.ros2.behavior_tree_config
 import giskardpy.middleware.ros2.exceptions
-import giskardpy.middleware.ros2.giskard
 import giskardpy.middleware.ros2.python_interface
-import giskardpy.middleware.ros2.scripts.iai_robots.daisy.configs
-import giskardpy.middleware.ros2.scripts.iai_robots.hsr.configs
-import giskardpy.middleware.ros2.scripts.iai_robots.pr2.configs
-import giskardpy.middleware.ros2.scripts.iai_robots.stretch.configs
-import giskardpy.middleware.ros2.scripts.iai_robots.tracy.configs
 import giskardpy.middleware.ros2.scripts.tools.interactive_marker
-import giskardpy.middleware.ros2.utils.utils_for_tests
 import giskardpy.model.world_config
 import giskardpy.motion_statechart.binding_policy
 import giskardpy.motion_statechart.constraint_builders
@@ -238,7 +230,9 @@ import semantic_digital_twin.world_description.geometry
 import semantic_digital_twin.world_description.graph_of_convex_sets.base
 import semantic_digital_twin.world_description.graph_of_convex_sets.boxes
 import semantic_digital_twin.world_description.graph_of_convex_sets.exceptions
+import semantic_digital_twin.world_description.graph_of_convex_sets.figure
 import semantic_digital_twin.world_description.graph_of_convex_sets.polygons
+import semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure
 import semantic_digital_twin.world_description.inertial_properties
 import semantic_digital_twin.world_description.mesh_file_storage
 import semantic_digital_twin.world_description.shape_collection
@@ -249,6 +243,7 @@ import semantic_digital_twin.world_description.world_state
 import semantic_digital_twin.world_description.world_state_trajectory_plotter
 import sqlalchemy.sql.sqltypes
 import trimesh.base
+import types
 import typing
 import typing_extensions
 import uuid
@@ -271,6 +266,7 @@ class Base(DeclarativeBase):
         uuid.UUID: sqlalchemy.sql.sqltypes.UUID,
         pathlib.Path: krrood.ormatic.custom_types.PathType,
         krrood.adapters.json_serializer.JSONData: krrood.ormatic.custom_types.JSONDataType,
+        types.NoneType: krrood.ormatic.custom_types.TypeType,
         numpy.ndarray: coraplex.orm.model.NumpyType,
     }
 
@@ -512,23 +508,6 @@ class TrainingEnvironmentDAO_executed_plans_association(
 
     target: Mapped[PlanMappingDAO] = relationship(
         "PlanMappingDAO", foreign_keys=[target_planmappingdao_id], lazy="selectin"
-    )
-
-
-class GiskardTesterDAO_robot_names_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_18552742813313585395849894661168412239528432174761485585780336"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_giskardtesterdao_id: Mapped[int] = mapped_column(
-        ForeignKey("GiskardTesterDAO.database_id")
-    )
-    target_prefixednamedao_id: Mapped[int] = mapped_column(
-        ForeignKey("PrefixedNameDAO.database_id")
-    )
-
-    target: Mapped[PrefixedNameDAO] = relationship(
-        "PrefixedNameDAO", foreign_keys=[target_prefixednamedao_id], lazy="selectin"
     )
 
 
@@ -1486,6 +1465,59 @@ class WorldModelManagerDAO_model_modification_blocks_association(
         "WorldModelModificationBlockDAO",
         foreign_keys=[target_worldmodelmodificationblockdao_id],
         lazy="selectin",
+    )
+
+
+class GraphOfConvexSetsFigureDAO_panels_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_52110636732074980082993649375060131915594594165915019657047083"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_graphofconvexsetsfiguredao_id: Mapped[int] = mapped_column(
+        ForeignKey("GraphOfConvexSetsFigureDAO.database_id")
+    )
+    target_scenepaneldao_id: Mapped[int] = mapped_column(
+        ForeignKey("ScenePanelDAO.database_id")
+    )
+
+    target: Mapped[ScenePanelDAO] = relationship(
+        "ScenePanelDAO", foreign_keys=[target_scenepaneldao_id], lazy="selectin"
+    )
+
+
+class NavigationPathDAO_waypoints_association(Base, AssociationDataAccessObject):
+    __tablename__ = "_66168847651132824708465285956923054584288106509917644616958494"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_navigationpathdao_id: Mapped[int] = mapped_column(
+        ForeignKey("NavigationPathDAO.database_id")
+    )
+    target_point3mappingdao_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id")
+    )
+
+    target: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", foreign_keys=[target_point3mappingdao_id], lazy="selectin"
+    )
+
+
+class GraphOfConvexSetsVolumeFigureDAO_panels_association(
+    Base, AssociationDataAccessObject
+):
+    __tablename__ = "_10159811902069426229812951540151924761874544804589672710080831"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    source_graphofconvexsetsvolumefiguredao_id: Mapped[int] = mapped_column(
+        ForeignKey("GraphOfConvexSetsVolumeFigureDAO.database_id")
+    )
+    target_volumepaneldao_id: Mapped[int] = mapped_column(
+        ForeignKey("VolumePanelDAO.database_id")
+    )
+
+    target: Mapped[VolumePanelDAO] = relationship(
+        "VolumePanelDAO", foreign_keys=[target_volumepaneldao_id], lazy="selectin"
     )
 
 
@@ -7701,122 +7733,6 @@ class SimulationPacerDAO(
     }
 
 
-class BehaviorTreeConfigDAO(
-    Base,
-    DataAccessObject[giskardpy.middleware.ros2.behavior_tree_config.BehaviorTreeConfig],
-):
-    __tablename__ = "BehaviorTreeConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    tree_tick_rate: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-    debug_mode: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
-    add_gantt_chart_plotter: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_goal_graph_plotter: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_trajectory_plotter: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_debug_trajectory_plotter: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_debug_marker_publisher: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_trajectory_visualizer: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-    add_debug_trajectory_visualizer: Mapped[builtins.bool] = mapped_column(
-        use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
-    )
-
-    add_qp_data_publisher_id: Mapped[int] = mapped_column(
-        ForeignKey("QPDataPublisherConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    add_qp_data_publisher: Mapped[QPDataPublisherConfigDAO] = relationship(
-        "QPDataPublisherConfigDAO",
-        uselist=False,
-        foreign_keys=[add_qp_data_publisher_id],
-        post_update=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "BehaviorTreeConfigDAO",
-    }
-
-
-class ClosedLoopBTConfigDAO(
-    BehaviorTreeConfigDAO,
-    DataAccessObject[giskardpy.middleware.ros2.behavior_tree_config.ClosedLoopBTConfig],
-):
-    __tablename__ = "ClosedLoopBTConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(BehaviorTreeConfigDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ClosedLoopBTConfigDAO",
-        "inherit_condition": database_id == BehaviorTreeConfigDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class OpenLoopBTConfigDAO(
-    BehaviorTreeConfigDAO,
-    DataAccessObject[giskardpy.middleware.ros2.behavior_tree_config.OpenLoopBTConfig],
-):
-    __tablename__ = "OpenLoopBTConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(BehaviorTreeConfigDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "OpenLoopBTConfigDAO",
-        "inherit_condition": database_id == BehaviorTreeConfigDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class StandAloneBTConfigDAO(
-    BehaviorTreeConfigDAO,
-    DataAccessObject[giskardpy.middleware.ros2.behavior_tree_config.StandAloneBTConfig],
-):
-    __tablename__ = "StandAloneBTConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(BehaviorTreeConfigDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    publish_world_state: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
-
-    __mapper_args__ = {
-        "polymorphic_identity": "StandAloneBTConfigDAO",
-        "inherit_condition": database_id == BehaviorTreeConfigDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class ExecutionExceptionDAO(
     GiskardExceptionDAO,
     DataAccessObject[giskardpy.middleware.ros2.exceptions.ExecutionException],
@@ -8124,49 +8040,6 @@ class NoActiveGoalToCancelErrorDAO(
     }
 
 
-class GiskardDAO(Base, DataAccessObject[giskardpy.middleware.ros2.giskard.Giskard]):
-    __tablename__ = "GiskardDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    world_config_id: Mapped[int] = mapped_column(
-        ForeignKey("WorldConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    behavior_tree_config_id: Mapped[int] = mapped_column(
-        ForeignKey("BehaviorTreeConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    qp_controller_config_id: Mapped[int] = mapped_column(
-        ForeignKey("QPControllerConfigDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    world_config: Mapped[WorldConfigDAO] = relationship(
-        "WorldConfigDAO",
-        uselist=False,
-        foreign_keys=[world_config_id],
-        post_update=True,
-    )
-    behavior_tree_config: Mapped[BehaviorTreeConfigDAO] = relationship(
-        "BehaviorTreeConfigDAO",
-        uselist=False,
-        foreign_keys=[behavior_tree_config_id],
-        post_update=True,
-    )
-    qp_controller_config: Mapped[QPControllerConfigDAO] = relationship(
-        "QPControllerConfigDAO",
-        uselist=False,
-        foreign_keys=[qp_controller_config_id],
-        post_update=True,
-    )
-
-
 class GiskardWrapperDAO(
     Base, DataAccessObject[giskardpy.middleware.ros2.python_interface.GiskardWrapper]
 ):
@@ -8319,65 +8192,6 @@ class KinematicChainMarkerDAO(
     )
 
 
-class GiskardTesterDAO(
-    Base,
-    DataAccessObject[giskardpy.middleware.ros2.utils.utils_for_tests.GiskardTester],
-):
-    __tablename__ = "GiskardTesterDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    total_time_spend_giskarding: Mapped[builtins.int] = mapped_column(
-        use_existing_column=True
-    )
-    total_time_spend_moving: Mapped[builtins.int] = mapped_column(
-        use_existing_column=True
-    )
-    default_env_name: Mapped[typing.Optional[builtins.str]] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
-    )
-
-    robot_names: Mapped[builtins.list[GiskardTesterDAO_robot_names_association]] = (
-        relationship(
-            "GiskardTesterDAO_robot_names_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[GiskardTesterDAO_robot_names_association.source_giskardtesterdao_id]",
-            lazy="selectin",
-        )
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "GiskardTesterDAO",
-    }
-
-
-class StretchTesterDAO(
-    GiskardTesterDAO,
-    DataAccessObject[giskardpy.middleware.ros2.utils.utils_for_tests.StretchTester],
-):
-    __tablename__ = "StretchTesterDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GiskardTesterDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "StretchTesterDAO",
-        "inherit_condition": database_id == GiskardTesterDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class WorldConfigDAO(Base, DataAccessObject[giskardpy.model.world_config.WorldConfig]):
     __tablename__ = "WorldConfigDAO"
 
@@ -8504,27 +8318,6 @@ class WorldWithDiffDriveRobotDAO(
     }
 
 
-class WorldWithStretchConfigDiffDriveDAO(
-    WorldWithDiffDriveRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.stretch.configs.WorldWithStretchConfigDiffDrive
-    ],
-):
-    __tablename__ = "WorldWithStretchConfigDiffDriveDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithDiffDriveRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithStretchConfigDiffDriveDAO",
-        "inherit_condition": database_id == WorldWithDiffDriveRobotDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class WorldWithFixedRobotDAO(
     WorldConfigDAO, DataAccessObject[giskardpy.model.world_config.WorldWithFixedRobot]
 ):
@@ -8569,48 +8362,6 @@ class WorldWithFixedRobotDAO(
     __mapper_args__ = {
         "polymorphic_identity": "WorldWithFixedRobotDAO",
         "inherit_condition": database_id == WorldConfigDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class WorldWithDaisyConfigDAO(
-    WorldWithFixedRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.daisy.configs.WorldWithDaisyConfig
-    ],
-):
-    __tablename__ = "WorldWithDaisyConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithFixedRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithDaisyConfigDAO",
-        "inherit_condition": database_id == WorldWithFixedRobotDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class WorldWithTracyConfigDAO(
-    WorldWithFixedRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.tracy.configs.WorldWithTracyConfig
-    ],
-):
-    __tablename__ = "WorldWithTracyConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithFixedRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithTracyConfigDAO",
-        "inherit_condition": database_id == WorldWithFixedRobotDAO.database_id,
         "polymorphic_load": "selectin",
     }
 
@@ -8671,69 +8422,6 @@ class WorldWithOmniDriveRobotDAO(
     __mapper_args__ = {
         "polymorphic_identity": "WorldWithOmniDriveRobotDAO",
         "inherit_condition": database_id == WorldConfigDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class WorldWithHSRConfigDAO(
-    WorldWithOmniDriveRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.hsr.configs.WorldWithHSRConfig
-    ],
-):
-    __tablename__ = "WorldWithHSRConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithOmniDriveRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithHSRConfigDAO",
-        "inherit_condition": database_id == WorldWithOmniDriveRobotDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class WorldWithPR2ConfigDAO(
-    WorldWithOmniDriveRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.pr2.configs.WorldWithPR2Config
-    ],
-):
-    __tablename__ = "WorldWithPR2ConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithOmniDriveRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithPR2ConfigDAO",
-        "inherit_condition": database_id == WorldWithOmniDriveRobotDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class WorldWithStretchConfigDAO(
-    WorldWithOmniDriveRobotDAO,
-    DataAccessObject[
-        giskardpy.middleware.ros2.scripts.iai_robots.stretch.configs.WorldWithStretchConfig
-    ],
-):
-    __tablename__ = "WorldWithStretchConfigDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(WorldWithOmniDriveRobotDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WorldWithStretchConfigDAO",
-        "inherit_condition": database_id == WorldWithOmniDriveRobotDAO.database_id,
         "polymorphic_load": "selectin",
     }
 
@@ -24303,6 +23991,62 @@ class GraphOfBoundingBoxesDAO(
     }
 
 
+class PathQueryDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.boxes.PathQuery
+    ],
+):
+    __tablename__ = "PathQueryDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    start_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    start: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[start_id], post_update=True
+    )
+    goal: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[goal_id], post_update=True
+    )
+
+
+class EmptyFreeSpaceErrorDAO(
+    UsageErrorDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.exceptions.EmptyFreeSpaceError
+    ],
+):
+    __tablename__ = "EmptyFreeSpaceErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(UsageErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    environment_name: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EmptyFreeSpaceErrorDAO",
+        "inherit_condition": database_id == UsageErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class UnboundedSearchSpaceErrorDAO(
     UsageErrorDAO,
     DataAccessObject[
@@ -24320,6 +24064,588 @@ class UnboundedSearchSpaceErrorDAO(
     __mapper_args__ = {
         "polymorphic_identity": "UnboundedSearchSpaceErrorDAO",
         "inherit_condition": database_id == UsageErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class UnconnectedGraphErrorDAO(
+    UsageErrorDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.exceptions.UnconnectedGraphError
+    ],
+):
+    __tablename__ = "UnconnectedGraphErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(UsageErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    convex_set_count: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "UnconnectedGraphErrorDAO",
+        "inherit_condition": database_id == UsageErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class UnreachableGoalErrorDAO(
+    UsageErrorDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.exceptions.UnreachableGoalError
+    ],
+):
+    __tablename__ = "UnreachableGoalErrorDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(UsageErrorDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    start_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    start: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[start_id], post_update=True
+    )
+    goal: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[goal_id], post_update=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "UnreachableGoalErrorDAO",
+        "inherit_condition": database_id == UsageErrorDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ConvexSetAdjacencyDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ConvexSetAdjacency
+    ],
+):
+    __tablename__ = "ConvexSetAdjacencyDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    source_center_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    portal_center_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    target_center_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    source_center: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO",
+        uselist=False,
+        foreign_keys=[source_center_id],
+        post_update=True,
+    )
+    portal_center: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO",
+        uselist=False,
+        foreign_keys=[portal_center_id],
+        post_update=True,
+    )
+    target_center: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO",
+        uselist=False,
+        foreign_keys=[target_center_id],
+        post_update=True,
+    )
+
+
+class FigurePaletteDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.FigurePalette
+    ],
+):
+    __tablename__ = "FigurePaletteDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    surface: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    text_primary: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    text_secondary: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    obstacle: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    obstacle_edge: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    convex_set: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    convex_set_edge: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    receded_convex_set: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    adjacency: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    path: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    start: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+    goal: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
+class FootprintDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.Footprint
+    ],
+):
+    __tablename__ = "FootprintDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    min_x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    min_y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    max_x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    max_y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+
+class GraphOfConvexSetsFigureDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.GraphOfConvexSetsFigure
+    ],
+):
+    __tablename__ = "GraphOfConvexSetsFigureDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    dots_per_inch: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+    theme: Mapped[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.Theme
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    scene_id: Mapped[int] = mapped_column(
+        ForeignKey("NavigationSceneDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scene: Mapped[NavigationSceneDAO] = relationship(
+        "NavigationSceneDAO", uselist=False, foreign_keys=[scene_id], post_update=True
+    )
+    panels: Mapped[builtins.tuple[GraphOfConvexSetsFigureDAO_panels_association]] = (
+        relationship(
+            "GraphOfConvexSetsFigureDAO_panels_association",
+            collection_class=builtins.tuple,
+            cascade="all, delete-orphan",
+            foreign_keys="[GraphOfConvexSetsFigureDAO_panels_association.source_graphofconvexsetsfiguredao_id]",
+            lazy="selectin",
+        )
+    )
+
+
+class LegendEntryDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.LegendEntry
+    ],
+):
+    __tablename__ = "LegendEntryDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    label: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+
+class NavigationPathDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.NavigationPath
+    ],
+):
+    __tablename__ = "NavigationPathDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    waypoints: Mapped[builtins.list[NavigationPathDAO_waypoints_association]] = (
+        relationship(
+            "NavigationPathDAO_waypoints_association",
+            collection_class=builtins.list,
+            cascade="all, delete-orphan",
+            foreign_keys="[NavigationPathDAO_waypoints_association.source_navigationpathdao_id]",
+            lazy="selectin",
+        )
+    )
+
+
+class NavigationSceneDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.NavigationScene
+    ],
+):
+    __tablename__ = "NavigationSceneDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    environment_name: Mapped[builtins.str] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    graph_of_convex_sets_id: Mapped[int] = mapped_column(
+        ForeignKey("GraphOfBoundingBoxesDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    path_id: Mapped[int] = mapped_column(
+        ForeignKey("NavigationPathDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    obstacles_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("BoundingBoxCollectionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    graph_of_convex_sets: Mapped[GraphOfBoundingBoxesDAO] = relationship(
+        "GraphOfBoundingBoxesDAO",
+        uselist=False,
+        foreign_keys=[graph_of_convex_sets_id],
+        post_update=True,
+    )
+    path: Mapped[NavigationPathDAO] = relationship(
+        "NavigationPathDAO", uselist=False, foreign_keys=[path_id], post_update=True
+    )
+    obstacles: Mapped[BoundingBoxCollectionDAO] = relationship(
+        "BoundingBoxCollectionDAO",
+        uselist=False,
+        foreign_keys=[obstacles_id],
+        post_update=True,
+    )
+
+
+class PanelArrangementDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.PanelArrangement
+    ],
+):
+    __tablename__ = "PanelArrangementDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    rows: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    columns: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    wide_aspect_ratio: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    maximum_width_inches: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    preferred_inches_per_meter: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    title_inches_per_row: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    legend_inches: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    legend_entry_inches: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+
+
+class SceneLayerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.SceneLayer
+    ],
+):
+    __tablename__ = "SceneLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "SceneLayerDAO",
+    }
+
+
+class AdjacencyLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.AdjacencyLayer
+    ],
+):
+    __tablename__ = "AdjacencyLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "AdjacencyLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ConvexSetsLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ConvexSetsLayer
+    ],
+):
+    __tablename__ = "ConvexSetsLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    emphasis: Mapped[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ConvexSetEmphasis
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ConvexSetsLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class EndpointsLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.EndpointsLayer
+    ],
+):
+    __tablename__ = "EndpointsLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    label_offset: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EndpointsLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ObstacleLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ObstacleLayer
+    ],
+):
+    __tablename__ = "ObstacleLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ObstacleLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class PathLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.PathLayer
+    ],
+):
+    __tablename__ = "PathLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "PathLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ScenePanelDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ScenePanel
+    ],
+):
+    __tablename__ = "ScenePanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "ScenePanelDAO",
+    }
+
+
+class ConvexSetsPanelDAO(
+    ScenePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.ConvexSetsPanel
+    ],
+):
+    __tablename__ = "ConvexSetsPanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(ScenePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ConvexSetsPanelDAO",
+        "inherit_condition": database_id == ScenePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class EnvironmentPanelDAO(
+    ScenePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.EnvironmentPanel
+    ],
+):
+    __tablename__ = "EnvironmentPanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(ScenePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EnvironmentPanelDAO",
+        "inherit_condition": database_id == ScenePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class OptimalPathPanelDAO(
+    ScenePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.OptimalPathPanel
+    ],
+):
+    __tablename__ = "OptimalPathPanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(ScenePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "OptimalPathPanelDAO",
+        "inherit_condition": database_id == ScenePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class SearchSpaceLayerDAO(
+    SceneLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.SearchSpaceLayer
+    ],
+):
+    __tablename__ = "SearchSpaceLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SceneLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SearchSpaceLayerDAO",
+        "inherit_condition": database_id == SceneLayerDAO.database_id,
         "polymorphic_load": "selectin",
     }
 
@@ -24463,6 +24789,318 @@ class _MockedVPolytopeDAO(
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
     )
+
+
+class GraphOfConvexSetsVolumeFigureDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.GraphOfConvexSetsVolumeFigure
+    ],
+):
+    __tablename__ = "GraphOfConvexSetsVolumeFigureDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    panel_width_pixels: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    height_pixels: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    image_scale: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+
+    theme: Mapped[
+        semantic_digital_twin.world_description.graph_of_convex_sets.figure.Theme
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    scene_id: Mapped[int] = mapped_column(
+        ForeignKey("NavigationSceneDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    camera_id: Mapped[int] = mapped_column(
+        ForeignKey("SceneCameraDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    scene: Mapped[NavigationSceneDAO] = relationship(
+        "NavigationSceneDAO", uselist=False, foreign_keys=[scene_id], post_update=True
+    )
+    camera: Mapped[SceneCameraDAO] = relationship(
+        "SceneCameraDAO", uselist=False, foreign_keys=[camera_id], post_update=True
+    )
+    panels: Mapped[
+        builtins.tuple[GraphOfConvexSetsVolumeFigureDAO_panels_association]
+    ] = relationship(
+        "GraphOfConvexSetsVolumeFigureDAO_panels_association",
+        collection_class=builtins.tuple,
+        cascade="all, delete-orphan",
+        foreign_keys="[GraphOfConvexSetsVolumeFigureDAO_panels_association.source_graphofconvexsetsvolumefiguredao_id]",
+        lazy="selectin",
+    )
+
+
+class SceneCameraDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.SceneCamera
+    ],
+):
+    __tablename__ = "SceneCameraDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    eye_x: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    eye_y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    eye_z: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+
+class VolumeLayerDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.VolumeLayer
+    ],
+):
+    __tablename__ = "VolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "VolumeLayerDAO",
+    }
+
+
+class AdjacencyVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.AdjacencyVolumeLayer
+    ],
+):
+    __tablename__ = "AdjacencyVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "AdjacencyVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ConvexSetVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.ConvexSetVolumeLayer
+    ],
+):
+    __tablename__ = "ConvexSetVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    fill_opacity: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ConvexSetVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class EndpointsVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.EndpointsVolumeLayer
+    ],
+):
+    __tablename__ = "EndpointsVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EndpointsVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class ObstacleVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.ObstacleVolumeLayer
+    ],
+):
+    __tablename__ = "ObstacleVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    emphasis: Mapped[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.ObstacleEmphasis
+    ] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=False,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ObstacleVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class PathVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.PathVolumeLayer
+    ],
+):
+    __tablename__ = "PathVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "PathVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class SearchSpaceVolumeLayerDAO(
+    VolumeLayerDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.SearchSpaceVolumeLayer
+    ],
+):
+    __tablename__ = "SearchSpaceVolumeLayerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumeLayerDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SearchSpaceVolumeLayerDAO",
+        "inherit_condition": database_id == VolumeLayerDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class VolumePanelDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.VolumePanel
+    ],
+):
+    __tablename__ = "VolumePanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "VolumePanelDAO",
+    }
+
+
+class ConvexSetsVolumePanelDAO(
+    VolumePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.ConvexSetsVolumePanel
+    ],
+):
+    __tablename__ = "ConvexSetsVolumePanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ConvexSetsVolumePanelDAO",
+        "inherit_condition": database_id == VolumePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class EnvironmentVolumePanelDAO(
+    VolumePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.EnvironmentVolumePanel
+    ],
+):
+    __tablename__ = "EnvironmentVolumePanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "EnvironmentVolumePanelDAO",
+        "inherit_condition": database_id == VolumePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
+class OptimalPathVolumePanelDAO(
+    VolumePanelDAO,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.OptimalPathVolumePanel
+    ],
+):
+    __tablename__ = "OptimalPathVolumePanelDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(VolumePanelDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "OptimalPathVolumePanelDAO",
+        "inherit_condition": database_id == VolumePanelDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
 
 
 class InertialDAO(

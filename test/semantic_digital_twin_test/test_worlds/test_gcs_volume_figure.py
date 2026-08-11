@@ -12,21 +12,25 @@ import rustworkx as rx
 import pytest
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    SemanticEnvironmentAnnotation,
+)
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    GraphOfBoundingBoxes,
+    hardest_path_query,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
-    EnvironmentGeometry,
-    FloorPlanDecomposition,
+    NavigationPath,
     NavigationScene,
     Theme,
-    VolumetricDecomposition,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure import (
-    BoxGeometry,
     ConvexSetsVolumePanel,
     EnvironmentVolumePanel,
     GraphOfConvexSetsVolumeFigure,
@@ -34,6 +38,9 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure 
     ObstacleVolumeLayer,
     OptimalPathVolumePanel,
     polyline_trace,
+)
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -139,77 +146,60 @@ def barrier_world() -> World:
     return world
 
 
+def barrier_search_space_of(world: World) -> BoundingBoxCollection:
+    """
+    :param world: The barrier world to cover.
+    :return: The floor's footprint, raised to the world's full height.
+    """
+    origin = HomogeneousTransformationMatrix(reference_frame=world.root)
+    return BoundingBoxCollection(
+        [
+            BoundingBox(
+                -FLOOR_SIZE[0] / 2,
+                -FLOOR_SIZE[1] / 2,
+                0.0,
+                FLOOR_SIZE[0] / 2,
+                FLOOR_SIZE[1] / 2,
+                SIDE_WALL_HEIGHT,
+                origin,
+            )
+        ],
+        world.root,
+    )
+
+
+def navigation_scene_of(graph: GraphOfBoundingBoxes, world: World) -> NavigationScene:
+    """
+    :param graph: The already-decomposed graph of convex sets.
+    :param world: The world the graph was built from, to draw the true obstacles of.
+    :return: The scene, planned between the two convex sets the graph forces the
+        longest detour between.
+    """
+    origin = HomogeneousTransformationMatrix(reference_frame=world.root)
+    query = hardest_path_query(graph)
+    waypoints = graph.path_from_to(query.start, query.goal)
+    obstacles = SemanticEnvironmentAnnotation(
+        root=world.root, _world=world
+    ).as_bounding_box_collection_at_origin(origin)
+    return NavigationScene(
+        graph_of_convex_sets=graph,
+        environment_name="barrier",
+        path=NavigationPath(waypoints),
+        obstacles=obstacles,
+    )
+
+
 @pytest.fixture
 def barrier_scene(barrier_world: World) -> NavigationScene:
     """
     The volumetric scene of the barrier world.
     """
-    return NavigationScene.from_world(
-        barrier_world,
-        "barrier",
-        clearance=CLEARANCE,
-        decomposition=VolumetricDecomposition(),
+    graph = GraphOfBoundingBoxes.free_space_from_world(
+        world=barrier_world,
+        search_space=barrier_search_space_of(barrier_world),
+        bloat_obstacles=CLEARANCE,
     )
-
-
-# %% turning boxes into drawable geometry
-
-
-def test_box_geometry_holds_the_eight_corners_of_every_box():
-    """
-    A box becomes the eight corners plotly draws faces and edges between.
-    """
-    origin = HomogeneousTransformationMatrix()
-    geometry = BoxGeometry.of(
-        [
-            BoundingBox(0.0, 0.0, 0.0, 1.0, 2.0, 3.0, origin),
-            BoundingBox(5.0, 0.0, 0.0, 6.0, 1.0, 1.0, origin),
-        ]
-    )
-
-    assert geometry.box_count == 2
-    assert geometry.corners.shape == (2, 8, 3)
-    assert geometry.corners[0].min(axis=0).tolist() == [0.0, 0.0, 0.0]
-    assert geometry.corners[0].max(axis=0).tolist() == [1.0, 2.0, 3.0]
-    assert geometry.corners[1].min(axis=0).tolist() == [5.0, 0.0, 0.0]
-
-
-def test_every_box_of_a_mesh_indexes_its_own_corners():
-    """
-    Boxes share one trace, so each box's faces have to be offset onto its own eight
-    corners; without the offset every box after the first would be drawn from the first
-    one's geometry.
-    """
-    origin = HomogeneousTransformationMatrix()
-    geometry = BoxGeometry.of(
-        [
-            BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, origin),
-            BoundingBox(5.0, 0.0, 0.0, 6.0, 1.0, 1.0, origin),
-        ]
-    )
-
-    mesh = geometry.as_mesh("#000000", 1.0, "boxes")
-    faces = np.stack([mesh.i, mesh.j, mesh.k], axis=-1)
-
-    assert len(faces) == 2 * len(BoxGeometry.FACES)
-    assert faces[: len(BoxGeometry.FACES)].max() < 8
-    assert faces[len(BoxGeometry.FACES) :].min() >= 8
-
-
-def test_a_wireframe_draws_every_edge_as_its_own_segment():
-    """
-    The edges are one trace, so consecutive edges have to be separated or the line would
-    run from the end of one edge to the start of the next.
-    """
-    origin = HomogeneousTransformationMatrix()
-    geometry = BoxGeometry.of([BoundingBox(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, origin)])
-
-    wireframe = geometry.as_wireframe("#000000", 1.0, "boxes")
-    points = np.stack([wireframe.x, wireframe.y, wireframe.z], axis=-1)
-
-    assert len(points) == 3 * len(BoxGeometry.EDGES)
-    assert np.isnan(points[2::3]).all()
-    assert not np.isnan(points[0::3]).any()
+    return navigation_scene_of(graph, barrier_world)
 
 
 def test_separate_polylines_are_not_joined_to_each_other():
@@ -242,25 +232,41 @@ def test_the_path_panel_draws_obstacles_it_can_be_seen_through():
     ]
 
     assert [layer.emphasis for layer in obstacle_layers] == [ObstacleEmphasis.CONTEXT]
-    assert ObstacleEmphasis.CONTEXT.opacity < ObstacleEmphasis.SUBJECT.opacity < 1.0
+    assert ObstacleEmphasis.CONTEXT.value < ObstacleEmphasis.SUBJECT.value < 1.0
 
 
-def test_the_third_dimension_connects_what_a_floor_plan_leaves_apart(
+def test_the_third_dimension_connects_what_a_shallow_search_space_leaves_apart(
     barrier_world: World, barrier_scene: NavigationScene
 ):
     """
-    The barrier spans the room, so projecting it onto the floor cuts the room in two and
-    no floor plan can cross it.
+    A search space too shallow to clear the barrier is blocked by it, cutting the room
+    in two.
 
-    Decomposing the volume leaves the space above it, and with it a single connected
-    graph.
+    A search space tall enough to rise over the barrier leaves the space above it, and
+    with it a single connected graph.
     """
-    geometry = EnvironmentGeometry.of(
-        barrier_world, NavigationScene.STEP_HEIGHT, NavigationScene.FLOOR_LEVEL
+    origin = HomogeneousTransformationMatrix(reference_frame=barrier_world.root)
+    shallow_search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -FLOOR_SIZE[0] / 2,
+                -FLOOR_SIZE[1] / 2,
+                0.0,
+                FLOOR_SIZE[0] / 2,
+                FLOOR_SIZE[1] / 2,
+                BARRIER_HEIGHT - 0.1,
+                origin,
+            )
+        ],
+        barrier_world.root,
     )
-    floor_plan_graph = FloorPlanDecomposition().graph_of(geometry, CLEARANCE)
+    shallow_graph = GraphOfBoundingBoxes.free_space_from_world(
+        world=barrier_world,
+        search_space=shallow_search_space,
+        bloat_obstacles=CLEARANCE,
+    )
 
-    assert len(rx.connected_components(floor_plan_graph.graph)) == 2
+    assert len(rx.connected_components(shallow_graph.graph)) == 2
     assert len(rx.connected_components(barrier_scene.graph_of_convex_sets.graph)) == 1
 
 

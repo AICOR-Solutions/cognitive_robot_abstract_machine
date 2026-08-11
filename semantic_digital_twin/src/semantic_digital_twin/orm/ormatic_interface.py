@@ -16,6 +16,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship, Mapped, mapped_column, DeclarativeBase
 
 import builtins
+import coraplex.datastructures.enums
+import coraplex.orm.model
 import enum
 import krrood.adapters.json_serializer
 import krrood.ormatic.custom_types
@@ -806,40 +808,6 @@ class WorldModelManagerDAO_model_modification_blocks_association(
     )
 
 
-class EnvironmentGeometryDAO_ground_bodies_association(
-    Base, AssociationDataAccessObject
-):
-    __tablename__ = "_11125118106454650234210599846474484944154820784964754379956598"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_environmentgeometrydao_id: Mapped[int] = mapped_column(
-        ForeignKey("EnvironmentGeometryDAO.database_id")
-    )
-    target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
-
-    target: Mapped[BodyDAO] = relationship(
-        "BodyDAO", foreign_keys=[target_bodydao_id], lazy="selectin"
-    )
-
-
-class EnvironmentGeometryDAO_standing_bodies_association(
-    Base, AssociationDataAccessObject
-):
-    __tablename__ = "_80281873150338684401795707417780533350251945144824337764510234"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_environmentgeometrydao_id: Mapped[int] = mapped_column(
-        ForeignKey("EnvironmentGeometryDAO.database_id")
-    )
-    target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
-
-    target: Mapped[BodyDAO] = relationship(
-        "BodyDAO", foreign_keys=[target_bodydao_id], lazy="selectin"
-    )
-
-
 class GraphOfConvexSetsFigureDAO_panels_association(Base, AssociationDataAccessObject):
     __tablename__ = "_52110636732074980082993649375060131915594594165915019657047083"
 
@@ -871,44 +839,6 @@ class NavigationPathDAO_waypoints_association(Base, AssociationDataAccessObject)
 
     target: Mapped[Point3MappingDAO] = relationship(
         "Point3MappingDAO", foreign_keys=[target_point3mappingdao_id], lazy="selectin"
-    )
-
-
-class GraphOfConvexPolygonsDAO_obstacles_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_10097511437740384067152589240138880074945231015404257411712969"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_graphofconvexpolygonsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("GraphOfConvexPolygonsDAO.database_id")
-    )
-    target__mockedconvexsetdao_id: Mapped[int] = mapped_column(
-        ForeignKey("_MockedConvexSetDAO.database_id")
-    )
-
-    target: Mapped[_MockedConvexSetDAO] = relationship(
-        "_MockedConvexSetDAO",
-        foreign_keys=[target__mockedconvexsetdao_id],
-        lazy="selectin",
-    )
-
-
-class GraphOfConvexPolygonsDAO_regions_association(Base, AssociationDataAccessObject):
-    __tablename__ = "_21683303155680797721654562863218184758483517575191610116427927"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_graphofconvexpolygonsdao_id: Mapped[int] = mapped_column(
-        ForeignKey("GraphOfConvexPolygonsDAO.database_id")
-    )
-    target__mockedhpolyhedrondao_id: Mapped[int] = mapped_column(
-        ForeignKey("_MockedHPolyhedronDAO.database_id")
-    )
-
-    target: Mapped[_MockedHPolyhedronDAO] = relationship(
-        "_MockedHPolyhedronDAO",
-        foreign_keys=[target__mockedhpolyhedrondao_id],
-        lazy="selectin",
     )
 
 
@@ -2314,23 +2244,6 @@ class DiningTableDAO_legs_association(Base, AssociationDataAccessObject):
     )
 
 
-class NavigationObstacleAnnotationDAO_obstacles_association(
-    Base, AssociationDataAccessObject
-):
-    __tablename__ = "_36610614626848519147657122876851990429901478456798048430258633"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-
-    source_navigationobstacleannotationdao_id: Mapped[int] = mapped_column(
-        ForeignKey("NavigationObstacleAnnotationDAO.database_id")
-    )
-    target_bodydao_id: Mapped[int] = mapped_column(ForeignKey("BodyDAO.database_id"))
-
-    target: Mapped[BodyDAO] = relationship(
-        "BodyDAO", foreign_keys=[target_bodydao_id], lazy="selectin"
-    )
-
-
 class WorldModelModificationBlockDAO_modifications_association(
     Base, AssociationDataAccessObject
 ):
@@ -2349,6 +2262,27 @@ class WorldModelModificationBlockDAO_modifications_association(
         "WorldModificationDAO",
         foreign_keys=[target_worldmodificationdao_id],
         lazy="selectin",
+    )
+
+
+class PlanMappingDAO(Base, DataAccessObject[coraplex.orm.model.PlanMapping]):
+    __tablename__ = "PlanMappingDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    initial_world_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("WorldMappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    initial_world: Mapped[WorldMappingDAO] = relationship(
+        "WorldMappingDAO",
+        uselist=False,
+        foreign_keys=[initial_world_id],
+        post_update=True,
     )
 
 
@@ -11535,6 +11469,30 @@ class PoseMappingDAO(
     }
 
 
+class GrasPoseMappingDAO(
+    PoseMappingDAO, DataAccessObject[coraplex.orm.model.GrasPoseMapping]
+):
+    __tablename__ = "GrasPoseMappingDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(PoseMappingDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    arm: Mapped[typing.Optional[coraplex.datastructures.enums.Arms]] = mapped_column(
+        krrood.ormatic.custom_types.PolymorphicEnumType,
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GrasPoseMappingDAO",
+        "inherit_condition": database_id == PoseMappingDAO.database_id,
+        "polymorphic_load": "selectin",
+    }
+
+
 class Pose2DMappingDAO(
     SpatialTypeDAO, DataAccessObject[semantic_digital_twin.orm.model.Pose2DMapping]
 ):
@@ -12239,6 +12197,37 @@ class GraphOfBoundingBoxesDAO(
     }
 
 
+class PathQueryDAO(
+    Base,
+    DataAccessObject[
+        semantic_digital_twin.world_description.graph_of_convex_sets.boxes.PathQuery
+    ],
+):
+    __tablename__ = "PathQueryDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    start_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    start: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[start_id], post_update=True
+    )
+    goal: Mapped[Point3MappingDAO] = relationship(
+        "Point3MappingDAO", uselist=False, foreign_keys=[goal_id], post_update=True
+    )
+
+
 class EmptyFreeSpaceErrorDAO(
     UsageErrorDAO,
     DataAccessObject[
@@ -12395,71 +12384,6 @@ class ConvexSetAdjacencyDAO(
     )
 
 
-class EnvironmentGeometryDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.EnvironmentGeometry
-    ],
-):
-    __tablename__ = "EnvironmentGeometryDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    floor_level: Mapped[builtins.float] = mapped_column(use_existing_column=True)
-
-    world_id: Mapped[int] = mapped_column(
-        ForeignKey("WorldMappingDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    ground_id: Mapped[int] = mapped_column(
-        ForeignKey("BoundingBoxCollectionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    covering_box_id: Mapped[int] = mapped_column(
-        ForeignKey("BoundingBoxDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    world: Mapped[WorldMappingDAO] = relationship(
-        "WorldMappingDAO", uselist=False, foreign_keys=[world_id], post_update=True
-    )
-    ground_bodies: Mapped[
-        builtins.list[EnvironmentGeometryDAO_ground_bodies_association]
-    ] = relationship(
-        "EnvironmentGeometryDAO_ground_bodies_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[EnvironmentGeometryDAO_ground_bodies_association.source_environmentgeometrydao_id]",
-        lazy="selectin",
-    )
-    standing_bodies: Mapped[
-        builtins.list[EnvironmentGeometryDAO_standing_bodies_association]
-    ] = relationship(
-        "EnvironmentGeometryDAO_standing_bodies_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[EnvironmentGeometryDAO_standing_bodies_association.source_environmentgeometrydao_id]",
-        lazy="selectin",
-    )
-    ground: Mapped[BoundingBoxCollectionDAO] = relationship(
-        "BoundingBoxCollectionDAO",
-        uselist=False,
-        foreign_keys=[ground_id],
-        post_update=True,
-    )
-    covering_box: Mapped[BoundingBoxDAO] = relationship(
-        "BoundingBoxDAO",
-        uselist=False,
-        foreign_keys=[covering_box_id],
-        post_update=True,
-    )
-
-
 class FigurePaletteDAO(
     Base,
     DataAccessObject[
@@ -12528,49 +12452,6 @@ class FootprintDAO(
     max_y: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
 
-class FreeSpaceDecompositionDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.FreeSpaceDecomposition
-    ],
-):
-    __tablename__ = "FreeSpaceDecompositionDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    polymorphic_type: Mapped[str] = mapped_column(
-        String(255), nullable=False, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_on": "polymorphic_type",
-        "polymorphic_identity": "FreeSpaceDecompositionDAO",
-    }
-
-
-class FloorPlanDecompositionDAO(
-    FreeSpaceDecompositionDAO,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.FloorPlanDecomposition
-    ],
-):
-    __tablename__ = "FloorPlanDecompositionDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FreeSpaceDecompositionDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "FloorPlanDecompositionDAO",
-        "inherit_condition": database_id == FreeSpaceDecompositionDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class GraphOfConvexSetsFigureDAO(
     Base,
     DataAccessObject[
@@ -12582,6 +12463,8 @@ class GraphOfConvexSetsFigureDAO(
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
     )
+
+    dots_per_inch: Mapped[builtins.int] = mapped_column(use_existing_column=True)
 
     theme: Mapped[
         semantic_digital_twin.world_description.graph_of_convex_sets.figure.Theme
@@ -12651,37 +12534,6 @@ class NavigationPathDAO(
     )
 
 
-class NavigationQueryDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.NavigationQuery
-    ],
-):
-    __tablename__ = "NavigationQueryDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-    start_id: Mapped[int] = mapped_column(
-        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    goal_id: Mapped[int] = mapped_column(
-        ForeignKey("Point3MappingDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    start: Mapped[Point3MappingDAO] = relationship(
-        "Point3MappingDAO", uselist=False, foreign_keys=[start_id], post_update=True
-    )
-    goal: Mapped[Point3MappingDAO] = relationship(
-        "Point3MappingDAO", uselist=False, foreign_keys=[goal_id], post_update=True
-    )
-
-
 class NavigationSceneDAO(
     Base,
     DataAccessObject[
@@ -12698,23 +12550,8 @@ class NavigationSceneDAO(
         sqlalchemy.sql.sqltypes.Text, use_existing_column=True
     )
 
-    search_space_id: Mapped[int] = mapped_column(
-        ForeignKey("BoundingBoxCollectionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    obstacles_id: Mapped[int] = mapped_column(
-        ForeignKey("BoundingBoxCollectionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
     graph_of_convex_sets_id: Mapped[int] = mapped_column(
         ForeignKey("GraphOfBoundingBoxesDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-    query_id: Mapped[int] = mapped_column(
-        ForeignKey("NavigationQueryDAO.database_id", use_alter=True),
         nullable=True,
         use_existing_column=True,
     )
@@ -12723,30 +12560,26 @@ class NavigationSceneDAO(
         nullable=True,
         use_existing_column=True,
     )
+    obstacles_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
+        ForeignKey("BoundingBoxCollectionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
 
-    search_space: Mapped[BoundingBoxCollectionDAO] = relationship(
-        "BoundingBoxCollectionDAO",
-        uselist=False,
-        foreign_keys=[search_space_id],
-        post_update=True,
-    )
-    obstacles: Mapped[BoundingBoxCollectionDAO] = relationship(
-        "BoundingBoxCollectionDAO",
-        uselist=False,
-        foreign_keys=[obstacles_id],
-        post_update=True,
-    )
     graph_of_convex_sets: Mapped[GraphOfBoundingBoxesDAO] = relationship(
         "GraphOfBoundingBoxesDAO",
         uselist=False,
         foreign_keys=[graph_of_convex_sets_id],
         post_update=True,
     )
-    query: Mapped[NavigationQueryDAO] = relationship(
-        "NavigationQueryDAO", uselist=False, foreign_keys=[query_id], post_update=True
-    )
     path: Mapped[NavigationPathDAO] = relationship(
         "NavigationPathDAO", uselist=False, foreign_keys=[path_id], post_update=True
+    )
+    obstacles: Mapped[BoundingBoxCollectionDAO] = relationship(
+        "BoundingBoxCollectionDAO",
+        uselist=False,
+        foreign_keys=[obstacles_id],
+        post_update=True,
     )
 
 
@@ -12764,6 +12597,20 @@ class PanelArrangementDAO(
 
     rows: Mapped[builtins.int] = mapped_column(use_existing_column=True)
     columns: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    wide_aspect_ratio: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    maximum_width_inches: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    preferred_inches_per_meter: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    title_inches_per_row: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
+    legend_inches: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    legend_entry_inches: Mapped[builtins.float] = mapped_column(
+        use_existing_column=True
+    )
 
 
 class SceneLayerDAO(
@@ -12851,6 +12698,8 @@ class EndpointsLayerDAO(
         primary_key=True,
         use_existing_column=True,
     )
+
+    label_offset: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "EndpointsLayerDAO",
@@ -13007,27 +12856,6 @@ class SearchSpaceLayerDAO(
     }
 
 
-class VolumetricDecompositionDAO(
-    FreeSpaceDecompositionDAO,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.VolumetricDecomposition
-    ],
-):
-    __tablename__ = "VolumetricDecompositionDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FreeSpaceDecompositionDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "VolumetricDecompositionDAO",
-        "inherit_condition": database_id == FreeSpaceDecompositionDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
 class GraphOfConvexPolygonsDAO(
     GraphOfConvexSetsDAO,
     DataAccessObject[
@@ -13040,25 +12868,6 @@ class GraphOfConvexPolygonsDAO(
         ForeignKey(GraphOfConvexSetsDAO.database_id),
         primary_key=True,
         use_existing_column=True,
-    )
-
-    obstacles: Mapped[builtins.list[GraphOfConvexPolygonsDAO_obstacles_association]] = (
-        relationship(
-            "GraphOfConvexPolygonsDAO_obstacles_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[GraphOfConvexPolygonsDAO_obstacles_association.source_graphofconvexpolygonsdao_id]",
-            lazy="selectin",
-        )
-    )
-    regions: Mapped[builtins.list[GraphOfConvexPolygonsDAO_regions_association]] = (
-        relationship(
-            "GraphOfConvexPolygonsDAO_regions_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[GraphOfConvexPolygonsDAO_regions_association.source_graphofconvexpolygonsdao_id]",
-            lazy="selectin",
-        )
     )
 
     __mapper_args__ = {
@@ -13082,19 +12891,6 @@ class IrisSeedingSettingsDAO(
 
     grid_resolution: Mapped[builtins.int] = mapped_column(use_existing_column=True)
     max_regions: Mapped[builtins.int] = mapped_column(use_existing_column=True)
-
-    iris_options_id: Mapped[int] = mapped_column(
-        ForeignKey("_MockedIrisOptionsDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    iris_options: Mapped[_MockedIrisOptionsDAO] = relationship(
-        "_MockedIrisOptionsDAO",
-        uselist=False,
-        foreign_keys=[iris_options_id],
-        post_update=True,
-    )
 
 
 class _MockedConvexSetDAO(
@@ -13201,19 +12997,6 @@ class _MockedVPolytopeDAO(
     )
 
 
-class BoxGeometryDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.BoxGeometry
-    ],
-):
-    __tablename__ = "BoxGeometryDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        Integer, primary_key=True, use_existing_column=True
-    )
-
-
 class GraphOfConvexSetsVolumeFigureDAO(
     Base,
     DataAccessObject[
@@ -13225,6 +13008,10 @@ class GraphOfConvexSetsVolumeFigureDAO(
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
     )
+
+    panel_width_pixels: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    height_pixels: Mapped[builtins.int] = mapped_column(use_existing_column=True)
+    image_scale: Mapped[builtins.int] = mapped_column(use_existing_column=True)
 
     theme: Mapped[
         semantic_digital_twin.world_description.graph_of_convex_sets.figure.Theme
@@ -13335,6 +13122,8 @@ class ConvexSetVolumeLayerDAO(
         primary_key=True,
         use_existing_column=True,
     )
+
+    fill_opacity: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "ConvexSetVolumeLayerDAO",
@@ -25300,37 +25089,6 @@ class WineBottleDAO(
     __mapper_args__ = {
         "polymorphic_identity": "WineBottleDAO",
         "inherit_condition": database_id == BottleDAO.database_id,
-        "polymorphic_load": "selectin",
-    }
-
-
-class NavigationObstacleAnnotationDAO(
-    SemanticAnnotationDAO,
-    DataAccessObject[
-        semantic_digital_twin.world_description.graph_of_convex_sets.figure.NavigationObstacleAnnotation
-    ],
-):
-    __tablename__ = "NavigationObstacleAnnotationDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SemanticAnnotationDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    obstacles: Mapped[
-        builtins.list[NavigationObstacleAnnotationDAO_obstacles_association]
-    ] = relationship(
-        "NavigationObstacleAnnotationDAO_obstacles_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[NavigationObstacleAnnotationDAO_obstacles_association.source_navigationobstacleannotationdao_id]",
-        lazy="selectin",
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "NavigationObstacleAnnotationDAO",
-        "inherit_condition": database_id == SemanticAnnotationDAO.database_id,
         "polymorphic_load": "selectin",
     }
 

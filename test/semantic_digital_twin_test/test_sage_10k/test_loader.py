@@ -14,6 +14,9 @@ from semantic_digital_twin.adapters.sage_10k_dataset.loader import (
     Sage10kDatasetLoader,
 )
 from semantic_digital_twin.adapters.sage_10k_dataset.schema import Sage10kScene
+from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
+    Sage10kActionableScenes,
+)
 from semantic_digital_twin.pipeline.mesh_decomposition.box_decomposer import (
     BoxDecomposer,
 )
@@ -115,3 +118,20 @@ def test_different_decomposition_methods(rclpy_node, sage10k_scene):
         shape_source=ShapeSource.COLLISION_ONLY,
     )
     pub.with_tf_publisher()
+
+
+def test_curated_sage10k_scenes_are_named_after_the_scene():
+    """
+    A curated scene is titled with its name, and any other scene with the filename of
+    its URL.
+    """
+    assert (
+        Sage10kDatasetLoader.environment_name(str(Sage10kActionableScenes.GYM)) == "gym"
+    )
+    assert (
+        Sage10kDatasetLoader.environment_name(
+            "https://huggingface.co/datasets/nvidia/SAGE-10k/resolve/main/scenes/"
+            "20251213_020526_layout_84b703fb.zip"
+        )
+        == "20251213_020526_layout_84b703fb"
+    )

@@ -23,146 +23,18 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing_extensions import ClassVar, Iterable, List, Sequence, Self
+from random_events.plotting import EventPlotter
+from random_events.product_algebra import Event
+from typing_extensions import List, Sequence
 
-from semantic_digital_twin.world_description.geometry import BoundingBox, Bounds
+from semantic_digital_twin.world_description.geometry import Bounds
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     FigurePalette,
     NavigationScene,
     Theme,
 )
 
-# %% turning boxes into drawable geometry
-
-
-@dataclass(frozen=True)
-class BoxGeometry:
-    """
-    A collection of axis-aligned boxes expressed as the arrays plotly draws from, so
-    that any number of boxes costs one trace rather than one trace each.
-    """
-
-    corners: np.ndarray
-    """
-    The boxes' vertices, eight rows of x-y-z per box.
-    """
-
-    FACES: ClassVar[tuple[tuple[int, int, int], ...]] = (
-        (0, 1, 2),
-        (0, 2, 3),
-        (4, 5, 6),
-        (4, 6, 7),
-        (0, 1, 5),
-        (0, 5, 4),
-        (1, 2, 6),
-        (1, 6, 5),
-        (2, 3, 7),
-        (2, 7, 6),
-        (3, 0, 4),
-        (3, 4, 7),
-    )
-    """
-    The two triangles of each of a box's six faces, as indices into its eight vertices.
-    """
-
-    EDGES: ClassVar[tuple[tuple[int, int], ...]] = (
-        (0, 1),
-        (1, 2),
-        (2, 3),
-        (3, 0),
-        (4, 5),
-        (5, 6),
-        (6, 7),
-        (7, 4),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
-    )
-    """
-    The twelve edges of a box, as index pairs into its eight vertices.
-    """
-
-    @classmethod
-    def of(cls, boxes: Iterable[BoundingBox]) -> Self:
-        """
-        :param boxes: The boxes to express.
-        :return: Their geometry.
-        """
-        corners = []
-        for box in boxes:
-            bounds = box.to_array_bounds()
-            lower, upper = bounds.lower, bounds.upper
-            corners.extend(
-                [
-                    [lower[0], lower[1], lower[2]],
-                    [upper[0], lower[1], lower[2]],
-                    [upper[0], upper[1], lower[2]],
-                    [lower[0], upper[1], lower[2]],
-                    [lower[0], lower[1], upper[2]],
-                    [upper[0], lower[1], upper[2]],
-                    [upper[0], upper[1], upper[2]],
-                    [lower[0], upper[1], upper[2]],
-                ]
-            )
-        return cls(corners=np.array(corners).reshape(-1, 8, 3))
-
-    @property
-    def box_count(self) -> int:
-        """
-        :return: How many boxes the geometry holds.
-        """
-        return len(self.corners)
-
-    def as_mesh(self, color: str, opacity: float, name: str) -> go.Mesh3d:
-        """
-        :param color: The color the boxes are filled with.
-        :param opacity: How opaque the fill is.
-        :param name: The name the trace carries into the legend.
-        :return: One solid mesh covering every box.
-        """
-        vertices = self.corners.reshape(-1, 3)
-        offsets = np.arange(self.box_count).repeat(len(self.FACES)) * 8
-        faces = np.tile(np.array(self.FACES), (self.box_count, 1)) + offsets[:, None]
-        return go.Mesh3d(
-            x=vertices[:, 0],
-            y=vertices[:, 1],
-            z=vertices[:, 2],
-            i=faces[:, 0],
-            j=faces[:, 1],
-            k=faces[:, 2],
-            color=color,
-            opacity=opacity,
-            flatshading=True,
-            hoverinfo="skip",
-            name=name,
-            legendgroup=name,
-        )
-
-    def as_wireframe(self, color: str, width: float, name: str) -> go.Scatter3d:
-        """
-        :param color: The color of the edges.
-        :param width: The width of the edges in pixels.
-        :param name: The name the trace carries into the legend.
-        :return: One line trace covering every box's edges, which is what makes boxes
-            behind other boxes readable at all.
-        """
-        starts = self.corners[:, [edge[0] for edge in self.EDGES], :]
-        ends = self.corners[:, [edge[1] for edge in self.EDGES], :]
-        segments = np.full((self.box_count * len(self.EDGES), 3, 3), np.nan)
-        segments[:, 0, :] = starts.reshape(-1, 3)
-        segments[:, 1, :] = ends.reshape(-1, 3)
-        points = segments.reshape(-1, 3)
-        return go.Scatter3d(
-            x=points[:, 0],
-            y=points[:, 1],
-            z=points[:, 2],
-            mode="lines",
-            line=dict(color=color, width=width),
-            hoverinfo="skip",
-            name=name,
-            legendgroup=name,
-        )
+# %% shared trace helpers
 
 
 def polyline_trace(
@@ -223,29 +95,25 @@ class SearchSpaceVolumeLayer(VolumeLayer):
     def traces(
         self, scene: NavigationScene, palette: FigurePalette
     ) -> Sequence[go.BaseTraceType]:
-        geometry = BoxGeometry.of(scene.search_space)
-        return [geometry.as_wireframe(palette.text_secondary, 2.0, "search space")]
+        event = Event.from_simple_sets(
+            *(box.simple_event for box in scene.search_space)
+        )
+        plotter = EventPlotter(event)
+        return [plotter.plot_3d_wireframe(palette.text_secondary, 2.0, "search space")]
 
 
-class ObstacleEmphasis(enum.Enum):
+class ObstacleEmphasis(float, enum.Enum):
     """
     Whether the obstacles are the subject of a panel or the context something else is
-    read against.
+    read against. Its value is how opaque the obstacles are at that emphasis.
 
     Neither is opaque: a room is seen from outside, so solid walls would hide every
     thing the figure is about. Both steps let what is behind them show through, and the
     wireframe edges are what keep the geometry readable.
     """
 
-    SUBJECT = enum.auto()
-    CONTEXT = enum.auto()
-
-    @property
-    def opacity(self) -> float:
-        """
-        :return: How opaque the obstacles are at this emphasis.
-        """
-        return 0.45 if self is ObstacleEmphasis.SUBJECT else 0.2
+    SUBJECT = 0.45
+    CONTEXT = 0.2
 
 
 @dataclass(frozen=True)
@@ -262,10 +130,11 @@ class ObstacleVolumeLayer(VolumeLayer):
     def traces(
         self, scene: NavigationScene, palette: FigurePalette
     ) -> Sequence[go.BaseTraceType]:
-        geometry = BoxGeometry.of(scene.obstacles)
+        event = Event.from_simple_sets(*(box.simple_event for box in scene.obstacles))
+        plotter = EventPlotter(event)
         return [
-            geometry.as_mesh(palette.obstacle, self.emphasis.opacity, "obstacle"),
-            geometry.as_wireframe(palette.obstacle_edge, 1.0, "obstacle"),
+            plotter.plot_3d_mesh(palette.obstacle, self.emphasis.value, "obstacle"),
+            plotter.plot_3d_wireframe(palette.obstacle_edge, 1.0, "obstacle"),
         ]
 
 
@@ -276,7 +145,7 @@ class ConvexSetVolumeLayer(VolumeLayer):
     behind them and wireframed so the partition itself is legible.
     """
 
-    FILL_OPACITY: ClassVar[float] = 0.08
+    fill_opacity: float = 0.08
     """
     How opaque a convex set's fill is; low enough that a stack of them does not turn
     into a solid block.
@@ -285,10 +154,11 @@ class ConvexSetVolumeLayer(VolumeLayer):
     def traces(
         self, scene: NavigationScene, palette: FigurePalette
     ) -> Sequence[go.BaseTraceType]:
-        geometry = BoxGeometry.of(scene.convex_sets)
+        event = Event.from_simple_sets(*(box.simple_event for box in scene.convex_sets))
+        plotter = EventPlotter(event)
         return [
-            geometry.as_mesh(palette.convex_set, self.FILL_OPACITY, "convex set"),
-            geometry.as_wireframe(palette.convex_set_edge, 1.0, "convex set"),
+            plotter.plot_3d_mesh(palette.convex_set, self.fill_opacity, "convex set"),
+            plotter.plot_3d_wireframe(palette.convex_set_edge, 1.0, "convex set"),
         ]
 
 
@@ -360,16 +230,17 @@ class PathVolumeLayer(VolumeLayer):
 @dataclass(frozen=True)
 class EndpointsVolumeLayer(VolumeLayer):
     """
-    Draws the start and the goal of the query, each labelled beside its marker so that
+    Draws the start and the goal of the path, each labelled beside its marker so that
     neither is identified by color alone.
     """
 
     def traces(
         self, scene: NavigationScene, palette: FigurePalette
     ) -> Sequence[go.BaseTraceType]:
+        waypoints = scene.path.waypoints
         return [
-            self._endpoint_trace(scene.query.start, "start", "circle", palette.start),
-            self._endpoint_trace(scene.query.goal, "goal", "square", palette.goal),
+            self._endpoint_trace(waypoints[0], "start", "circle", palette.start),
+            self._endpoint_trace(waypoints[-1], "goal", "square", palette.goal),
         ]
 
     @staticmethod
@@ -589,17 +460,17 @@ class GraphOfConvexSetsVolumeFigure:
     page is wanted.
     """
 
-    PANEL_WIDTH_PIXELS: ClassVar[int] = 620
+    panel_width_pixels: int = 620
     """
     Width one panel is rendered at.
     """
 
-    HEIGHT_PIXELS: ClassVar[int] = 520
+    height_pixels: int = 520
     """
     Height the figure is rendered at.
     """
 
-    IMAGE_SCALE: ClassVar[int] = 2
+    image_scale: int = 2
     """
     Factor the raster image is rendered at above the nominal size.
     """
@@ -610,7 +481,7 @@ class GraphOfConvexSetsVolumeFigure:
 
         :return: The rendered figure.
         """
-        palette = self.theme.palette
+        palette = self.theme.value
         figure = make_subplots(
             rows=1,
             cols=len(self.panels),
@@ -632,7 +503,7 @@ class GraphOfConvexSetsVolumeFigure:
         output_directory.mkdir(parents=True, exist_ok=True)
         stem = (
             f"graph_of_convex_sets_volume_{self.scene.environment_name}_"
-            f"{self.theme.value}"
+            f"{self.theme.name.lower()}"
         )
         figure = self.render()
 
@@ -642,9 +513,9 @@ class GraphOfConvexSetsVolumeFigure:
             path = output_directory / f"{stem}{suffix}"
             figure.write_image(
                 str(path),
-                width=self.PANEL_WIDTH_PIXELS * len(self.panels),
-                height=self.HEIGHT_PIXELS,
-                scale=self.IMAGE_SCALE,
+                width=self.panel_width_pixels * len(self.panels),
+                height=self.height_pixels,
+                scale=self.image_scale,
             )
             written.append(path)
         return written

@@ -15,8 +15,10 @@ x-y extent so they can be read against each other:
     waypoints between the two convex sets the environment forces the longest detour
     between.
 
-The scene is built by :class:`NavigationScene` and drawn by
-:class:`GraphOfConvexSetsFigure`.
+The figure only draws an already-built
+:class:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.GraphOfBoundingBoxes`
+and an already-solved path over it, wrapped by :class:`NavigationScene`; building either
+is not this module's concern. :class:`GraphOfConvexSetsFigure` draws the scene.
 """
 
 from __future__ import annotations
@@ -27,46 +29,23 @@ import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse
 
 import matplotlib.pyplot as plt
 import numpy as np
-import rustworkx as rx
 from matplotlib.artist import Artist
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from typing_extensions import ClassVar, Iterable, List, Optional, Sequence, Self
+from typing_extensions import Iterable, List, Optional, Sequence, Self
 
-from semantic_digital_twin.adapters.sage_10k_dataset.loader import Sage10kDatasetLoader
-from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
-    Sage10kActionableScenes,
-)
-from semantic_digital_twin.adapters.urdf import URDFParser
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    SemanticEnvironmentAnnotation,
-)
-from semantic_digital_twin.spatial_types import (
-    HomogeneousTransformationMatrix,
-    Point3,
-)
-from semantic_digital_twin.world import World
+from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
 )
-from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
-    EmptyFreeSpaceError,
-    UnconnectedGraphError,
-    UnreachableGoalError,
-)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
-)
-from semantic_digital_twin.world_description.world_entity import (
-    Body,
-    SemanticAnnotation,
 )
 
 # %% palette
@@ -185,47 +164,22 @@ class FigurePalette:
 
 class Theme(enum.Enum):
     """
-    The surface a figure is rendered for.
+    The surface a figure is rendered for. Its value is the palette stepped for that
+    surface, so that a new theme is added as a member rather than as a branch.
+
+    Kept distinct from :class:`FigurePalette` rather than exposing the palette itself as
+    the picker: a theme is a closed choice between exactly two designed variants, where
+    a :class:`FigurePalette` is an open dataclass of a dozen individual colors that was
+    never meant to be picked from directly. Its filename-safe identity is
+    :attr:`~enum.Enum.name` (``"LIGHT"``/``"DARK"``), lowercased, since :attr:`value` is
+    now the palette rather than a string.
     """
 
-    LIGHT = "light"
-    DARK = "dark"
-
-    @property
-    def palette(self) -> FigurePalette:
-        """
-        :return: The palette stepped for this theme's surface.
-        """
-        return FigurePalette.light() if self is Theme.LIGHT else FigurePalette.dark()
+    LIGHT = FigurePalette.light()
+    DARK = FigurePalette.dark()
 
 
 # %% the scene a figure draws
-
-
-@dataclass(eq=False)
-class NavigationObstacleAnnotation(SemanticAnnotation):
-    """
-    The bodies a navigating robot has to travel around, as an annotation a graph of
-    convex sets can be built from.
-    """
-
-    obstacles: List[Body] = field(default_factory=list)
-    """
-    The obstacle bodies.
-    """
-
-
-def sage10k_environment_name(scene_url: str) -> str:
-    """
-    :param scene_url: URL of a Sage10k scene.
-    :return: The label a figure of that scene is titled with, taken from the curated
-        scene's name where the URL is one of :class:`Sage10kActionableScenes` and from
-        the URL's filename otherwise.
-    """
-    curated = {str(scene): scene.name.lower() for scene in Sage10kActionableScenes}
-    if scene_url in curated:
-        return curated[scene_url]
-    return Path(urlparse(scene_url).path).stem
 
 
 @dataclass(frozen=True)
@@ -308,6 +262,13 @@ class Footprint:
 class NavigationPath:
     """
     A solved path through a graph of convex sets.
+
+    Kept as a class rather than a plain ``List[Point3]``: :attr:`length`,
+    :attr:`vertical_travel`, :attr:`coordinates` and :attr:`spatial_coordinates` are each
+    read from panels in both this module and
+    :mod:`~semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure`,
+    so wrapping the waypoints once means every reader shares the same computation
+    instead of recomputing it from a bare list.
     """
 
     waypoints: List[Point3]
@@ -414,342 +375,18 @@ class ConvexSetAdjacency:
         )
 
 
-@dataclass(frozen=True)
-class NavigationQuery:
-    """
-    A start and a goal to plan between.
-    """
-
-    start: Point3
-    """
-    Where the path begins.
-    """
-
-    goal: Point3
-    """
-    Where the path ends.
-    """
-
-    @classmethod
-    def between_most_distant_convex_sets(cls, graph: GraphOfBoundingBoxes) -> Self:
-        """
-        Pick the query that is hardest to answer: the two convex set centers whose
-        shortest path through the graph is the longest one it holds.
-
-        Distance is measured along the graph rather than straight-line, so the query
-        lands on the pair the environment actually forces a detour between instead of on
-        whichever two sets happen to sit in opposite corners of an open room. Centers of
-        convex sets are free by construction, and a pair connected by a path is solvable
-        by definition. Ties are broken by coordinate rather than by the order the graph
-        happens to hold its nodes in, so that the same environment always yields the
-        same query.
-
-        :param graph: The graph to query.
-        :return: The query.
-        :raises UnconnectedGraphError: If no two convex sets are connected.
-        """
-        path_lengths = rx.all_pairs_dijkstra_path_lengths(
-            graph.graph, edge_cost_fn=lambda adjacency: adjacency.distance
-        )
-        # BoundingBox.center recomputes symbolic arithmetic on every access, and the
-        # tie-break below reads one per pair, so every center is resolved to floats once
-        # here instead.
-        coordinates = {
-            index: cls._coordinates_of(graph, index)
-            for index in graph.graph.node_indices()
-        }
-        # Each connected pair once, so which end is named start never depends on which
-        # direction the search happened to report first.
-        connected_pairs = [
-            (source, target)
-            for source, targets in path_lengths.items()
-            for target in targets
-            if source < target
-        ]
-        if not connected_pairs:
-            raise UnconnectedGraphError(graph.graph.num_nodes())
-
-        # Ties are broken on the pair's coordinates rather than on its graph indices,
-        # which depend on the order the world happened to yield its obstacles in.
-        most_distant_pair = max(
-            connected_pairs,
-            key=lambda pair: (
-                path_lengths[pair[0]][pair[1]],
-                *sorted((coordinates[pair[0]], coordinates[pair[1]])),
-            ),
-        )
-        start_index, goal_index = sorted(
-            most_distant_pair, key=lambda index: coordinates[index]
-        )
-        return cls(
-            start=graph.graph[start_index].center, goal=graph.graph[goal_index].center
-        )
-
-    @staticmethod
-    def _coordinates_of(
-        graph: GraphOfBoundingBoxes, index: int
-    ) -> tuple[float, float, float]:
-        """
-        :param graph: The graph holding the convex set.
-        :param index: The index of the convex set in that graph.
-        :return: The center of the convex set, as plain floats to compare by.
-        """
-        center = graph.graph[index].center
-        return float(center.x), float(center.y), float(center.z)
-
-
-@dataclass(frozen=True)
-class EnvironmentGeometry:
-    """
-    A world's collision geometry, split into the ground it rests on and the bodies
-    standing on that ground.
-
-    Geometry lying within a step height of the lowest point of the world is ground. What
-    the split is for depends on the decomposition: a floor plan has to leave the ground
-    out of its obstacles, while a volumetric decomposition treats it as an obstacle like
-    any other. Both derive the volume to plan in from it.
-    """
-
-    world: World
-    """
-    The world the geometry belongs to.
-    """
-
-    ground_bodies: List[Body]
-    """
-    The bodies forming the ground.
-    """
-
-    standing_bodies: List[Body]
-    """
-    The bodies standing on the ground.
-    """
-
-    ground: BoundingBoxCollection
-    """
-    The bounding boxes of :attr:`ground_bodies`, in the same order.
-    """
-
-    covering_box: BoundingBox
-    """
-    The minimal box covering all of the world's collision geometry, ground included.
-    """
-
-    floor_level: float
-    """
-    The height, in the world's root frame, below which nothing is navigable.
-    """
-
-    @classmethod
-    def of(cls, world: World, step_height: float, floor_level: float) -> Self:
-        """
-        :param world: The world to split.
-        :param step_height: Height above the lowest point of the world below which
-            geometry counts as ground.
-        :param floor_level: The height below which nothing is navigable.
-        :return: The split geometry.
-        """
-        annotation = SemanticEnvironmentAnnotation(root=world.root, _world=world)
-        bodies = annotation.bodies_with_collision
-        boxes = cls._bounding_boxes_of(bodies, world)
-        ground_level = min(float(box.to_array_bounds().lower[2]) for box in boxes)
-
-        is_ground = [
-            float(box.to_array_bounds().upper[2]) <= ground_level + step_height
-            for box in boxes
-        ]
-        ground_bodies = [body for body, ground in zip(bodies, is_ground) if ground]
-        return cls(
-            world=world,
-            ground_bodies=ground_bodies,
-            standing_bodies=[
-                body for body, ground in zip(bodies, is_ground) if not ground
-            ],
-            ground=cls._bounding_boxes_of(ground_bodies, world),
-            covering_box=boxes.bounding_box(),
-            floor_level=floor_level,
-        )
-
-    def bounding_boxes_of(self, bodies: List[Body]) -> BoundingBoxCollection:
-        """
-        :param bodies: The bodies to measure, one bounding box each.
-        :return: The bounding boxes, in the world's root frame and in the order the
-            bodies were given in.
-        """
-        return self._bounding_boxes_of(bodies, self.world)
-
-    def navigable_volume(self) -> BoundingBoxCollection:
-        """
-        Derive the volume to plan in from the ground: a robot may stand wherever there
-        is floor under it, and nowhere else.
-
-        Every ground footprint is raised to the full height of the world, so obstacles
-        standing on it are subtracted over their whole height. A world without ground
-        geometry falls back to the box covering it, which is the tightest volume that
-        can be justified without knowing where its floor is. Either way the volume stops
-        at :attr:`floor_level`.
-
-        :return: The volume to plan in.
-        """
-        covering_bounds = self.covering_box.to_array_bounds()
-        lower_z = max(self.floor_level, float(covering_bounds.lower[2]))
-        upper_z = float(covering_bounds.upper[2])
-        footprints = self.ground if self.ground else [self.covering_box]
-        return BoundingBoxCollection(
-            [
-                BoundingBox(
-                    min_x=box.min_x,
-                    min_y=box.min_y,
-                    min_z=lower_z,
-                    max_x=box.max_x,
-                    max_y=box.max_y,
-                    max_z=upper_z,
-                    origin=box.origin,
-                )
-                for box in footprints
-            ],
-            self.covering_box.origin.reference_frame,
-        )
-
-    @staticmethod
-    def _bounding_boxes_of(bodies: List[Body], world: World) -> BoundingBoxCollection:
-        """
-        :param bodies: The bodies to measure, one bounding box each.
-        :param world: The world the bodies belong to.
-        :return: The bounding boxes, in the world's root frame and in the order the
-            bodies were given in.
-        """
-        origin = HomogeneousTransformationMatrix(reference_frame=world.root)
-        return BoundingBoxCollection(
-            [
-                body.collision.as_bounding_box_collection_at_origin(
-                    origin
-                ).bounding_box()
-                for body in bodies
-            ],
-            world.root,
-        )
-
-
-@dataclass(frozen=True)
-class FreeSpaceDecomposition(ABC):
-    """
-    How a world's free space is turned into a graph of convex sets, which decides both
-    what counts as an obstacle and how many dimensions a path may move in.
-    """
-
-    def graph_of(
-        self, geometry: EnvironmentGeometry, clearance: float
-    ) -> GraphOfBoundingBoxes:
-        """
-        :param geometry: The world's geometry, already split into ground and the bodies
-            standing on it.
-        :param clearance: Amount the obstacles are bloated by.
-        :return: The graph of convex sets covering the world's free space.
-        """
-        return self.decompose(
-            geometry.navigable_volume(),
-            NavigationObstacleAnnotation(
-                obstacles=self.obstacle_bodies(geometry), _world=geometry.world
-            ),
-            clearance,
-        )
-
-    @abstractmethod
-    def obstacle_bodies(self, geometry: EnvironmentGeometry) -> List[Body]:
-        """
-        :param geometry: The world's geometry, already split into ground and the bodies
-            standing on it.
-        :return: The bodies to subtract from the search space.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def decompose(
-        self,
-        search_space: BoundingBoxCollection,
-        obstacles: SemanticAnnotation,
-        clearance: float,
-    ) -> GraphOfBoundingBoxes:
-        """
-        :param search_space: The volume to decompose.
-        :param obstacles: The obstacles to subtract from it.
-        :param clearance: Amount the obstacles are bloated by.
-        :return: The graph of convex sets covering what is left.
-        """
-        raise NotImplementedError
-
-
-@dataclass(frozen=True)
-class FloorPlanDecomposition(FreeSpaceDecomposition):
-    """
-    Free space as a floor plan: obstacles are projected onto the floor plane, so a path
-    moves in x and y at a fixed height.
-
-    The ground is left out of the obstacles, because projecting a floor slab onto the
-    floor plane would close the whole environment.
-    """
-
-    def obstacle_bodies(self, geometry: EnvironmentGeometry) -> List[Body]:
-        return geometry.standing_bodies
-
-    def decompose(
-        self,
-        search_space: BoundingBoxCollection,
-        obstacles: SemanticAnnotation,
-        clearance: float,
-    ) -> GraphOfBoundingBoxes:
-        return GraphOfBoundingBoxes.navigation_map_from_semantic_annotation(
-            search_space, obstacles, bloat_obstacles=clearance
-        )
-
-
-@dataclass(frozen=True)
-class VolumetricDecomposition(FreeSpaceDecomposition):
-    """
-    Free space as a three-dimensional partition: a path may change height, passing over
-    what it cannot pass beside.
-
-    The ground is an obstacle here like any other body, since nothing may pass through
-    it.
-    """
-
-    def obstacle_bodies(self, geometry: EnvironmentGeometry) -> List[Body]:
-        return geometry.ground_bodies + geometry.standing_bodies
-
-    def decompose(
-        self,
-        search_space: BoundingBoxCollection,
-        obstacles: SemanticAnnotation,
-        clearance: float,
-    ) -> GraphOfBoundingBoxes:
-        return GraphOfBoundingBoxes.free_space_from_semantic_annotation(
-            search_space, obstacles, bloat_obstacles=clearance
-        )
-
-
 @dataclass
 class NavigationScene:
     """
-    Everything one figure draws: an environment, the graph of convex sets covering its
-    free space, and one query solved over that graph.
-    """
+    An already-built graph of convex sets and the path drawn over it, presented to the
+    panels that draw them.
 
-    environment_name: str
-    """
-    The label the figure is titled with.
-    """
-
-    search_space: BoundingBoxCollection
-    """
-    The volume the graph of convex sets was built in, and the extent every panel is
-    framed to.
-    """
-
-    obstacles: BoundingBoxCollection
-    """
-    The bounding boxes of the environment's collision geometry, unbloated, so that the
-    clearance the planner keeps from them stays visible.
+    Building the graph (from a world or otherwise) and solving the path are both the
+    caller's job: see
+    :class:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.GraphOfBoundingBoxes`'s
+    ``navigation_map_from_world``/``free_space_from_world`` and ``path_from_to``, and
+    :func:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.hardest_path_query`
+    for picking a demonstrative query.
     """
 
     graph_of_convex_sets: GraphOfBoundingBoxes
@@ -757,134 +394,46 @@ class NavigationScene:
     The decomposition of free space into convex sets, and their adjacency graph.
     """
 
-    query: NavigationQuery
+    environment_name: str
     """
-    The start and goal the path was planned between.
+    The label the figure is titled with.
     """
 
     path: NavigationPath
     """
-    The minimum-distance path the graph of convex sets returned for :attr:`query`.
+    The path to draw, from its start to its goal.
     """
 
-    DEFAULT_CLEARANCE: ClassVar[float] = 0.2
+    obstacles: Optional[BoundingBoxCollection] = None
     """
-    Default amount obstacles are bloated by, standing in for the radius of the robot
-    that has to fit past them.
+    The environment's true collision geometry, unbloated.
+
+    Pass ``None`` to derive it as whatever the search space is not free space;
+    ``__post_init__`` resolves that default, so this attribute is never ``None`` once
+    the object exists. The graph was built from *bloated* obstacles, though, so the
+    derived region already includes the clearance margin and is larger than the true
+    geometry. Pass the real geometry explicitly (already at hand while building the
+    graph) wherever the difference matters, such as showing how far a convex set
+    actually stays from an obstacle.
     """
 
-    STEP_HEIGHT: ClassVar[float] = 0.05
-    """
-    Height above the ground below which geometry is driven over rather than around, so
-    that floor slabs and thresholds do not close the whole environment.
-    """
+    def __post_init__(self):
+        if self.obstacles is None:
+            occupied_space = (
+                ~self.graph_of_convex_sets.free_space_event & self.search_space.event
+            )
+            self.obstacles = BoundingBoxCollection.from_event(
+                reference_frame=self.search_space.reference_frame,
+                event=occupied_space,
+            )
 
-    FLOOR_LEVEL: ClassVar[float] = 0.0
-    """
-    Default height below which nothing is navigable.
-
-    The environments drawn here put their floor plane on the world frame's ``z = 0``, so
-    a body modelled reaching below it is a modelling error rather than space to plan in.
-    Pass a different level for a world whose floor is somewhere else; the volume is
-    never lowered past the world's own geometry, so a scene standing well above zero
-    stays tight to itself.
-    """
-
-    @classmethod
-    def from_world(
-        cls,
-        world: World,
-        environment_name: str,
-        clearance: float = DEFAULT_CLEARANCE,
-        decomposition: Optional[FreeSpaceDecomposition] = None,
-        floor_level: float = FLOOR_LEVEL,
-    ) -> Self:
+    @property
+    def search_space(self) -> BoundingBoxCollection:
         """
-        Build the scene of a world, planning between the two convex sets it forces the
-        longest detour between.
-
-        :param world: The world to decompose.
-        :param environment_name: The label the figure is titled with.
-        :param clearance: Amount obstacles are bloated by while building the graph.
-        :param decomposition: How free space is decomposed; defaults to a floor plan.
-        :param floor_level: The height below which nothing is navigable.
-        :return: The scene.
-        :raises EmptyFreeSpaceError: If the world leaves no free space to plan in.
-        :raises UnreachableGoalError: If the graph contains no path for its own query.
+        :return: The volume the graph of convex sets was built in, and the extent every
+            panel is framed to.
         """
-        decomposition = decomposition or FloorPlanDecomposition()
-        geometry = EnvironmentGeometry.of(world, cls.STEP_HEIGHT, floor_level)
-        graph = decomposition.graph_of(geometry, clearance)
-        if not graph.graph.num_nodes():
-            raise EmptyFreeSpaceError(environment_name)
-
-        query = NavigationQuery.between_most_distant_convex_sets(graph)
-        waypoints = graph.path_from_to(query.start, query.goal)
-        if waypoints is None:
-            raise UnreachableGoalError(query.start, query.goal)
-
-        return cls(
-            environment_name=environment_name,
-            search_space=geometry.navigable_volume(),
-            obstacles=geometry.bounding_boxes_of(
-                decomposition.obstacle_bodies(geometry)
-            ),
-            graph_of_convex_sets=graph,
-            query=query,
-            path=NavigationPath(waypoints),
-        )
-
-    @classmethod
-    def from_urdf(
-        cls,
-        urdf_path: Path,
-        clearance: float = DEFAULT_CLEARANCE,
-        decomposition: Optional[FreeSpaceDecomposition] = None,
-        floor_level: float = FLOOR_LEVEL,
-    ) -> Self:
-        """
-        Build the scene of a URDF environment.
-
-        :param urdf_path: Path of the ``.urdf`` file to load.
-        :param clearance: Amount obstacles are bloated by while building the graph.
-        :param decomposition: How free space is decomposed; defaults to a floor plan.
-        :param floor_level: The height below which nothing is navigable.
-        :return: The scene.
-        """
-        return cls.from_world(
-            URDFParser.from_file(str(urdf_path)).parse(),
-            environment_name=urdf_path.stem,
-            clearance=clearance,
-            decomposition=decomposition,
-            floor_level=floor_level,
-        )
-
-    @classmethod
-    def from_sage10k_scene(
-        cls,
-        loader: Sage10kDatasetLoader,
-        scene_url: str,
-        clearance: float = DEFAULT_CLEARANCE,
-        decomposition: Optional[FreeSpaceDecomposition] = None,
-        floor_level: float = FLOOR_LEVEL,
-    ) -> Self:
-        """
-        Build the scene of a Sage10k scene, downloading and caching it on first use.
-
-        :param loader: The loader holding the directory scenes are cached in.
-        :param scene_url: URL of the Sage10k scene to draw.
-        :param clearance: Amount obstacles are bloated by while building the graph.
-        :param decomposition: How free space is decomposed; defaults to a floor plan.
-        :param floor_level: The height below which nothing is navigable.
-        :return: The scene.
-        """
-        return cls.from_world(
-            loader.create_scene(scene_url=scene_url).create_world(),
-            environment_name=sage10k_environment_name(scene_url),
-            clearance=clearance,
-            decomposition=decomposition,
-            floor_level=floor_level,
-        )
+        return self.graph_of_convex_sets.search_space
 
     @property
     def extent(self) -> Footprint:
@@ -1155,11 +704,11 @@ class PathLayer(SceneLayer):
 @dataclass(frozen=True)
 class EndpointsLayer(SceneLayer):
     """
-    Draws the start and the goal of the query, each labelled beside its marker so that
+    Draws the start and the goal of the path, each labelled beside its marker so that
     neither is identified by color alone.
     """
 
-    LABEL_OFFSET: ClassVar[float] = 0.18
+    label_offset: float = 0.18
     """
     Distance in meters between an endpoint's marker and its label.
     """
@@ -1167,12 +716,13 @@ class EndpointsLayer(SceneLayer):
     def draw(
         self, axes: Axes, scene: NavigationScene, palette: FigurePalette
     ) -> Sequence[LegendEntry]:
+        waypoints = scene.path.waypoints
         return [
             self._draw_endpoint(
-                axes, scene.query.start, "start", "o", palette.start, palette
+                axes, waypoints[0], "start", "o", palette.start, palette
             ),
             self._draw_endpoint(
-                axes, scene.query.goal, "goal", "s", palette.goal, palette
+                axes, waypoints[-1], "goal", "s", palette.goal, palette
             ),
         ]
 
@@ -1209,7 +759,7 @@ class EndpointsLayer(SceneLayer):
         axes.annotate(
             label,
             (x, y),
-            xytext=(self.LABEL_OFFSET, self.LABEL_OFFSET),
+            xytext=(self.label_offset, self.label_offset),
             textcoords="offset fontsize",
             color=palette.text_primary,
             fontsize=8.0,
@@ -1403,32 +953,32 @@ class PanelArrangement:
     Number of panel columns.
     """
 
-    WIDE_ASPECT_RATIO: ClassVar[float] = 1.4
+    wide_aspect_ratio: float = 1.4
     """
     Width-to-height ratio above which an environment is considered wide.
     """
 
-    MAXIMUM_WIDTH_INCHES: ClassVar[float] = 10.0
+    maximum_width_inches: float = 10.0
     """
     Largest figure width the arrangement will produce.
     """
 
-    PREFERRED_INCHES_PER_METER: ClassVar[float] = 0.5
+    preferred_inches_per_meter: float = 0.5
     """
-    Scale used unless it would exceed :attr:`MAXIMUM_WIDTH_INCHES`.
+    Scale used unless it would exceed :attr:`maximum_width_inches`.
     """
 
-    TITLE_INCHES_PER_ROW: ClassVar[float] = 0.75
+    title_inches_per_row: float = 0.75
     """
     Vertical space reserved per row for its panel's title and axis labels.
     """
 
-    LEGEND_INCHES: ClassVar[float] = 1.0
+    legend_inches: float = 1.0
     """
     Vertical space reserved for the figure title and the shared legend.
     """
 
-    LEGEND_ENTRY_INCHES: ClassVar[float] = 1.6
+    legend_entry_inches: float = 1.6
     """
     Width one legend entry takes, used to decide how many fit on a row.
     """
@@ -1440,7 +990,7 @@ class PanelArrangement:
         :param panel_count: Number of panels to tile.
         :return: The arrangement to tile them with.
         """
-        if extent.width > cls.WIDE_ASPECT_RATIO * extent.height:
+        if extent.width > cls.wide_aspect_ratio * extent.height:
             return cls(rows=panel_count, columns=1)
         return cls(rows=1, columns=panel_count)
 
@@ -1451,13 +1001,13 @@ class PanelArrangement:
             same length in every panel.
         """
         scale = min(
-            self.PREFERRED_INCHES_PER_METER,
-            self.MAXIMUM_WIDTH_INCHES / (self.columns * extent.width),
+            self.preferred_inches_per_meter,
+            self.maximum_width_inches / (self.columns * extent.width),
         )
         width = self.columns * extent.width * scale
         height = (
-            self.rows * (extent.height * scale + self.TITLE_INCHES_PER_ROW)
-            + self.LEGEND_INCHES
+            self.rows * (extent.height * scale + self.title_inches_per_row)
+            + self.legend_inches
         )
         return width, height
 
@@ -1472,7 +1022,7 @@ class PanelArrangement:
         :return: How many entries to put on one legend row.
         """
         width, _ = self.figure_size(extent)
-        entries_that_fit = max(1, int(width / self.LEGEND_ENTRY_INCHES))
+        entries_that_fit = max(1, int(width / self.legend_entry_inches))
         rows = math.ceil(entry_count / entries_that_fit)
         return math.ceil(entry_count / rows)
 
@@ -1504,8 +1054,7 @@ class GraphOfConvexSetsFigure:
     """
     The panels to draw, left to right or top to bottom.
     """
-
-    DOTS_PER_INCH: ClassVar[int] = 300
+    dots_per_inch: int = 300
     """
     Resolution of the rendered raster image.
     """
@@ -1516,7 +1065,7 @@ class GraphOfConvexSetsFigure:
 
         :return: The rendered figure, which the caller owns and has to close.
         """
-        palette = self.theme.palette
+        palette = self.theme.value
         arrangement = PanelArrangement.for_extent(self.scene.extent, len(self.panels))
         with plt.rc_context(self._rc_parameters(palette)):
             figure, axes_grid = plt.subplots(
@@ -1553,12 +1102,15 @@ class GraphOfConvexSetsFigure:
         :return: The written paths.
         """
         output_directory.mkdir(parents=True, exist_ok=True)
-        stem = f"graph_of_convex_sets_{self.scene.environment_name}_{self.theme.value}"
+        stem = (
+            f"graph_of_convex_sets_{self.scene.environment_name}_"
+            f"{self.theme.name.lower()}"
+        )
         figure = self.render()
         written = []
         for suffix in (".pdf", ".png"):
             path = output_directory / f"{stem}{suffix}"
-            figure.savefig(path, dpi=self.DOTS_PER_INCH)
+            figure.savefig(path, dpi=self.dots_per_inch)
             written.append(path)
         plt.close(figure)
         return written

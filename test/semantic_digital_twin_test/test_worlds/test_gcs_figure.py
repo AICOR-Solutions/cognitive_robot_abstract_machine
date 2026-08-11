@@ -7,15 +7,15 @@ obstacle position the assertions depend on is stated here.
 
 from __future__ import annotations
 
-import numpy as np
-import pytest
 from dataclasses import dataclass
+
+import pytest
 from matplotlib.colors import to_rgba
 
-from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
-    Sage10kActionableScenes,
-)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    SemanticEnvironmentAnnotation,
+)
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -25,27 +25,25 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
+    hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
-    EmptyFreeSpaceError,
     UnconnectedGraphError,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     ConvexSetAdjacency,
     ConvexSetsPanel,
-    EnvironmentGeometry,
     EnvironmentPanel,
-    FloorPlanDecomposition,
     Footprint,
     GraphOfConvexSetsFigure,
     NavigationPath,
-    NavigationQuery,
     NavigationScene,
     OptimalPathPanel,
     PanelArrangement,
     Theme,
-    VolumetricDecomposition,
-    sage10k_environment_name,
+)
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -134,61 +132,52 @@ def room_world() -> World:
     return world
 
 
+def room_scene_of(world: World, clearance: float = CLEARANCE) -> NavigationScene:
+    """
+    Build the scene of a room world, planning between the two convex sets it forces the
+    longest detour between.
+
+    :param world: The room world to build the scene of.
+    :param clearance: Amount obstacles are bloated by while building the graph.
+    :return: The scene.
+    """
+    origin = HomogeneousTransformationMatrix(reference_frame=world.root)
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -ROOM_HALF_EXTENT,
+                -ROOM_HALF_EXTENT,
+                0.0,
+                ROOM_HALF_EXTENT,
+                ROOM_HALF_EXTENT,
+                ROOM_HEIGHT,
+                origin,
+            )
+        ],
+        world.root,
+    )
+    graph = GraphOfBoundingBoxes.navigation_map_from_world(
+        world=world, search_space=search_space, bloat_obstacles=clearance
+    )
+    query = hardest_path_query(graph)
+    waypoints = graph.path_from_to(query.start, query.goal)
+    obstacles = SemanticEnvironmentAnnotation(
+        root=world.root, _world=world
+    ).as_bounding_box_collection_at_origin(origin)
+    return NavigationScene(
+        graph_of_convex_sets=graph,
+        environment_name="room",
+        path=NavigationPath(waypoints),
+        obstacles=obstacles,
+    )
+
+
 @pytest.fixture
 def room_scene(room_world: World) -> NavigationScene:
     """
     The scene of the room world, planned with :data:`CLEARANCE`.
     """
-    return NavigationScene.from_world(room_world, "room", clearance=CLEARANCE)
-
-
-FLOOR_THICKNESS = 0.02
-"""
-Thickness of the floor slabs, thin enough to count as ground under
-:attr:`NavigationScene.STEP_HEIGHT`.
-"""
-
-FLOOR_FOOTPRINTS = ((-3.0, -2.0, 0.0, 2.0), (1.0, -2.0, 4.0, 2.0))
-"""
-The x-y bounds of the two floors of :func:`two_floor_world`, separated by a gap no floor
-covers.
-"""
-
-
-@pytest.fixture
-def two_floor_world() -> World:
-    """
-    Two floor slabs separated by a gap, with one waist-high obstacle standing on the
-    first of them.
-
-    This mirrors how a dataset scene is laid out: a floor per room, and furniture placed
-    on top of it.
-    """
-    world = World()
-    with world.modify_world():
-        world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
-
-        for index, (min_x, min_y, max_x, max_y) in enumerate(FLOOR_FOOTPRINTS):
-            floor = Body(name=PrefixedName(f"floor_{index}"))
-            world.add_connection(
-                FixedConnection.create_with_dofs(
-                    world,
-                    world.root,
-                    floor,
-                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        (min_x + max_x) / 2,
-                        (min_y + max_y) / 2,
-                        -FLOOR_THICKNESS / 2,
-                        reference_frame=world.root,
-                    ),
-                )
-            )
-            floor.collision.append(
-                Box(scale=Scale(max_x - min_x, max_y - min_y, FLOOR_THICKNESS))
-            )
-
-        add_box_body(world, "cabinet", Scale(1.0, 1.0, ROOM_HEIGHT), -1.5, 0.0)
-    return world
+    return room_scene_of(room_world)
 
 
 @dataclass
@@ -302,7 +291,7 @@ def test_a_graph_with_no_connected_pair_has_nothing_to_plan_between():
     graph.calculate_connectivity()
 
     with pytest.raises(UnconnectedGraphError):
-        NavigationQuery.between_most_distant_convex_sets(graph)
+        hardest_path_query(graph)
 
 
 def test_adjacency_is_drawn_through_the_portal_the_sets_share(
@@ -329,7 +318,7 @@ def test_query_spans_the_graph_in_coordinate_order(box_row: BoxRowFixture):
     The query connects the two ends of the longest shortest path, oriented so that the
     same graph always produces the same start, whatever order its nodes are held in.
     """
-    query = NavigationQuery.between_most_distant_convex_sets(box_row.graph)
+    query = hardest_path_query(box_row.graph)
 
     assert (float(query.start.x), float(query.start.y)) == (0.5, 0.5)
     assert (float(query.goal.x), float(query.goal.y)) == (2.5, 0.5)
@@ -365,7 +354,7 @@ def test_query_measures_distance_along_the_graph_not_across_it():
         )
     graph.calculate_connectivity()
 
-    query = NavigationQuery.between_most_distant_convex_sets(graph)
+    query = hardest_path_query(graph)
 
     assert (float(query.start.x), float(query.start.y)) == (0.5, 0.5)
     assert (float(query.goal.x), float(query.goal.y)) == (2.5, 0.5)
@@ -373,143 +362,6 @@ def test_query_measures_distance_along_the_graph_not_across_it():
 
 
 # %% the scene
-
-
-def test_a_world_without_ground_geometry_is_searched_in_its_covering_box(
-    room_scene: NavigationScene,
-):
-    """
-    With no floor to derive a navigable volume from, the search space falls back to the
-    box covering the world, which hugs the outer walls.
-    """
-    covering_box = Footprint.of(room_scene.search_space.bounding_box())
-
-    assert len(room_scene.search_space) == 1
-    assert (covering_box.min_x, covering_box.max_x) == pytest.approx(
-        (-ROOM_HALF_EXTENT, ROOM_HALF_EXTENT)
-    )
-    assert (covering_box.min_y, covering_box.max_y) == pytest.approx(
-        (-ROOM_HALF_EXTENT, ROOM_HALF_EXTENT)
-    )
-
-
-def test_ground_geometry_is_travelled_on_rather_than_around(two_floor_world: World):
-    """
-    A floor slab is not an obstacle: counting it as one would project onto the whole
-    room and leave nothing to plan in.
-
-    What stands on it still is.
-    """
-    geometry = EnvironmentGeometry.of(
-        two_floor_world, NavigationScene.STEP_HEIGHT, NavigationScene.FLOOR_LEVEL
-    )
-
-    obstacles = FloorPlanDecomposition().obstacle_bodies(geometry)
-
-    assert [str(body.name.name) for body in obstacles] == ["cabinet"]
-    assert len(geometry.ground) == len(FLOOR_FOOTPRINTS)
-
-
-def test_a_volumetric_decomposition_keeps_the_ground_as_an_obstacle(
-    two_floor_world: World,
-):
-    """
-    A three-dimensional partition has to subtract the floor like any other body, since a
-    path may change height but never pass through the ground.
-    """
-    geometry = EnvironmentGeometry.of(
-        two_floor_world, NavigationScene.STEP_HEIGHT, NavigationScene.FLOOR_LEVEL
-    )
-
-    obstacles = VolumetricDecomposition().obstacle_bodies(geometry)
-
-    assert sorted(str(body.name.name) for body in obstacles) == [
-        "cabinet",
-        "floor_0",
-        "floor_1",
-    ]
-
-
-def test_the_navigable_volume_is_the_floor_raised_to_the_full_height(
-    two_floor_world: World,
-):
-    """
-    A robot may stand where there is floor under it and nowhere else, so the search
-    space follows the floors rather than covering the gap between them.
-
-    It starts at the floor level rather than at the underside of the slab, and spans the
-    world's full height so obstacles are subtracted over all of theirs.
-    """
-    geometry = EnvironmentGeometry.of(
-        two_floor_world, NavigationScene.STEP_HEIGHT, NavigationScene.FLOOR_LEVEL
-    )
-
-    volume = geometry.navigable_volume()
-    footprints = sorted(
-        (footprint.min_x, footprint.min_y, footprint.max_x, footprint.max_y)
-        for footprint in map(Footprint.of, volume)
-    )
-    lower_heights = [float(box.to_array_bounds().lower[2]) for box in volume]
-    upper_heights = [float(box.to_array_bounds().upper[2]) for box in volume]
-
-    assert np.allclose(footprints, sorted(FLOOR_FOOTPRINTS))
-    assert lower_heights == pytest.approx([NavigationScene.FLOOR_LEVEL] * len(volume))
-    assert upper_heights == pytest.approx([ROOM_HEIGHT] * len(volume))
-
-
-def test_geometry_reaching_below_the_floor_does_not_lower_the_navigable_volume(
-    two_floor_world: World,
-):
-    """
-    A body modelled reaching through the floor is a modelling error, not space to plan
-    in, so the volume still starts at the floor.
-    """
-    with two_floor_world.modify_world():
-        add_box_body(two_floor_world, "sunken_table", Scale(1.0, 1.0, 4.0), 2.0, 0.0)
-
-    geometry = EnvironmentGeometry.of(
-        two_floor_world, NavigationScene.STEP_HEIGHT, NavigationScene.FLOOR_LEVEL
-    )
-
-    sunken_bottom = min(
-        float(box.to_array_bounds().lower[2])
-        for box in geometry.bounding_boxes_of(geometry.standing_bodies)
-    )
-    volume_bottom = min(
-        float(box.to_array_bounds().lower[2]) for box in geometry.navigable_volume()
-    )
-
-    assert sunken_bottom < NavigationScene.FLOOR_LEVEL
-    assert volume_bottom == pytest.approx(NavigationScene.FLOOR_LEVEL)
-
-
-def test_a_world_standing_above_the_floor_stays_tight_to_itself(room_world: World):
-    """
-    The floor level is a bound, not a target: a world whose geometry begins above it is
-    not given empty space underneath.
-    """
-    geometry = EnvironmentGeometry.of(room_world, NavigationScene.STEP_HEIGHT, -5.0)
-
-    volume_bottom = min(
-        float(box.to_array_bounds().lower[2]) for box in geometry.navigable_volume()
-    )
-
-    assert volume_bottom == pytest.approx(0.0)
-
-
-def test_curated_sage10k_scenes_are_named_after_the_scene():
-    """
-    A curated scene is titled with its name, and any other scene with the filename of
-    its URL.
-    """
-    assert sage10k_environment_name(str(Sage10kActionableScenes.GYM)) == "gym"
-    assert (
-        sage10k_environment_name(
-            "https://huggingface.co/datasets/nvidia/SAGE-10k/resolve/main/scenes/"
-            "20251213_020526_layout_84b703fb.zip"
-        )
-        == "20251213_020526_layout_84b703fb"
-    )
 
 
 def test_convex_sets_keep_the_clearance_away_from_every_obstacle(
@@ -539,7 +391,7 @@ def test_convex_sets_keep_the_clearance_away_from_every_obstacle(
 
 def test_path_detours_around_the_pillar(room_scene: NavigationScene):
     """
-    The path runs from the query's start to its goal without entering the pillar, and is
+    The path runs from its start to its goal without entering the pillar, and is
     therefore longer than the straight line between them.
     """
     pillar_footprint = Footprint(
@@ -550,8 +402,6 @@ def test_path_detours_around_the_pillar(room_scene: NavigationScene):
     )
     waypoints = room_scene.path.waypoints
 
-    assert waypoints[0] is room_scene.query.start
-    assert waypoints[-1] is room_scene.query.goal
     assert not [
         waypoint
         for waypoint in waypoints
@@ -559,17 +409,8 @@ def test_path_detours_around_the_pillar(room_scene: NavigationScene):
         and pillar_footprint.min_y < float(waypoint.y) < pillar_footprint.max_y
     ]
     assert room_scene.path.length > float(
-        room_scene.query.start.euclidean_distance(room_scene.query.goal)
+        waypoints[0].euclidean_distance(waypoints[-1])
     )
-
-
-def test_an_environment_without_free_space_is_reported(room_world: World):
-    """
-    A clearance wide enough to close the room leaves nothing to plan in, and that is
-    reported rather than drawn as an empty figure.
-    """
-    with pytest.raises(EmptyFreeSpaceError):
-        NavigationScene.from_world(room_world, "room", clearance=ROOM_HALF_EXTENT)
 
 
 # %% the figure
@@ -599,7 +440,7 @@ def test_a_meter_is_the_same_length_in_every_panel():
 
     width, _ = arrangement.figure_size(extent)
 
-    assert width == pytest.approx(3 * 4.0 * arrangement.PREFERRED_INCHES_PER_METER)
+    assert width == pytest.approx(3 * 4.0 * arrangement.preferred_inches_per_meter)
 
 
 def test_a_legend_too_wide_for_the_figure_wraps_into_even_rows():
@@ -611,7 +452,7 @@ def test_a_legend_too_wide_for_the_figure_wraps_into_even_rows():
     arrangement = PanelArrangement(rows=3, columns=1)
 
     width, _ = arrangement.figure_size(narrow)
-    entries_that_fit = int(width / arrangement.LEGEND_ENTRY_INCHES)
+    entries_that_fit = int(width / arrangement.legend_entry_inches)
 
     assert entries_that_fit == 3
     assert arrangement.legend_columns(narrow, 7) == 3
@@ -626,7 +467,7 @@ def test_a_legend_that_fits_stays_on_one_row():
     arrangement = PanelArrangement(rows=1, columns=3)
 
     width, _ = arrangement.figure_size(wide)
-    entry_count = int(width / arrangement.LEGEND_ENTRY_INCHES)
+    entry_count = int(width / arrangement.legend_entry_inches)
 
     assert arrangement.legend_columns(wide, entry_count) == entry_count
 
@@ -658,9 +499,7 @@ def test_figure_is_painted_on_its_theme_surface(room_scene: NavigationScene):
     """
     rendered = GraphOfConvexSetsFigure(room_scene, theme=Theme.DARK).render()
 
-    assert rendered.get_facecolor() == pytest.approx(
-        to_rgba(Theme.DARK.palette.surface)
-    )
+    assert rendered.get_facecolor() == pytest.approx(to_rgba(Theme.DARK.value.surface))
 
 
 def test_figure_is_saved_as_vector_and_raster(room_scene, tmp_path):
