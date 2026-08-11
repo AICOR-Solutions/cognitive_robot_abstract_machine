@@ -113,9 +113,9 @@ def test_a_set_result_is_returned_unchanged():
         action_name="giskard/command", action_type=None
     )
 
-    handler.result_msg = "result"
+    handler.result_message = "result"
 
-    assert handler.result_msg == "result"
+    assert handler.result_message == "result"
 
 
 def test_missing_outcome_message_names_the_action_server_and_the_goal():

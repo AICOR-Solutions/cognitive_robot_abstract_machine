@@ -20,6 +20,7 @@ from giskardpy.middleware.ros2.scripts.iai_robots.tracy.configs import (
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
 from giskardpy.model.world_config import EmptyWorld
 from semantic_digital_twin.robots.daisy import DAiSyJoint
+from semantic_digital_twin.robots.stretch import StretchJoint
 from semantic_digital_twin.robots.tracy import TracyJoint
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 
@@ -130,13 +131,18 @@ def test_two_daisy_interfaces_do_not_share_their_joint_name_list():
     assert first.joint_names is not second.joint_names
 
 
-def test_the_stretch_interface_controls_the_drive_joint_it_was_given():
-    assert StretchStandaloneInterface().joint_names[0] == "brumbrum"
-
-
-def test_renaming_the_stretch_drive_joint_leaves_the_other_joints_alone():
-    default = StretchStandaloneInterface()
-    renamed = StretchStandaloneInterface(drive_joint_name="wheels")
-
-    assert renamed.joint_names[0] == "wheels"
-    assert renamed.joint_names[1:] == default.joint_names[1:]
+def test_the_stretch_interface_controls_every_joint_except_the_drive():
+    assert StretchStandaloneInterface().joint_names == [
+        StretchJoint.GRIPPER_LEFT_FINGER,
+        StretchJoint.GRIPPER_RIGHT_FINGER,
+        StretchJoint.RIGHT_WHEEL,
+        StretchJoint.LEFT_WHEEL,
+        StretchJoint.LIFT,
+        StretchJoint.ARM_L3,
+        StretchJoint.ARM_L2,
+        StretchJoint.ARM_L1,
+        StretchJoint.ARM_L0,
+        StretchJoint.WRIST_YAW,
+        StretchJoint.HEAD_PAN,
+        StretchJoint.HEAD_TILT,
+    ]

@@ -67,7 +67,7 @@ class StretchVelocityInterface(RobotInterfaceConfig):
     """
 
     @staticmethod
-    def velocity_controlled_joint_names(self) -> List[StretchJoint]:
+    def velocity_controlled_joint_names() -> List[StretchJoint]:
         """
         The joints driven by the velocity group controller.
 
