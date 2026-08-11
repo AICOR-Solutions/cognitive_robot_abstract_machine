@@ -16,14 +16,11 @@ x-y extent so they can be read against each other:
     between.
 
 The scene is built by :class:`NavigationScene` and drawn by
-:class:`GraphOfConvexSetsFigure`. Run this module as a script to write the figure of a
-URDF environment (``--environment``) or of one or more Sage10k scenes (``--sage10k``) to
-disk.
+:class:`GraphOfConvexSetsFigure`.
 """
 
 from __future__ import annotations
 
-import argparse
 import enum
 import itertools
 import math
@@ -59,6 +56,11 @@ from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
 )
+from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    EmptyFreeSpaceError,
+    UnconnectedGraphError,
+    UnreachableGoalError,
+)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -66,44 +68,6 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     SemanticAnnotation,
 )
-
-# %% exceptions
-
-
-class EmptyFreeSpaceError(Exception):
-    """
-    Raised when an environment leaves no free space to plan in, so there is no graph of
-    convex sets to draw.
-    """
-
-    def __init__(self, environment_name: str):
-        super().__init__(
-            f"The environment {environment_name} has no free space in its search space."
-        )
-
-
-class UnreachableGoalError(Exception):
-    """
-    Raised when the graph of convex sets contains no path between the queried start and
-    goal.
-    """
-
-    def __init__(self, start: Point3, goal: Point3):
-        super().__init__(f"No path connects {start} to {goal}.")
-
-
-class UnconnectedGraphError(Exception):
-    """
-    Raised when no two convex sets of a graph are connected, so there is no pair to pose
-    a query between.
-    """
-
-    def __init__(self, convex_set_count: int):
-        super().__init__(
-            f"None of the {convex_set_count} convex sets are connected to each other, "
-            "so there is nothing to plan between."
-        )
-
 
 # %% palette
 
@@ -138,7 +102,7 @@ class FigurePalette:
 
     obstacle_edge: str
     """
-    A darker step of :attr:`obstacle`, separating abutting obstacles from each other.
+    A darker step of :attr:`obstacle`, separating adjacent obstacles from each other.
     """
 
     convex_set: str
@@ -1530,7 +1494,7 @@ class GraphOfConvexSetsFigure:
     The surface the figure is rendered for.
     """
 
-    panels: Sequence[ScenePanel] = field(
+    panels: tuple[ScenePanel, ...] = field(
         default_factory=lambda: (
             EnvironmentPanel(),
             ConvexSetsPanel(),
@@ -1646,135 +1610,3 @@ class GraphOfConvexSetsFigure:
             "axes.grid": False,
             "font.size": 9.0,
         }
-
-
-# %% command line
-
-
-def _parse_arguments(available_environments: Sequence[str]) -> argparse.Namespace:
-    """
-    :param available_environments: The URDF environment names that can be selected.
-    :return: The parsed arguments.
-    """
-    parser = argparse.ArgumentParser(description=__doc__)
-    environment_group = parser.add_mutually_exclusive_group()
-    environment_group.add_argument(
-        "--environment",
-        default="kitchen",
-        choices=available_environments,
-        help="Name of the URDF environment in semantic_digital_twin/resources/urdf to "
-        "draw.",
-    )
-    environment_group.add_argument(
-        "--sage10k",
-        nargs="+",
-        choices=[scene.name.lower() for scene in Sage10kActionableScenes],
-        metavar="SCENE",
-        help="Names of curated Sage10k scenes to draw, one figure each. Each scene is "
-        f"downloaded and cached on first use, which takes minutes. Available: "
-        f"{', '.join(scene.name.lower() for scene in Sage10kActionableScenes)}.",
-    )
-    environment_group.add_argument(
-        "--sage10k-url",
-        nargs="+",
-        metavar="URL",
-        help="URLs of Sage10k scenes to draw, one figure each, for scenes outside the "
-        "curated set.",
-    )
-    parser.add_argument(
-        "--clearance",
-        type=float,
-        default=NavigationScene.DEFAULT_CLEARANCE,
-        help="Amount in meters obstacles are bloated by, standing in for the radius of "
-        "the robot that has to fit past them.",
-    )
-    parser.add_argument(
-        "--floor-level",
-        type=float,
-        default=NavigationScene.FLOOR_LEVEL,
-        help="Height in meters below which nothing is navigable. Defaults to the world "
-        "frame's zero, which is the floor plane in these environments; geometry "
-        "modelled below it is a modelling error rather than space to plan in.",
-    )
-    parser.add_argument(
-        "--theme",
-        type=Theme,
-        default=Theme.LIGHT,
-        choices=list(Theme),
-        metavar="{light,dark}",
-        help="The surface the figure is rendered for.",
-    )
-    parser.add_argument(
-        "--output-directory",
-        type=Path,
-        default=Path.cwd(),
-        help="Directory the figure is written to.",
-    )
-    return parser.parse_args()
-
-
-def urdf_directory() -> Path:
-    """
-    :return: The directory holding the URDF environments this experiment can draw.
-    """
-    return (
-        Path(__file__).parent.parent.parent.parent
-        / "semantic_digital_twin"
-        / "resources"
-        / "urdf"
-    )
-
-
-def _selected_scenes(
-    arguments: argparse.Namespace, environment_paths: dict[str, Path]
-) -> Iterable[NavigationScene]:
-    """
-    Build the scenes the parsed arguments select, lazily, so that a figure is written
-    before the next Sage10k scene is downloaded.
-
-    :param arguments: The parsed command line.
-    :param environment_paths: The available URDF environments, by name.
-    :return: The selected scenes.
-    """
-    if arguments.sage10k or arguments.sage10k_url:
-        loader = Sage10kDatasetLoader()
-        scene_urls = arguments.sage10k_url or [
-            str(Sage10kActionableScenes[name.upper()]) for name in arguments.sage10k
-        ]
-        return (
-            NavigationScene.from_sage10k_scene(
-                loader,
-                scene_url,
-                clearance=arguments.clearance,
-                floor_level=arguments.floor_level,
-            )
-            for scene_url in scene_urls
-        )
-
-    return [
-        NavigationScene.from_urdf(
-            environment_paths[arguments.environment],
-            clearance=arguments.clearance,
-            floor_level=arguments.floor_level,
-        )
-    ]
-
-
-def main() -> None:
-    """
-    Draw the three-panel figure of every selected environment and write it to disk.
-    """
-    environment_paths = {
-        path.stem: path for path in sorted(urdf_directory().glob("*.urdf"))
-    }
-    arguments = _parse_arguments(sorted(environment_paths))
-
-    for scene in _selected_scenes(arguments, environment_paths):
-        for path in GraphOfConvexSetsFigure(scene, theme=arguments.theme).save(
-            arguments.output_directory
-        ):
-            print(f"Wrote {path}")
-
-
-if __name__ == "__main__":
-    main()

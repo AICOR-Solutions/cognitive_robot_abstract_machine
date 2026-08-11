@@ -12,25 +12,6 @@ import pytest
 from dataclasses import dataclass
 from matplotlib.colors import to_rgba
 
-from experiments.graph_of_convex_sets_figure import (
-    ConvexSetAdjacency,
-    ConvexSetsPanel,
-    EmptyFreeSpaceError,
-    EnvironmentGeometry,
-    EnvironmentPanel,
-    FloorPlanDecomposition,
-    Footprint,
-    GraphOfConvexSetsFigure,
-    NavigationPath,
-    NavigationQuery,
-    NavigationScene,
-    OptimalPathPanel,
-    PanelArrangement,
-    Theme,
-    UnconnectedGraphError,
-    VolumetricDecomposition,
-    sage10k_environment_name,
-)
 from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
     Sage10kActionableScenes,
 )
@@ -44,6 +25,27 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
+)
+from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    EmptyFreeSpaceError,
+    UnconnectedGraphError,
+)
+from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
+    ConvexSetAdjacency,
+    ConvexSetsPanel,
+    EnvironmentGeometry,
+    EnvironmentPanel,
+    FloorPlanDecomposition,
+    Footprint,
+    GraphOfConvexSetsFigure,
+    NavigationPath,
+    NavigationQuery,
+    NavigationScene,
+    OptimalPathPanel,
+    PanelArrangement,
+    Theme,
+    VolumetricDecomposition,
+    sage10k_environment_name,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 

@@ -4,21 +4,17 @@ plan.
 
 The panels answer the same three questions as the two-dimensional figure -- what the
 planner is given, what it builds, what it returns -- but over a
-:class:`~experiments.graph_of_convex_sets_figure.VolumetricDecomposition`, so free space
-is partitioned in all three dimensions and a path may change height to pass over what it
-cannot pass beside.
+:class:`~semantic_digital_twin.world_description.graph_of_convex_sets.figure.VolumetricDecomposition`,
+so free space is partitioned in all three dimensions and a path may change height to
+pass over what it cannot pass beside.
 
 Drawn with plotly, which the graph of convex sets already uses for its own
 three-dimensional plots. Every run writes an interactive page next to the static image,
 since a single camera angle hides whatever it projects behind something else.
-
-Run this module as a script to write the figure of a URDF environment
-(``--environment``) or of one or more Sage10k scenes (``--sage10k``) to disk.
 """
 
 from __future__ import annotations
 
-import argparse
 import enum
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -29,18 +25,12 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from typing_extensions import ClassVar, Iterable, List, Sequence, Self
 
-from experiments.graph_of_convex_sets_figure import (
+from semantic_digital_twin.world_description.geometry import BoundingBox, Bounds
+from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     FigurePalette,
     NavigationScene,
     Theme,
-    VolumetricDecomposition,
-    urdf_directory,
 )
-from semantic_digital_twin.adapters.sage_10k_dataset.loader import Sage10kDatasetLoader
-from semantic_digital_twin.adapters.sage_10k_dataset.utils import (
-    Sage10kActionableScenes,
-)
-from semantic_digital_twin.world_description.geometry import BoundingBox, Bounds
 
 # %% turning boxes into drawable geometry
 
@@ -580,7 +570,7 @@ class GraphOfConvexSetsVolumeFigure:
     Where the panels are looked at from.
     """
 
-    panels: Sequence[VolumePanel] = field(
+    panels: tuple[VolumePanel, ...] = field(
         default_factory=lambda: (
             EnvironmentVolumePanel(),
             ConvexSetsVolumePanel(),
@@ -591,7 +581,7 @@ class GraphOfConvexSetsVolumeFigure:
     The panels to draw, left to right.
     """
 
-    image_formats: Sequence[str] = (".pdf", ".png")
+    image_formats: tuple[str, ...] = (".pdf", ".png")
     """
     The static formats written beside the interactive page.
 
@@ -764,128 +754,3 @@ class GraphOfConvexSetsVolumeFigure:
             zerolinecolor=palette.obstacle_edge,
             tickfont=dict(size=9, color=palette.text_secondary),
         )
-
-
-# %% command line
-
-
-DEFAULT_VOLUME_CLEARANCE = 0.05
-"""
-Amount obstacles are bloated by when decomposing a volume.
-
-Smaller than the floor plan figure's clearance: a volumetric partition is cut in three
-dimensions, and bloating obstacles by a mobile base's radius closes the gaps above and
-between them that give the partition its structure.
-"""
-
-
-def _parse_arguments(available_environments: Sequence[str]) -> argparse.Namespace:
-    """
-    :param available_environments: The URDF environment names that can be selected.
-    :return: The parsed arguments.
-    """
-    parser = argparse.ArgumentParser(description=__doc__)
-    environment_group = parser.add_mutually_exclusive_group()
-    environment_group.add_argument(
-        "--environment",
-        default="kitchen",
-        choices=available_environments,
-        help="Name of the URDF environment in semantic_digital_twin/resources/urdf to "
-        "draw.",
-    )
-    environment_group.add_argument(
-        "--sage10k",
-        nargs="+",
-        choices=[scene.name.lower() for scene in Sage10kActionableScenes],
-        metavar="SCENE",
-        help="Names of curated Sage10k scenes to draw, one figure each. Each scene is "
-        "downloaded and cached on first use, which takes minutes. Available: "
-        f"{', '.join(scene.name.lower() for scene in Sage10kActionableScenes)}.",
-    )
-    parser.add_argument(
-        "--clearance",
-        type=float,
-        default=DEFAULT_VOLUME_CLEARANCE,
-        help="Amount in meters obstacles are bloated by. Smaller than the floor plan "
-        "figure's default, since a volume is subdivided in three dimensions and a wide "
-        "clearance closes the gaps that make its structure visible.",
-    )
-    parser.add_argument(
-        "--floor-level",
-        type=float,
-        default=NavigationScene.FLOOR_LEVEL,
-        help="Height in meters below which nothing is navigable. Defaults to the world "
-        "frame's zero, which is the floor plane in these environments; geometry "
-        "modelled below it is a modelling error rather than space to plan in.",
-    )
-    parser.add_argument(
-        "--theme",
-        type=Theme,
-        default=Theme.LIGHT,
-        choices=list(Theme),
-        metavar="{light,dark}",
-        help="The surface the figure is rendered for.",
-    )
-    parser.add_argument(
-        "--output-directory",
-        type=Path,
-        default=Path.cwd(),
-        help="Directory the figure is written to.",
-    )
-    return parser.parse_args()
-
-
-def _selected_scenes(
-    arguments: argparse.Namespace, environment_paths: dict[str, Path]
-) -> Iterable[NavigationScene]:
-    """
-    Build the scenes the parsed arguments select, lazily, so that a figure is written
-    before the next Sage10k scene is downloaded.
-
-    :param arguments: The parsed command line.
-    :param environment_paths: The available URDF environments, by name.
-    :return: The selected scenes.
-    """
-    decomposition = VolumetricDecomposition()
-    if arguments.sage10k:
-        loader = Sage10kDatasetLoader()
-        return (
-            NavigationScene.from_sage10k_scene(
-                loader,
-                str(Sage10kActionableScenes[name.upper()]),
-                clearance=arguments.clearance,
-                decomposition=decomposition,
-                floor_level=arguments.floor_level,
-            )
-            for name in arguments.sage10k
-        )
-
-    return [
-        NavigationScene.from_urdf(
-            environment_paths[arguments.environment],
-            clearance=arguments.clearance,
-            decomposition=decomposition,
-            floor_level=arguments.floor_level,
-        )
-    ]
-
-
-def main() -> None:
-    """
-    Draw the three-panel volume figure of every selected environment and write it to
-    disk.
-    """
-    environment_paths = {
-        path.stem: path for path in sorted(urdf_directory().glob("*.urdf"))
-    }
-    arguments = _parse_arguments(sorted(environment_paths))
-
-    for scene in _selected_scenes(arguments, environment_paths):
-        for path in GraphOfConvexSetsVolumeFigure(scene, theme=arguments.theme).save(
-            arguments.output_directory
-        ):
-            print(f"Wrote {path}")
-
-
-if __name__ == "__main__":
-    main()

@@ -11,14 +11,21 @@ import numpy as np
 import rustworkx as rx
 import pytest
 
-from experiments.graph_of_convex_sets_figure import (
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.spatial_types.spatial_types import (
+    HomogeneousTransformationMatrix,
+)
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
+from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     EnvironmentGeometry,
     FloorPlanDecomposition,
     NavigationScene,
     Theme,
     VolumetricDecomposition,
 )
-from experiments.graph_of_convex_sets_volume_figure import (
+from semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure import (
     BoxGeometry,
     ConvexSetsVolumePanel,
     EnvironmentVolumePanel,
@@ -28,13 +35,6 @@ from experiments.graph_of_convex_sets_volume_figure import (
     OptimalPathVolumePanel,
     polyline_trace,
 )
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types.spatial_types import (
-    HomogeneousTransformationMatrix,
-)
-from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.world_entity import Body
 
 # %% the world the scene is built from
