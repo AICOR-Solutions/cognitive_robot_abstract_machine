@@ -457,7 +457,11 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         if not publish_changes:
             return
 
-        changes = self.compute_state_changes()
+        if kwargs.get("force_republish"):
+            changes = dict(self._world.state.to_uuid_position_dict())
+        else:
+            changes = self.compute_state_changes()
+
         if not changes:
             return
 

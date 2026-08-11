@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from dataclasses import dataclass, field
 from typing import Union, Iterator, Optional
 from uuid import UUID
@@ -252,6 +253,9 @@ class WorldState(MutableMapping[UUID, WorldStateEntryView]):
                 )
                 + " })"
             )
+
+    def to_uuid_position_dict(self) -> dict[uuid.UUID, float]:
+        return {dof_id: self[dof_id].position for dof_id in self._ids}
 
     def to_position_dict(self) -> Dict[PrefixedName, float]:
         with self.world_lock:
