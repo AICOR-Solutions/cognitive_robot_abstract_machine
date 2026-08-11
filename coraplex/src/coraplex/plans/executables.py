@@ -420,13 +420,6 @@ class ModelChangeExecutable(Executable):
         )
         with self.context.world.modify_world():
             self.context.world.remove_connection(self.body.parent_connection)
-            # TODO: this shouldn't be fixed but 6DOF
-            # connection = FixedConnection(
-            #     parent=self.new_parent,
-            #     child=self.body,
-            #     parent_T_connection_expression=obj_transform,
-            # )
-
             connection = Connection6DoF.create_with_dofs(
                 parent=self.new_parent,
                 child=self.body,
@@ -434,7 +427,6 @@ class ModelChangeExecutable(Executable):
                 parent_T_connection_expression=obj_transform,
             )
             self.context.world.add_connection(connection)
-            # connection.origin = obj_transform
         if GiskardExecutable.execution_type == ExecutionType.REAL:
             time.sleep(self.giskard_idle_settle_delta.total_seconds())
 

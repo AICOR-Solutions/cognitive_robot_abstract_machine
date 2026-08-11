@@ -27,7 +27,7 @@ from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("semantic_digital_twin").setLevel(logging.DEBUG)
 
 
 @dataclass(eq=False)
@@ -222,14 +222,8 @@ class TFPublisher(StateChangeCallback):
         :param node: The ROS2 node used to create the publisher.
         """
         tf_wrapper = TFWrapper(node=node)
-        for i in range(20):
-            all_frames = set(tf_wrapper.get_tf_frames())
-            if len(all_frames) > 0:
-                break
-            sleep(0.1)
-        else:
-            all_frames = set()
-            logging.info("Could not find any tf frames, publishing all tf")
+        sleep(3)
+        all_frames = set(tf_wrapper.get_tf_frames())
         ignored_bodies = set(
             kse
             for kse in world.kinematic_structure_entities
