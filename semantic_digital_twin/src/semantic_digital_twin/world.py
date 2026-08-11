@@ -1034,10 +1034,15 @@ class World(HasSimulatorProperties):
         """
         Removes a kinematic_structure_entity from the world.
 
+        Removing a kinematic_structure_entity this world does not own does nothing
+        and is not recorded, so a history can never open with the removal of a
+        kinematic_structure_entity nothing added.
+
         :param kinematic_structure_entity: The kinematic_structure_entity to remove.
         """
-        if self.is_kinematic_structure_entity_in_world(kinematic_structure_entity):
-            self._remove_kinematic_structure_entity(kinematic_structure_entity)
+        if kinematic_structure_entity._world is not self:
+            return
+        self._remove_kinematic_structure_entity(kinematic_structure_entity)
 
     @atomic_world_modification(modification=RemoveKinematicStructureEntityModification)
     def _remove_kinematic_structure_entity(
@@ -1055,9 +1060,19 @@ class World(HasSimulatorProperties):
         kinematic_structure_entity.remove_from_world()
 
     def remove_degree_of_freedom(self, dof: DegreeOfFreedom) -> None:
-        if self.is_degree_of_freedom_in_world(dof):
-            self._remove_degree_of_freedom(dof)
-            clear_memoization_cache(self)
+        """
+        Removes a degree of freedom from the world.
+
+        Removing a degree of freedom this world does not own does nothing and is
+        not recorded, so a history can never open with the removal of a degree of
+        freedom nothing added.
+
+        :param dof: The degree of freedom to remove.
+        """
+        if dof._world is not self:
+            return
+        self._remove_degree_of_freedom(dof)
+        clear_memoization_cache(self)
 
     @atomic_world_modification(modification=RemoveDegreeOfFreedomModification)
     def _remove_degree_of_freedom(self, dof: DegreeOfFreedom) -> None:
@@ -1072,10 +1087,15 @@ class World(HasSimulatorProperties):
         Removes a semantic annotation from the current list of semantic annotations if
         it exists.
 
+        Removing a semantic annotation this world does not own does nothing and is
+        not recorded, so a history can never open with the removal of a semantic
+        annotation nothing added.
+
         :param semantic_annotation: The semantic annotation instance to be removed.
         """
-        if self.is_semantic_annotation_in_world(semantic_annotation):
-            self._remove_semantic_annotation(semantic_annotation)
+        if semantic_annotation._world is not self:
+            return
+        self._remove_semantic_annotation(semantic_annotation)
 
     @atomic_world_modification(modification=RemoveSemanticAnnotationModification)
     def _remove_semantic_annotation(self, semantic_annotation: SemanticAnnotation):
@@ -1090,10 +1110,15 @@ class World(HasSimulatorProperties):
         """
         Removes an actuator from the current list of actuators if it exists.
 
+        Removing an actuator this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of an actuator
+        nothing added.
+
         :param actuator: The actuator instance to be removed.
         """
-        if self.is_actuator_in_world(actuator):
-            self._remove_actuator(actuator)
+        if actuator._world is not self:
+            return
+        self._remove_actuator(actuator)
 
     @atomic_world_modification(modification=RemoveActuatorModification)
     def _remove_actuator(self, actuator: Actuator) -> None:
