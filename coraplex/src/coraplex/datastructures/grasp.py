@@ -47,15 +47,30 @@ class GraspPoseProvider(ABC):
         default_factory=CartesianTolerance, kw_only=True
     )
     """
-    Cartesian accuracy and speed for the contact moves (grasp and lift).
+    Cartesian accuracy and speed for the contact moves.
 
-    Tighten it for small objects that need a precise, slow approach.
+    TODO dead since the motions moved to position_threshold/max_linear_velocity; drop it
+    together with an ormatic_interface regeneration
     """
 
     @abstractmethod
     def grasp_pose_sequence(self, body: Body) -> List[Pose]:
         """
         The pre-grasp, grasp and lift poses to grasp the body.
+        """
+        ...
+
+    @abstractmethod
+    def pose_sequence(
+        self, target_T_grasp_pose: Pose, body: Body = None, reverse: bool = False
+    ) -> List[Pose]:
+        """
+        The pre-grasp, grasp and lift poses for grasping something at
+        ``target_T_grasp_pose``.
+
+        :param target_T_grasp_pose: The pose of the grasp in the target frame.
+        :param body: The body being grasped, whose geometry may refine the approach.
+        :param reverse: Whether to walk the sequence backwards, for placing.
         """
         ...
 
@@ -502,25 +517,38 @@ class SemanticGraspDescription(GraspPoseProvider):
         lift = self._lift_pose(grasp, self.manipulation_offset)
         return [pre_grasp, grasp, lift]
 
+    def pose_sequence(
+        self, target_T_grasp_pose: Pose, body: Body = None, reverse: bool = False
+    ) -> List[Pose]:
+        """
+        The grasp sequence re-expressed relative to ``target_T_grasp_pose``.
+
+        The annotated grasp poses are expressed in the object's own frame, so composing
+        them onto the target gives where the end effector has to be for the object to
+        end up there. The object's geometry is already baked into the annotated poses,
+        so ``body`` is not consulted.
+
+        :param target_T_grasp_pose: The pose of the grasp in the target frame.
+        :param body: Ignored; kept for the :class:`GraspPoseProvider` interface.
+        :param reverse: Whether to walk the sequence backwards, for placing.
+        """
+        target_T_object = target_T_grasp_pose.to_homogeneous_matrix()
+        sequence = [
+            (target_T_object @ grasp_pose.to_homogeneous_matrix()).to_pose()
+            for grasp_pose in self.grasp_pose_sequence(self.object.root)
+        ]
+        if reverse:
+            sequence.reverse()
+        return sequence
+
     def place_pose_sequence(self, pose: Pose) -> List[Pose]:
         """
         The approach, release and retract poses to place the annotated object at
         ``pose``.
 
-        The annotated grasp poses are expressed in the object's own frame, so re-
-        expressing them relative to ``pose`` gives where the end effector has to be for
-        the object to end up there. The grasp sequence is walked backwards: down from
-        the lift pose, release, then back out along the approach.
-
         :param pose: The pose the held object should be placed at.
         """
-        target_T_object = pose.to_homogeneous_matrix()
-        sequence = [
-            (target_T_object @ grasp_pose.to_homogeneous_matrix()).to_pose()
-            for grasp_pose in self.grasp_pose_sequence(self.object.root)
-        ]
-        sequence.reverse()
-        return sequence
+        return self.pose_sequence(pose, reverse=True)
 
     def _lift_pose(self, grasp_pose: Pose, offset: float) -> Pose:
         """

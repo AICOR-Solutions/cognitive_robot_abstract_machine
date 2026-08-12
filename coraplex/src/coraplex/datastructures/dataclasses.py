@@ -17,6 +17,7 @@ from krrood.entity_query_language.backends import (
     EntityQueryLanguageGenerativeBackend,
 )
 from krrood.class_diagrams.mocking import MockedClass, MockedModule
+from krrood.utils import memoize
 from coraplex.plans.plan import Plan
 from coraplex.plans.plan_entity import PlanEntity
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -38,6 +39,30 @@ except ImportError as e:
 
 
 @dataclass
+class MotionToleranceConfig:
+    """
+    Default goal-achievement tolerances for motions that leave their own thresholds
+    unset.
+    """
+
+    default_tcp_position_threshold: float = 0.005
+    """
+    Default position tolerance in meters for tool-center-point poses, tighter than
+    Giskard's own task default so an approach doesn't stop short of a small object.
+    """
+
+    tool_orientation_threshold: float = 0.02
+    """
+    Default orientation tolerance in rad for tool-center-point poses.
+
+    .. note:: A physically simulated arm's PD-tracked joints settle with a small
+        residual orientation error, so reusing the (much tighter) position tolerance
+        as the rotation tolerance can leave the task perpetually unfinished, stalling
+        the rest of the plan behind it.
+    """
+
+
+@dataclass(eq=False)
 class Context(PlanEntity):
     """
     A dataclass for storing the context of a plan.
@@ -89,19 +114,16 @@ class Context(PlanEntity):
     Should debug information be printed or visualized.
     """
 
-    teleport_to_navigate_in_simulation: bool = False
+    motion_tolerances: MotionToleranceConfig = field(
+        default_factory=MotionToleranceConfig
+    )
     """
-    If True, the robot will teleport to navigate when in ExecutionType.SIMULATED. Otherwise, CartesianPose will be used
+    Default goal-achievement tolerances motions fall back to when they leave their own
+    thresholds unset.
     """
 
-    _giskard_wrapper: Any = field(default=None, init=False, repr=False)
-    """
-    Cached giskard instance so that it isnt reinitialized each action
-    """
-    _giskard_wrapper_world: Any = field(default=None, init=False, repr=False)
-    """
-    World the cached wrapper was built against. Used to detect world swaps
-    """
+    def __post_init__(self):
+        self.debug = self._debug
 
     @property
     def debug(self):
@@ -116,17 +138,26 @@ class Context(PlanEntity):
             logging.DEBUG if self.debug else logging.INFO
         )
 
-    @property
-    def giskard_wrapper(self):
-        if (
-            self._giskard_wrapper is None
-            or self._giskard_wrapper_world is not self.world
-        ):
-            from giskardpy.middleware.ros2.python_interface import GiskardWrapper
+    def __eq__(self, other):
+        return self is other
 
-            self._giskard_wrapper = GiskardWrapper(self.ros_node, world=self.world)
-            self._giskard_wrapper_world = self.world
-        return self._giskard_wrapper
+    def __hash__(self):
+        return hash(id(self))
+
+    @property
+    @memoize
+    def giskard_wrapper(self):
+        """
+        The Giskard wrapper used to communicate with a running Giskard instance.
+
+        Memoized (not ``functools.cached_property``) so the cached wrapper, which
+        holds a reference to :attr:`world`, can be invalidated explicitly via
+        :func:`krrood.utils.clear_memoization_cache` if the world it was built for is
+        ever replaced.
+        """
+        from giskardpy.middleware.ros2.python_interface import GiskardWrapper
+
+        return GiskardWrapper(self.ros_node, world=self.world)
 
     @classmethod
     def from_world(

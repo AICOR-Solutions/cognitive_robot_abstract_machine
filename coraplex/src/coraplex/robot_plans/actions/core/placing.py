@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing_extensions import Any, Dict, Optional
 
@@ -18,7 +18,6 @@ from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import (
     Arms,
     ApproachDirection,
-    MovementType,
     VerticalAlignment,
 )
 from coraplex.datastructures.grasp import GraspDescription, GraspPoseProvider
@@ -26,6 +25,10 @@ from coraplex.plans.factories import sequential
 from coraplex.querying.predicates import GripperIsFree
 from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
+from coraplex.robot_plans.mixins import (
+    HasGraspDetectionThreshold,
+    PlaceTuningParameters,
+)
 from coraplex.robot_plans.motions.gripper import (
     MoveGripperMotion,
     MoveToolCenterPointMotion,
@@ -33,13 +36,13 @@ from coraplex.robot_plans.motions.gripper import (
 from coraplex.view_manager import ViewManager
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.reasoning.predicates import allclose
-from semantic_digital_twin.reasoning.robot_predicates import is_body_in_gripper
+from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass
-class PlaceAction(ActionDescription):
+class PlaceAction(ActionDescription, PlaceTuningParameters, HasGraspDetectionThreshold):
     """
     Places an Object at a position using an arm.
     """
@@ -67,48 +70,74 @@ class PlaceAction(ActionDescription):
     picked up in an earlier plan, so its grasp cannot be looked up.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
-        grasp_description = self.grasp_description or self._previous_grasp()
-        approach_pose, place_pose, retract_pose = grasp_description.place_pose_sequence(
-            self.target_location
-        )
+    grasp_release_threshold: float = field(default=0.1, kw_only=True)
+    """
+    Maximum fraction of sampled rays between the gripper's fingers that may still hit
+    :attr:`object_designator` for it to count as released (see
+    :func:`~semantic_digital_twin.reasoning.robot_predicates.is_body_gripped`).
+    """
+
+    def _retract_plan(self, retract_pose: Pose) -> PlanNode:
+        """
+        :return: The plan that re-parents the placed object back to the world and
+            retracts the end effector away from it.
+        """
         return sequential(
             [
-                MoveToolCenterPointMotion(
-                    approach_pose, self.arm, allow_gripper_collision=False
-                ),
-                MoveToolCenterPointMotion(
-                    place_pose,
-                    self.arm,
-                    allow_gripper_collision=True,
-                    movement_type=MovementType.CARTESIAN,
-                    tolerance=grasp_description.grasp_tolerance,
-                ),
-                MoveGripperMotion(GripperState.OPEN, self.arm),
                 DetachNode(body=self.object_designator, new_parent=self.world.root),
                 MoveToolCenterPointMotion(
-                    retract_pose, self.arm, allow_gripper_collision=True
+                    retract_pose,
+                    self.arm,
+                    max_linear_velocity=self.retract_linear_velocity,
                 ),
             ],
-            self.context,
         )
 
     def _previous_grasp(self) -> GraspPoseProvider:
         """
-        Return the grasp of the preceding pick up in the plan, or a front grasp when the
-        plan holds none.
+        :return: The grasp of the preceding :class:`PickUpAction` in the plan, or a front
+            grasp when the plan holds none.
         """
         previous_pick = self.plan_node.get_previous_node_by_designator_type(
             PickUpAction
         )
-        if previous_pick is None:
-            return GraspDescription(
-                ApproachDirection.FRONT,
-                VerticalAlignment.NoAlignment,
-                ViewManager.get_arm_view(self.arm, self.robot).end_effector,
-            )
-        return previous_pick.designator.grasp_description
+        if previous_pick:
+            return previous_pick.designator.grasp_description
+        end_effector = ViewManager.get_arm_view(self.arm, self.robot).end_effector
+        return GraspDescription(
+            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, end_effector
+        )
+
+    @property
+    def _action_plan(self) -> PlanNode:
+        grasp_description = self.grasp_description or self._previous_grasp()
+        transport_pose, placing_pose, retract_pose = grasp_description.pose_sequence(
+            self.target_location, self.object_designator, reverse=True
+        )
+
+        return sequential(
+            [
+                MoveToolCenterPointMotion(
+                    transport_pose,
+                    self.arm,
+                    allow_gripper_collision=False,
+                    max_linear_velocity=self.transport_linear_velocity,
+                ),
+                MoveToolCenterPointMotion(
+                    placing_pose,
+                    self.arm,
+                    allow_gripper_collision=False,
+                    max_linear_velocity=self.placing_linear_velocity,
+                ),
+                MoveGripperMotion(
+                    GripperState.OPEN,
+                    self.arm,
+                    finger_velocity=self.release_opening_velocity,
+                ),
+                self._retract_plan(retract_pose),
+            ],
+            self.context,
+        )
 
     @staticmethod
     def pre_condition(
@@ -122,8 +151,11 @@ class PlaceAction(ActionDescription):
         )
         return or_(
             not_(GripperIsFree(end_effector)),
-            is_body_in_gripper(variable_from(kwargs["object_designator"]), end_effector)
-            > 0.9,
+            is_body_gripped(
+                variable_from(kwargs["object_designator"]),
+                end_effector,
+                threshold=kwargs["grasp_detection_threshold"],
+            ),
         )
 
     @staticmethod
@@ -139,8 +171,13 @@ class PlaceAction(ActionDescription):
         )
         return and_(
             GripperIsFree(end_effector),
-            is_body_in_gripper(variable_from(kwargs["object_designator"]), end_effector)
-            < 0.1,
+            not_(
+                is_body_gripped(
+                    variable_from(kwargs["object_designator"]),
+                    end_effector,
+                    threshold=kwargs["grasp_release_threshold"],
+                )
+            ),
             allclose(
                 variable_from(kwargs["object_designator"]).global_pose,
                 kwargs["target_location"],
