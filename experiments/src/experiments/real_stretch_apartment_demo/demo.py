@@ -51,7 +51,10 @@ from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
-from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
+from coraplex.robot_plans.actions.core.robot_body import (
+    ParkArmsAction,
+    SetGripperAction,
+)
 from coraplex.view_manager import ViewManager
 from giskardpy.utils.utils_for_tests import BIG_NUMBER
 from krrood.entity_query_language.factories import a
@@ -61,6 +64,7 @@ from semantic_digital_twin.api import (
     RobotSpecification,
     WorldSpecification,
 )
+from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.predetermined_maps.apartment_environment import (
     ApartmentEnvironment,
 )
@@ -172,22 +176,28 @@ class StretchApartmentDemonstration(RobotDemonstration):
         plan = sequential(
             [
                 ParkArmsAction(Arms.BOTH),
+                SetGripperAction(Arms.BOTH, motion=GripperState.CLOSE),
                 NavigateAction(
                     Pose.from_xyz_rpy(
+                        1.2, 1.2, 0, yaw=np.pi, reference_frame=world.root
+                    )
+                ),
+                a(NavigateAction)(
+                    target_location=Pose.from_xyz_rpy(
                         0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
-                # DetectAction(
-                #     DetectionTechnique.TYPES,
-                #     object_sem_annotation=CheezeIt,
-                #     trust_detected_orientation=False,
-                # ),
+                DetectAction(
+                    DetectionTechnique.TYPES,
+                    object_sem_annotation=CheezeIt,
+                    trust_detected_orientation=True,
+                ),
                 PickUpAction(cereal_body, Arms.LEFT, grasp_description),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
                     Pose.from_xyz_rpy(
-                        2, 2, 0, yaw=np.pi / 2, reference_frame=world.root
+                        1.9, 1.9, 0, yaw=np.pi / 2, reference_frame=world.root
                     )
                 ),
                 PlaceAction(
@@ -201,10 +211,23 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     arm=Arms.LEFT,
                 ),
                 ParkArmsAction(Arms.BOTH),
+                SetGripperAction(Arms.BOTH, motion=GripperState.CLOSE),
                 NavigateAction(
-                    Pose.from_xyz_rpy(1.8, 2, 0, yaw=np.pi, reference_frame=world.root)
+                    Pose.from_xyz_rpy(
+                        1.2, 1.2, 0, yaw=np.pi, reference_frame=world.root
+                    )
+                ),
+                a(NavigateAction)(
+                    target_location=Pose.from_xyz_rpy(
+                        1.9, 1.9, 0, yaw=np.pi / 2, reference_frame=world.root
+                    )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=bedside_table_body)),
+                # DetectAction(
+                #     DetectionTechnique.TYPES,
+                #     object_sem_annotation=CheezeIt,
+                #     trust_detected_orientation=False,
+                # ),
                 a(PickUpAction)(
                     object_designator=cereal_body,
                     arm=Arms.LEFT,
@@ -222,77 +245,12 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     arm=Arms.LEFT,
                 ),
                 ParkArmsAction(Arms.BOTH),
+                SetGripperAction(Arms.BOTH, motion=GripperState.CLOSE),
             ],
             context=context,
         )
 
         return plan
-
-    def build_plan2(self, context: Context) -> PlanNode:
-        """
-        Pick the cereal box off the shelf and place it on the bedside table.
-        """
-        world = context.world
-
-        grasp_description = GraspDescription(
-            ApproachDirection.FRONT,
-            VerticalAlignment.NoAlignment,
-            ViewManager.get_arm_view(Arms.LEFT, context.robot).end_effector,
-        )
-
-        cereal_body = world.get_body_by_name(CEREAL_NAME)
-        shelf_layer_body = world.get_body_by_name(CEREAL_SHELF_LAYER_NAME)
-        bedside_table_body = world.get_body_by_name("bedside_table.dae")
-        CEREAL_SHELF_LAYER_T_CEREAL.reference_frame = cereal_body
-
-        plan2 = repeat(
-            [
-                sequential(
-                    [
-                        PlaceAction(
-                            object_designator=cereal_body,
-                            target_location=Pose.from_xyz_rpy(
-                                x=0.1,
-                                z=0.56,
-                                yaw=np.pi,
-                                reference_frame=bedside_table_body,
-                            ),
-                            arm=Arms.LEFT,
-                        ),
-                        ParkArmsAction(Arms.BOTH),
-                        NavigateAction(
-                            Pose.from_xyz_rpy(
-                                1.8, 2, 0, yaw=np.pi, reference_frame=world.root
-                            )
-                        ),
-                        LookAtAction(
-                            Pose.from_xyz_rpy(reference_frame=bedside_table_body)
-                        ),
-                        a(PickUpAction)(
-                            object_designator=cereal_body,
-                            arm=Arms.LEFT,
-                            grasp_description=grasp_description,
-                        ),
-                        ParkArmsAction(Arms.BOTH),
-                        NavigateAction(
-                            Pose.from_xyz_rpy(
-                                0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
-                            )
-                        ),
-                        a(PlaceAction)(
-                            object_designator=cereal_body,
-                            target_location=CEREAL_SHELF_LAYER_T_CEREAL.to_pose(),
-                            arm=Arms.LEFT,
-                        ),
-                        ParkArmsAction(Arms.BOTH),
-                    ],
-                ),
-            ],
-            context=context,
-            repetitions=3,
-        )
-
-        return plan2
 
     def run(self) -> World:
         """
@@ -312,12 +270,6 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ):
                     plan.perform()
 
-            # plan2 = self.build_plan2(self.build_context(world))
-            # with ExecutionEnvironment(
-            #     execution_type=self.execution_type,
-            #     collision_avoidance=self.collision_avoidance,
-            # ):
-            #     plan2.perform()
         finally:
             self.tear_down()
         return world
