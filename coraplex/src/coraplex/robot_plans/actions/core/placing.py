@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import Any, Dict
+from typing_extensions import Any, Dict, Optional
 
 from coraplex.plans.attachment_nodes import DetachNode
 from coraplex.plans.plan_node import PlanNode
@@ -18,13 +18,14 @@ from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import (
     Arms,
     ApproachDirection,
+    MovementType,
     VerticalAlignment,
 )
-from coraplex.datastructures.grasp import GraspDescription
+from coraplex.datastructures.grasp import GraspDescription, GraspPoseProvider
 from coraplex.plans.factories import sequential
 from coraplex.querying.predicates import GripperIsFree
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.actions.core.pick_up import PickUpAction, ReachAction
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.motions.gripper import (
     MoveGripperMotion,
     MoveToolCenterPointMotion,
@@ -57,41 +58,57 @@ class PlaceAction(ActionDescription):
     Arm that is currently holding the object
     """
 
+    grasp_description: Optional[GraspPoseProvider] = None
+    """
+    The grasp the object is held with, which the approach and retract are derived from.
+
+    ``None`` takes the grasp from the preceding :class:`PickUpAction` in the plan, and
+    falls back to a front grasp when the plan holds none. Set it when the object was
+    picked up in an earlier plan, so its grasp cannot be looked up.
+    """
+
     @property
     def _action_plan(self) -> PlanNode:
-        arm = ViewManager.get_arm_view(self.arm, self.robot)
-        end_effector = arm.end_effector
-
-        previous_pick = self.plan_node.get_previous_node_by_designator_type(
-            PickUpAction
+        grasp_description = self.grasp_description or self._previous_grasp()
+        approach_pose, place_pose, retract_pose = grasp_description.place_pose_sequence(
+            self.target_location
         )
-        previous_grasp = (
-            previous_pick.designator.grasp_description
-            if previous_pick
-            else GraspDescription(
-                ApproachDirection.FRONT, VerticalAlignment.NoAlignment, end_effector
-            )
-        )
-
-        _, _, retract_pose = previous_grasp.pose_sequence(
-            self.target_location, self.object_designator, reverse=True
-        )
-
         return sequential(
             [
-                ReachAction(
-                    self.target_location,
+                MoveToolCenterPointMotion(
+                    approach_pose, self.arm, allow_gripper_collision=False
+                ),
+                MoveToolCenterPointMotion(
+                    place_pose,
                     self.arm,
-                    previous_grasp,
-                    self.object_designator,
-                    reverse_reach_order=True,
+                    allow_gripper_collision=True,
+                    movement_type=MovementType.CARTESIAN,
+                    tolerance=grasp_description.grasp_tolerance,
                 ),
                 MoveGripperMotion(GripperState.OPEN, self.arm),
                 DetachNode(body=self.object_designator, new_parent=self.world.root),
-                MoveToolCenterPointMotion(retract_pose, self.arm),
+                MoveToolCenterPointMotion(
+                    retract_pose, self.arm, allow_gripper_collision=True
+                ),
             ],
             self.context,
         )
+
+    def _previous_grasp(self) -> GraspPoseProvider:
+        """
+        Return the grasp of the preceding pick up in the plan, or a front grasp when the
+        plan holds none.
+        """
+        previous_pick = self.plan_node.get_previous_node_by_designator_type(
+            PickUpAction
+        )
+        if previous_pick is None:
+            return GraspDescription(
+                ApproachDirection.FRONT,
+                VerticalAlignment.NoAlignment,
+                ViewManager.get_arm_view(self.arm, self.robot).end_effector,
+            )
+        return previous_pick.designator.grasp_description
 
     @staticmethod
     def pre_condition(

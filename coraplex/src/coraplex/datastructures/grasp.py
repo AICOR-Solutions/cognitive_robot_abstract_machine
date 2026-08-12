@@ -59,6 +59,19 @@ class GraspPoseProvider(ABC):
         """
         ...
 
+    @abstractmethod
+    def place_pose_sequence(self, pose: Pose) -> List[Pose]:
+        """
+        The approach, release and retract poses to place a held body at ``pose``.
+
+        The reverse of :meth:`grasp_pose_sequence`: it assumes the end effector is
+        already holding the body and says where the end effector has to go for the body
+        to end up at ``pose``.
+
+        :param pose: The pose the held body should be placed at.
+        """
+        ...
+
 
 @dataclass
 class GraspDescription(GraspPoseProvider):
@@ -488,6 +501,26 @@ class SemanticGraspDescription(GraspPoseProvider):
         )
         lift = self._lift_pose(grasp, self.manipulation_offset)
         return [pre_grasp, grasp, lift]
+
+    def place_pose_sequence(self, pose: Pose) -> List[Pose]:
+        """
+        The approach, release and retract poses to place the annotated object at
+        ``pose``.
+
+        The annotated grasp poses are expressed in the object's own frame, so re-
+        expressing them relative to ``pose`` gives where the end effector has to be for
+        the object to end up there. The grasp sequence is walked backwards: down from
+        the lift pose, release, then back out along the approach.
+
+        :param pose: The pose the held object should be placed at.
+        """
+        target_T_object = pose.to_homogeneous_matrix()
+        sequence = [
+            (target_T_object @ grasp_pose.to_homogeneous_matrix()).to_pose()
+            for grasp_pose in self.grasp_pose_sequence(self.object.root)
+        ]
+        sequence.reverse()
+        return sequence
 
     def _lift_pose(self, grasp_pose: Pose, offset: float) -> Pose:
         """
