@@ -361,20 +361,24 @@ class ReachPoint(FeatureFunctionGoal):
     def get_controlled_and_reference_features(self):
         return self.tip_point, self.reference_point
 
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
-        artifacts = super().build(context)
+    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+        """
+        Build a constraint that drives the controlled point onto the reference point.
 
+        :param context: Provides access to world model and kinematic expressions.
+        :return: The artifacts of this task, whose error is the distance between the controlled point and the reference point.
+        """
+        artifacts = NodeArtifacts()
         artifacts.geometry.add_point_goal_constraints(
             frame_P_current=self.root_P_controlled_feature,
             frame_P_goal=self.root_P_reference_feature,
             reference_velocity=self.maximum_velocity,
             quadratic_weight=self.weight,
         )
-        artifacts.observation = (
+        artifacts.error = SymbolicErrorSignal(
             self.root_P_controlled_feature.euclidean_distance(
                 self.root_P_reference_feature
             )
-            < self.threshold
         )
         return artifacts
 
