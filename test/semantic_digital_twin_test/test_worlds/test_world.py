@@ -2073,3 +2073,86 @@ def test_world_does_not_record_removing_a_connection_it_does_not_hold():
     ]
     assert recorded_modifications == []
     assert connection in world.connections
+
+
+def recorded_modifications(world: World) -> list:
+    """
+    Flatten every modification recorded so far by a world's model manager.
+
+    :param world: The world whose recorded history is inspected.
+    :return: The modifications recorded across all of the world's modification blocks.
+    """
+    return [
+        modification
+        for block in world.get_world_model_manager().model_modification_blocks
+        for modification in block
+    ]
+
+
+def test_world_does_not_record_removing_a_kinematic_structure_entity_it_does_not_hold():
+    """
+    A world only records the removal of a kinematic_structure_entity it actually holds.
+    """
+    world = World(name="source")
+    body = Body(name=PrefixedName("body"))
+    with world.modify_world():
+        world.add_body(body)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_kinematic_structure_entity(body)
+
+    assert recorded_modifications(other_world) == []
+    assert body in world.kinematic_structure_entities
+
+
+def test_world_does_not_record_removing_a_degree_of_freedom_it_does_not_hold(
+    world_setup,
+):
+    """
+    A world only records the removal of a degree of freedom it actually holds.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(r1, r2)
+    dof = connection.dof
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_degree_of_freedom(dof)
+
+    assert recorded_modifications(other_world) == []
+    assert dof in world.degrees_of_freedom
+
+
+def test_world_does_not_record_removing_a_semantic_annotation_it_does_not_hold():
+    """
+    A world only records the removal of a semantic annotation it actually holds.
+    """
+    world = World(name="source")
+    annotation = SemanticAnnotation(name=PrefixedName("annotation"))
+    with world.modify_world():
+        world.add_semantic_annotation(annotation)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_semantic_annotation(annotation)
+
+    assert recorded_modifications(other_world) == []
+    assert annotation in world.semantic_annotations
+
+
+def test_world_does_not_record_removing_an_actuator_it_does_not_hold():
+    """
+    A world only records the removal of an actuator it actually holds.
+    """
+    world = World(name="source")
+    actuator = Actuator(name=PrefixedName("actuator"))
+    with world.modify_world():
+        world.add_actuator(actuator)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_actuator(actuator)
+
+    assert recorded_modifications(other_world) == []
+    assert actuator in world.actuators
