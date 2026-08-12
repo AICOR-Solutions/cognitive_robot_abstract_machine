@@ -2,7 +2,7 @@
 Self-contained tests for auto-condition resolution
 (:mod:`krrood.entity_query_language.rdr.condition_resolver`).
 
-``ConclusionKnowledge``/``SufficientConditionSet``/``GuardCondition`` are built by hand
+``ConclusionSufficientConditionSets``/``SufficientConditionSet``/``GuardCondition`` are built by hand
 here rather than through a real rule tree or :class:`EQLSingleClassRDR`, so this test
 module -- and the condition-resolution slice it covers -- stays testable independently
 of the rest of the RDR engine.
