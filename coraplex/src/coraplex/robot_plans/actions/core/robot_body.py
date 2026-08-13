@@ -20,7 +20,7 @@ from coraplex.datastructures.enums import AxisIdentifier, Arms
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.plans.factories import execute_single, sequential
 from coraplex.robot_plans.actions.base import ActionDescription, DescriptionType
-from coraplex.robot_plans.mixins import HasMaxJointVelocity
+from coraplex.robot_plans.mixins import HasMaxJointVelocity, HasTcpGoalThresholds
 from coraplex.robot_plans.motions.gripper import (
     MoveGripperMotion,
     MoveTCPWaypointsMotion,
@@ -217,7 +217,7 @@ class CarryAction(ActionDescription):
 
 
 @dataclass
-class FollowToolCenterPointPathAction(ActionDescription):
+class FollowToolCenterPointPathAction(ActionDescription, HasTcpGoalThresholds):
     """
     Represents an action to move a robotic arm's TCP (Tool Center Point) along a path of
     poses.
@@ -241,7 +241,8 @@ class FollowToolCenterPointPathAction(ActionDescription):
             target_locations,
             self.arm,
             allow_gripper_collision=True,
-            threshold=self.threshold,
+            position_threshold=self.position_threshold,
+            orientation_threshold=self.orientation_threshold,
         )
 
         return execute_single(motion)
@@ -255,7 +256,7 @@ class FollowToolCenterPointPathAction(ActionDescription):
 
 
 @dataclass
-class MoveManipulatorAction(ActionDescription):
+class MoveManipulatorAction(ActionDescription, HasTcpGoalThresholds):
     """
     Move the end_effector to a specific pose.
     """
@@ -277,14 +278,15 @@ class MoveManipulatorAction(ActionDescription):
 
     @property
     def _action_plan(self) -> PlanNode:
-        motion_kwargs = dict(
-            target=self.target_pose,
-            end_effector=self.end_effector,
-            allow_gripper_collision=self.allow_gripper_collision,
+        return execute_single(
+            MoveManipulatorMotion(
+                self.target_pose,
+                self.end_effector,
+                self.allow_gripper_collision,
+                position_threshold=self.position_threshold,
+                orientation_threshold=self.orientation_threshold,
+            )
         )
-        if self.threshold is not None:
-            motion_kwargs["threshold"] = self.threshold
-        return execute_single(MoveManipulatorMotion(**motion_kwargs))
 
     @staticmethod
     def post_condition(

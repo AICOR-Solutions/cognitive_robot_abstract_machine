@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass, field, Field, fields, is_dataclass
+from dataclasses import dataclass, field, Field, fields
 from typing import TYPE_CHECKING, Dict
 
 from typing_extensions import Optional, List, Any, get_type_hints
@@ -58,18 +58,12 @@ class Designator:
     def fields(cls) -> List[Field]:
         """
         The fields of this action, returns only the fields defined in the class and not
-        inherited fields of parents.
+        inherit fields of parents.
 
         :return: The fields of this action
         """
         self_fields = list(fields(cls))
-        parent_field_names = {
-            parent_field.name
-            for parent_class in cls.__mro__[1:]
-            if is_dataclass(parent_class)
-            for parent_field in fields(parent_class)
-        }
-        self_fields = [f for f in self_fields if f.name not in parent_field_names]
+        [self_fields.remove(parent_field) for parent_field in fields(Designator)]
         type_hints = cls.get_type_hints()
         for field in self_fields:
             field.type = type_hints[field.name]

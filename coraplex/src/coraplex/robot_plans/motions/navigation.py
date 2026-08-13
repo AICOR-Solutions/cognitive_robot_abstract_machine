@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.plans.executables import GiskardExecutable
@@ -28,28 +27,20 @@ class MoveMotion(BaseMotion):
     Keep the joint states of the robot during/at the end of the motion.
     """
 
-    threshold: Optional[float] = None
-    """
-    Convergence threshold for the Cartesian pose in meters.
-
-    Uses the giskardpy default when None.
-    """
-
     def perform(self):
         return
 
     @property
     def _motion_chart(self):
-        if GiskardExecutable.execution_type == ExecutionType.SIMULATED:
-            return SetOdometry(
+        return (
+            SetOdometry(
                 base_pose=self.target.to_homogeneous_matrix(),
                 odom_connection=self.robot.root.parent_connection,
             )
-        task_kwargs = dict(
-            root_link=self.world.root,
-            tip_link=self.robot.root,
-            goal_pose=self.target,
+            if GiskardExecutable.execution_type == ExecutionType.SIMULATED
+            else CartesianPose(
+                root_link=self.world.root,
+                tip_link=self.robot.root,
+                goal_pose=self.target,
+            )
         )
-        if self.threshold is not None:
-            task_kwargs["threshold"] = self.threshold
-        return CartesianPose(**task_kwargs)
