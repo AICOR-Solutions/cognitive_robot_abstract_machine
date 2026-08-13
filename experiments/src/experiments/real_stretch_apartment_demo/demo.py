@@ -223,11 +223,11 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=bedside_table_body)),
-                # DetectAction(
-                #     DetectionTechnique.TYPES,
-                #     object_sem_annotation=CheezeIt,
-                #     trust_detected_orientation=False,
-                # ),
+                DetectAction(
+                    DetectionTechnique.TYPES,
+                    object_sem_annotation=CheezeIt,
+                    trust_detected_orientation=False,
+                ),
                 a(PickUpAction)(
                     object_designator=cereal_body,
                     arm=Arms.LEFT,
@@ -262,7 +262,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
         try:
             if not self.is_scene_populated(world):
                 self.populate_scene(world)
-            for _ in range(3):
+            for _ in range(5):
                 plan = self.build_plan(self.build_context(world))
                 with ExecutionEnvironment(
                     execution_type=self.execution_type,
@@ -290,4 +290,4 @@ def main(execution_type: ExecutionType = ExecutionType.SIMULATED) -> None:
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.SIMULATED)
+    main(execution_type=ExecutionType.REAL)

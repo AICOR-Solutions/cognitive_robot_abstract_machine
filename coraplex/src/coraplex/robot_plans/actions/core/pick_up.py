@@ -109,7 +109,6 @@ class ReachAction(ActionDescription, ReachTuningParameters, HasGraspDetectionThr
                 DetectAction(
                     DetectionTechnique.TYPES,
                     object_sem_annotation=CheezeIt,
-                    trust_detected_orientation=False,
                 ),
                 MoveToolCenterPointMotion(
                     target_pose,

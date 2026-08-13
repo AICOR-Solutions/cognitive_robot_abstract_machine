@@ -51,23 +51,21 @@ class StretchMoveToolCenterPoint(MoveToolCenterPointMotion, AlternativeMotion[St
             [
                 # Due to its limited kinematics and bad tracking and joint delays, Stretch has better results in
                 # real demos when straightening the wrist joint and pointing at the goal first
-                Parallel(
-                    [
-                        Pointing(
-                            root_link=self.world.root,
-                            tip_link=self.robot.root,
-                            goal_point=goal_point,
-                            pointing_axis=Vector3(
-                                0, -1, 0, reference_frame=self.robot.root
-                            ),
-                            binding_policy=GoalBindingPolicy.Bind_at_build,
-                        ),
-                        JointPositionList(
-                            goal_state=JointState.from_str_dict(
-                                {"joint_wrist_yaw": 0.0}, world=self.world
-                            )
-                        ),
-                    ]
+                Pointing(
+                    root_link=self.world.root,
+                    tip_link=self.robot.root,
+                    goal_point=goal_point,
+                    pointing_axis=Vector3(0, -1, 0, reference_frame=self.robot.root),
+                    binding_policy=GoalBindingPolicy.Bind_at_build,
+                ),
+                Pointing(
+                    root_link=self.world.get_connection_by_name(
+                        "joint_wrist_yaw"
+                    ).parent,
+                    tip_link=tip,
+                    goal_point=goal_point,
+                    pointing_axis=Vector3.NEGATIVE_X(tip),
+                    binding_policy=GoalBindingPolicy.Bind_at_build,
                 ),
                 Parallel(
                     [

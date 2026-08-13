@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+import numpy as np
+
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from rclpy.node import Node
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
@@ -13,7 +15,7 @@ from semantic_digital_twin.reasoning.predicates import visible
 from semantic_digital_twin.robots.robot_parts import Camera, AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.world_entity import (
@@ -180,20 +182,59 @@ class Detection:
         :raises AmbiguousDetection: If the annotation describes more than one body.
         """
         matching_annotations = self.resolve_annotations(world)
-        body = matching_annotations[0].root
-        detected_origin = world.transform(self.pose, body.parent_connection.parent)
+        matching_annotation = matching_annotations[0]
+        body = matching_annotation.root
+        robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
+
+        # Foundation Pose may return a upside down pose. this detects and fixes it by rotation around x by 180 degree
+        detected_global_pose = world.transform(
+            self.pose, world.root
+        ).to_homogeneous_matrix()
+        detected_global_pose = self._with_z_up_and_x_towards(
+            root_T_frame=detected_global_pose,
+            root_P_target=robot.root.global_transform.to_position(),
+        )
+
         if trust_orientation:
-            body.parent_connection.origin = detected_origin.to_homogeneous_matrix()
+            body.parent_connection.origin = detected_global_pose
         else:
+            parent_T_object = world.transform(
+                detected_global_pose, body.parent_connection.parent
+            )
             parent_origin = body.parent_connection.origin
             body.parent_connection.origin = (
                 HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                    point=detected_origin.to_position(),
+                    point=parent_T_object.to_position(),
                     rotation_matrix=parent_origin.to_rotation_matrix(),
                     reference_frame=body.parent_connection.parent,
                 )
             )
         return matching_annotations
+
+    @staticmethod
+    def _with_z_up_and_x_towards(
+        root_T_frame: HomogeneousTransformationMatrix, root_P_target: Point3
+    ) -> HomogeneousTransformationMatrix:
+        """
+        Return ``root_T_frame`` rotated by 180° around its own axes so that its z axis
+        points along the world z axis and its x axis points towards ``root_P_target``
+        as closely as those rotations allow.
+
+        The position is left untouched, and every axis stays on the axis it started on.
+        :param root_T_frame: ``HomogeneousTransformationMatrix`` which will be rotated
+        :param root_P_target: ``Point3`` towards which root_T_frame x axis will point
+        :return: rotated transformation matrix
+        """
+        root_V_target = root_P_target - root_T_frame.to_position()
+
+        flip_z = root_T_frame[2, 2] < 0
+        flip_x = root_T_frame.to_rotation_matrix().x_vector().dot(root_V_target) < 0
+
+        return root_T_frame @ HomogeneousTransformationMatrix.from_xyz_rpy(
+            roll=np.pi if flip_z and not flip_x else 0,
+            pitch=np.pi if flip_z and flip_x else 0,
+            yaw=np.pi if flip_x and not flip_z else 0,
+        )
 
     def resolve_annotations(self, world: World) -> List[IsPerceivable]:
         """
@@ -225,12 +266,20 @@ class PerceptionInterface(ABC):
     A source of detections.
     """
 
+    accept_first_if_multiple: bool = False
+    """
+    If there are multiple results of the same type returned, accept the first one
+    """
+
     @abstractmethod
-    def detect(self, query: PerceptionQuery) -> List[Detection]:
+    def detect(
+        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
+    ) -> List[Detection]:
         """
         Answer a perception query.
 
         :param query: What to look for and where.
+        :param accept_first_if_multiple: Whether if there are multiple results of the same type returned, accept the first one
         :return: The objects this source saw.
         """
 
@@ -264,20 +313,36 @@ class WorldPerception(PerceptionInterface):
     already holds.
     """
 
-    def detect(self, query: PerceptionQuery) -> List[Detection]:
+    def detect(
+        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
+    ) -> List[Detection]:
         annotation_by_body = {}
-        for annotation in query.world.get_semantic_annotations_by_type(
+
+        detected_objects = query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
-        ):
+        )
+
+        if not detected_objects:
+            raise NothingDetected(query.semantic_annotation)
+
+        for annotation in detected_objects:
             annotation_by_body.setdefault(annotation.root, type(annotation))
 
-        return [
+        detections = [
             Detection(
                 semantic_annotation=annotation_by_body[body], pose=body.global_pose
             )
             for body in query.from_world()
             if body in annotation_by_body
         ]
+
+        if len(detections) == 1:
+            return detections
+        if not self.accept_first_if_multiple:
+            raise UnidentifiedDetections(
+                query.semantic_annotation, len(detected_objects)
+            )
+        return [detections[0]]
 
 
 @dataclass
@@ -301,7 +366,9 @@ class RoboKudoPerception(PerceptionInterface):
     How long to wait for the action server before giving up.
     """
 
-    def detect(self, query: PerceptionQuery) -> List[Detection]:
+    def detect(
+        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
+    ) -> List[Detection]:
         # RoboKudo's messages only exist where its pipeline is installed, so they are
         # imported here rather than at module level: reading the world in simulation must
         # not depend on them.
@@ -324,9 +391,11 @@ class RoboKudoPerception(PerceptionInterface):
 
         if not detections:
             raise NothingDetected(query.semantic_annotation)
-        if len(detections) > 1:
+        if len(detections) == 1:
+            return detections
+        if not self.accept_first_if_multiple:
             raise UnidentifiedDetections(query.semantic_annotation, len(detections))
-        return detections
+        return [detections[0]]
 
     @staticmethod
     def _can_be_requested_object(
