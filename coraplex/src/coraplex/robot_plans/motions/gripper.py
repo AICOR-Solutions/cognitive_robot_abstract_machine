@@ -44,10 +44,16 @@ from coraplex.utils import translate_pose_along_local_axis
 
 
 @dataclass
+<<<<<<< HEAD
 class ReachMotion(BaseMotion, HasTcpGoalThresholds):
     """
     Moves the tool center point through the grasp description's pre-grasp and grasp
     poses for an object.
+=======
+class ReachMotion(BaseMotion):
+    """
+    Reaches towards an object with the end effector.
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
     """
 
     object_designator: Body
@@ -56,8 +62,9 @@ class ReachMotion(BaseMotion, HasTcpGoalThresholds):
     """
     arm: Arms
     """
-    The arm that should be used for pick up
+    The arm that should be used for pick up.
     """
+
     grasp_description: GraspDescription
     """
     The grasp description that should be used for picking up the object
@@ -66,9 +73,18 @@ class ReachMotion(BaseMotion, HasTcpGoalThresholds):
     """
     The type of movement that should be performed.
     """
+
     reverse_pose_sequence: bool = False
     """
-    Reverses the sequence of poses, i.e., moves away from the object instead of towards it. Used for placing objects.
+    Reverses the sequence of poses, i.e., moves away from the object instead of towards
+    it.
+
+    Used for placing objects.
+    """
+
+    threshold: float = 0.005
+    """
+    Convergence threshold for the Cartesian pose in meters.
     """
 
     def _calculate_pose_sequence(self) -> List[Pose]:
@@ -105,8 +121,12 @@ class ReachMotion(BaseMotion, HasTcpGoalThresholds):
                 root_link=self.robot_view.root,
                 tip_link=tip,
                 goal_pose=pose,
+<<<<<<< HEAD
                 translation_threshold=self.resolved_position_threshold(),
                 orientation_threshold=self.resolved_orientation_threshold(),
+=======
+                threshold=self.threshold,
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
                 name="Reach",
             )
             for pose in self._calculate_pose_sequence()
@@ -117,20 +137,20 @@ class ReachMotion(BaseMotion, HasTcpGoalThresholds):
 @dataclass
 class MoveGripperMotion(BaseMotion, GripperStallToleranceParameters):
     """
-    Opens or closes the gripper
+    Opens or closes the gripper.
     """
-
     motion: GripperState
     """
-    Motion that should be performed, either 'open' or 'close'
+    Motion that should be performed, either 'open' or 'close'.
     """
     gripper: Arms
     """
-    Name of the gripper that should be moved
+    Name of the gripper that should be moved.
     """
+
     allow_gripper_collision: Optional[bool] = None
     """
-    If the gripper is allowed to collide with something
+    If the gripper is allowed to collide with something.
     """
 
     def perform(self):
@@ -176,24 +196,33 @@ class MoveToolCenterPointMotion(
     BaseMotion, CartesianVelocityLimitParameters, HasTcpGoalThresholds
 ):
     """
-    Moves the Tool center point (TCP) of the robot
+    Moves the Tool center point (TCP) of the robot.
     """
 
     target: Pose
     """
-    Target pose to which the TCP should be moved
+    Target pose to which the TCP should be moved.
     """
+
     arm: Arms
     """
-    Arm with the TCP that should be moved to the target
+    Arm with the TCP that should be moved to the target.
     """
+
     allow_gripper_collision: Optional[bool] = None
     """
-    If the gripper can collide with something
+    If the gripper can collide with something.
     """
+
     movement_type: Optional[MovementType] = MovementType.CARTESIAN
     """
     The type of movement that should be performed.
+    """
+    threshold: Optional[float] = None
+    """
+    Convergence threshold for the Cartesian task in meters.
+
+    Uses the giskardpy default when None.
     """
 
     def perform(self):
@@ -236,20 +265,32 @@ class MoveToolCenterPointMotion(
             and self.robot.mobile_base.full_body_controlled
             else self.robot.root
         )
+<<<<<<< HEAD
+=======
+        task_kwargs = dict(
+            root_link=root,
+            tip_link=tip,
+            name="MoveTCP",
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
+        )
+        if self.threshold is not None:
+            task_kwargs["threshold"] = self.threshold
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
         if self.movement_type == MovementType.TRANSLATION:
             task = CartesianPosition(
-                root_link=root,
-                tip_link=tip,
                 goal_point=self.target.to_position(),
+<<<<<<< HEAD
                 name="MoveTCP",
                 weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
                 threshold=self.resolved_position_threshold(),
+=======
+                **task_kwargs,
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
             )
         else:
             task = CartesianPose(
-                root_link=root,
-                tip_link=tip,
                 goal_pose=self.target,
+<<<<<<< HEAD
                 name="MoveTCP",
                 weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
                 translation_threshold=self.resolved_position_threshold(),
@@ -261,29 +302,43 @@ class MoveToolCenterPointMotion(
         return Parallel([task, *velocity_limit_nodes], name="MoveTCP")
 
 
+=======
+                **task_kwargs,
+            )
+        return task
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
 @dataclass
 class MoveTCPWaypointsMotion(BaseMotion):
     """
-    Moves the Tool center point (TCP) of the robot
+    Moves the Tool center point (TCP) of the robot.
     """
 
     waypoints: List[Pose]
     """
-    Waypoints the TCP should move along 
+    Waypoints the TCP should move along.
     """
+
     arm: Arms
     """
-    Arm with the TCP that should be moved to the target
+    Arm with the TCP that should be moved to the target.
     """
+
     allow_gripper_collision: Optional[bool] = None
     """
-    If the gripper can collide with something
+    If the gripper can collide with something.
     """
     movement_type: WaypointsMovementType = (
         WaypointsMovementType.ENFORCE_ORIENTATION_FINAL_POINT
     )
     """
     The type of movement that should be performed.
+    """
+
+    threshold: Optional[float] = None
+    """
+    Convergence threshold for the Cartesian pose in meters.
+
+    Uses the giskardpy default when None.
     """
 
     def perform(self):
@@ -298,44 +353,58 @@ class MoveTCPWaypointsMotion(BaseMotion):
             and self.robot.mobile_base.full_body_controlled
             else self.robot.root
         )
+        task_kwargs = dict(
+            root_link=root,
+            tip_link=tip,
+        )
+        if self.threshold is not None:
+            task_kwargs["threshold"] = self.threshold
         nodes = [
             CartesianPose(
-                root_link=root,
-                tip_link=tip,
                 goal_pose=pose,
-                # threshold=0.005,
+                **task_kwargs,
             )
             for pose in self.waypoints
         ]
         return Sequence(nodes=nodes)
-
-
 @dataclass
 class MoveTCPWaypointsAlignedMotion(BaseMotion):
     """
     Moves the tool center point (TCP) of the robot along waypoints while keeping the
     given plane alignments.
     """
-
     waypoints: List[Point3]
     """
     Waypoints the TCP should move along.
     """
+
     arm: Arms
     """
     Arm with the TCP that should be moved along the waypoints.
     """
+
     alignment_pairs: List[AlignmentPair] = field(default_factory=list)
     """
     Normal pairs kept aligned during the motion.
     """
+
     allow_gripper_collision: Optional[bool] = None
     """
     If the gripper can collide with something.
     """
+
     tip: Optional[Body] = None
     """
-    The body that should follow the waypoints. Defaults to the arm's tool frame.
+    The body that should follow the waypoints.
+
+    Defaults to the arm's tool frame.
+    """
+
+    threshold: Optional[float] = None
+    """
+    Convergence threshold for the Cartesian position trajectory in meters.
+
+    Uses the giskardpy default when None.
     """
 
     def perform(self):
@@ -355,7 +424,6 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
         if tool_frame is None:
             raise MissingToolFrame(self.arm, self.robot)
         return tool_frame
-
     def _upright_torso_task(self, tip_link: Body, root_link: Body) -> AlignPlanes:
         """
         :return: A task that keeps Justin's torso upright during the motion.
@@ -381,7 +449,18 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
             and self.robot.mobile_base.full_body_controlled
             else self.robot.root
         )
+        trajectory_kwargs = dict(
+            root_link=root_link,
+            tip_link=tip_link,
+            goal_points=self.waypoints,
+            maximum_skip_ahead=2,
+            weight=float(DefaultWeights.WEIGHT_BELOW_CA),
+            name="MoveTCPWaypointsAligned",
+        )
+        if self.threshold is not None:
+            trajectory_kwargs["threshold"] = self.threshold
         tasks = [
+<<<<<<< HEAD
             CartesianPositionTrajectory(
                 root_link=root_link,
                 tip_link=tip_link,
@@ -390,6 +469,9 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
                 weight=float(DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE),
                 name="MoveTCPWaypointsAligned",
             )
+=======
+            CartesianPositionTrajectory(**trajectory_kwargs)
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
         ]
         tasks.extend(
             AlignPlanes(
@@ -410,27 +492,30 @@ class MoveTCPWaypointsAlignedMotion(BaseMotion):
         )
         motion_statechart_nodes.append(Parallel(tasks))
         return Parallel(motion_statechart_nodes)
-
-
 @dataclass
 class MoveManipulatorMotion(BaseMotion, HasTcpGoalThresholds):
     """
-    Moves the Tool center point (TCP) of the robot
+    Moves the Tool center point (TCP) of the robot.
     """
 
     target: Pose
     """
-    Target pose to which the TCP should be moved
+    Target pose to which the TCP should be moved.
     """
 
     end_effector: EndEffector
     """
-    The end effector to move to the target pose
+    The end effector to move to the target pose.
     """
 
     allow_gripper_collision: bool = False
     """
-    If the gripper can collide with something
+    If the gripper can collide with something.
+    """
+
+    threshold: float = 0.005
+    """
+    Convergence threshold for the Cartesian pose in meters.
     """
 
     @property
@@ -446,8 +531,12 @@ class MoveManipulatorMotion(BaseMotion, HasTcpGoalThresholds):
             root_link=root,
             tip_link=self.end_effector.tool_frame,
             goal_pose=self.target,
+<<<<<<< HEAD
             translation_threshold=self.resolved_position_threshold(),
             orientation_threshold=self.resolved_orientation_threshold(),
+=======
+            threshold=self.threshold,
+>>>>>>> e2f342e42 (Pass through threshold as parameter to action and motion designators)
             binding_policy=GoalBindingPolicy.Bind_on_start,
             name=self.__class__.__name__,
         )

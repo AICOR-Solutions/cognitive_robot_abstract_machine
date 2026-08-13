@@ -209,6 +209,7 @@ class PickUpAction(
                     pre_approach_linear_velocity=self.pre_approach_linear_velocity,
                     final_approach_linear_velocity=self.final_approach_linear_velocity,
                     open_gripper_at_pre_pose=True,
+                    threshold=self.threshold,
                 ),
                 MoveGripperMotion(
                     motion=GripperState.CLOSE,
@@ -216,6 +217,7 @@ class PickUpAction(
                     finger_velocity=self.grasp_closing_velocity,
                     stall_minimum_time=self.grasp_stall_minimum_time,
                     tolerate_stall=self.tolerate_grasp_stall,
+                    threshold=self.threshold,
                 ),
                 AttachNode(
                     body=self.object_designator,
@@ -240,6 +242,7 @@ class PickUpAction(
                     allow_gripper_collision=True,
                     movement_type=MovementType.TRANSLATION,
                     max_linear_velocity=self.lift_linear_velocity,
+                    threshold=self.threshold,
                 ),
             ],
         )
@@ -318,10 +321,15 @@ class GraspingAction(ActionDescription):
 
         return sequential(
             [
-                MoveToolCenterPointMotion(pre_pose, self.arm),
+                MoveToolCenterPointMotion(
+                    pre_pose, self.arm, threshold=self.threshold
+                ),
                 MoveGripperMotion(GripperState.OPEN, self.arm),
                 MoveToolCenterPointMotion(
-                    grasp_pose, self.arm, allow_gripper_collision=True
+                    grasp_pose,
+                    self.arm,
+                    allow_gripper_collision=True,
+                    threshold=self.threshold,
                 ),
                 MoveGripperMotion(
                     GripperState.CLOSE, self.arm, allow_gripper_collision=True
