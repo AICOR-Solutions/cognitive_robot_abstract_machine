@@ -59,7 +59,6 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
-    Connection,
 )
 from semantic_digital_twin.api import (
     BodySpecification,
@@ -280,7 +279,9 @@ class MechanicalJoint(HasRootBody):
         over carrying the physical joint data (its creator is expected to have copied
         the axis, limits, ... over from it), the whole's old connection to its parent
         is discarded, and the whole is attached to the joint with a fixed connection
-        instead.
+        instead. The degree of freedom the discarded connection used is reclaimed by
+        :meth:`World.delete_orphaned_dofs` when the enclosing ``modify_world`` block
+        exits.
         """
         if (
             main_has_root_body_annotation.root.parent_kinematic_structure_entity
@@ -294,10 +295,9 @@ class MechanicalJoint(HasRootBody):
         whole_parent = (
             main_has_root_body_annotation.root.parent_kinematic_structure_entity
         )
-        whole_connection = main_has_root_body_annotation.root.parent_connection
-        whole_already_carries_this_joint_type = type(whole_connection) is type(
-            self.root.parent_connection
-        )
+        whole_already_carries_this_joint_type = type(
+            main_has_root_body_annotation.root.parent_connection
+        ) is type(self.root.parent_connection)
 
         self._world.move_branch(self.root, whole_parent)
 
@@ -305,25 +305,10 @@ class MechanicalJoint(HasRootBody):
             main_has_root_body_annotation._world.move_branch_with_fixed_connection(
                 main_has_root_body_annotation.root, self.root
             )
-            self._discard_orphaned_dofs(whole_connection)
         else:
             main_has_root_body_annotation._world.move_branch(
                 main_has_root_body_annotation.root, self.root
             )
-
-    def _discard_orphaned_dofs(self, discarded_connection: Connection) -> None:
-        """
-        Remove degrees of freedom ``discarded_connection`` used that no remaining
-        connection references.
-
-        :param discarded_connection: A connection that was just replaced and removed
-            from the world.
-        """
-        for dof in discarded_connection.dofs:
-            if not any(
-                dof in connection.dofs for connection in self._world.connections
-            ):
-                self._world.remove_degree_of_freedom(dof)
 
     @property
     def position(self):

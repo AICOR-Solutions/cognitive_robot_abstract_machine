@@ -1459,8 +1459,8 @@ def test_mechanical_joint_mount_reuses_existing_direct_active_connection():
     hinge body in between), mounting the joint discards that now-redundant connection
     instead of stacking a second active one: the joint's own active connection is
     anchored between the parent and the joint, the whole is attached to the joint
-    with a fixed connection, and the discarded connection's degree of freedom is
-    cleaned up rather than left orphaned.
+    with a fixed connection, and the world reclaims the discarded connection's degree
+    of freedom instead of leaving it orphaned.
     """
     world = _world_with_root()
     with world.modify_world():
@@ -1491,7 +1491,7 @@ def test_mechanical_joint_mount_reuses_existing_direct_active_connection():
     assert hinge.root.parent_kinematic_structure_entity == fridge.root
     assert isinstance(hinge.root.parent_connection, RevoluteConnection)
     assert isinstance(door.root.parent_connection, FixedConnection)
-    # The discarded connection's degree of freedom does not linger as an orphan.
+    # The world reclaims the discarded connection's degree of freedom on its own.
     assert discarded_dof not in world.degrees_of_freedom
     assert world.validate()
 
