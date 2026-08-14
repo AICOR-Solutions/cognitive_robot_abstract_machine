@@ -48,7 +48,6 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
-    RevoluteConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
@@ -628,34 +627,6 @@ class Door(HasHandle, HasMechanicalJoint):
         world_T_hinge = world_T_door @ door_T_hinge
 
         return world_T_hinge
-
-    def ensure_hinge(self) -> None:
-        """
-        Give this door a :class:`Hinge` when its root is wired straight to its parent
-        with a revolute connection and no hinge body carries that connection yet.
-
-        Formats like URDF often attach a door to its cabinet with a bare revolute
-        joint and no dedicated hinge body. This inserts one, carrying the same axis,
-        multiplier, offset and limits as the existing connection, so the door's
-        :attr:`mechanical_joint` reflects the joint that already moves it.
-        """
-        if self.mechanical_joint is not None:
-            return
-        connection = self.root.parent_connection
-        if not isinstance(connection, RevoluteConnection):
-            return
-        hinge = Hinge.create_with_new_body_in_world(
-            name=f"{self.root.name.name}_hinge",
-            world=self._world,
-            world_root_T_self=self.root.global_transform,
-            parent_connection_specification=Hinge.parent_connection_specification(
-                axis=connection.axis,
-                multiplier=connection.multiplier,
-                offset=connection.offset,
-                dof_limits=connection.raw_dof.limits,
-            ),
-        )
-        self.add(hinge)
 
 
 @dataclass(eq=False)
