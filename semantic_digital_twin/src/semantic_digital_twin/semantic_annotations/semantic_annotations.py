@@ -48,6 +48,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
+    RevoluteConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
@@ -59,6 +60,7 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    Connection,
 )
 from semantic_digital_twin.api import (
     BodySpecification,
@@ -268,9 +270,18 @@ class MechanicalJoint(HasRootBody):
         Inserts the joint between the whole (``main_has_root_body_annotation``) and the
         whole's current parent, preserving the whole's ancestry.
 
-        So whole_parent -(fixed)-> whole becomes whole_parent -(active)-> joint
-        -(fixed)-> whole. The joint keeps its active connection (now anchored at the
-        whole's parent); the whole hangs rigidly off the joint.
+        Ordinarily, whole_parent -(fixed)-> whole becomes whole_parent -(active)->
+        joint -(fixed)-> whole: the joint keeps its own active connection (now
+        anchored at the whole's parent), and the whole hangs rigidly off the joint.
+
+        When the whole is already wired straight to its parent through a connection
+        of the same type this joint provides (for example a door whose URDF attaches
+        it to its cabinet with a revolute joint directly, without a hinge body in
+        between), that connection is redundant with the joint's own: the joint takes
+        over carrying the physical joint data (its creator is expected to have copied
+        the axis, limits, ... over from it), the whole's old connection to its parent
+        is discarded, and the whole is attached to the joint with a fixed connection
+        instead.
         """
         if (
             main_has_root_body_annotation.root.parent_kinematic_structure_entity
@@ -281,13 +292,39 @@ class MechanicalJoint(HasRootBody):
         if list(self._world.kinematic_structure.successors(self.root.index)):
             raise MechanicalJointAlreadyMounted(self, main_has_root_body_annotation)
 
-        self._world.move_branch(
-            self.root,
-            main_has_root_body_annotation.root.parent_kinematic_structure_entity,
+        whole_parent = (
+            main_has_root_body_annotation.root.parent_kinematic_structure_entity
         )
-        main_has_root_body_annotation._world.move_branch(
-            main_has_root_body_annotation.root, self.root
+        whole_connection = main_has_root_body_annotation.root.parent_connection
+        whole_already_carries_this_joint_type = type(whole_connection) is type(
+            self.root.parent_connection
         )
+
+        self._world.move_branch(self.root, whole_parent)
+
+        if whole_already_carries_this_joint_type:
+            main_has_root_body_annotation._world.move_branch_with_fixed_connection(
+                main_has_root_body_annotation.root, self.root
+            )
+            self._discard_orphaned_dofs(whole_connection)
+        else:
+            main_has_root_body_annotation._world.move_branch(
+                main_has_root_body_annotation.root, self.root
+            )
+
+    def _discard_orphaned_dofs(self, discarded_connection: Connection) -> None:
+        """
+        Remove degrees of freedom ``discarded_connection`` used that no remaining
+        connection references.
+
+        :param discarded_connection: A connection that was just replaced and removed
+            from the world.
+        """
+        for dof in discarded_connection.dofs:
+            if not any(
+                dof in connection.dofs for connection in self._world.connections
+            ):
+                self._world.remove_degree_of_freedom(dof)
 
     @property
     def position(self):
@@ -591,6 +628,34 @@ class Door(HasHandle, HasMechanicalJoint):
         world_T_hinge = world_T_door @ door_T_hinge
 
         return world_T_hinge
+
+    def ensure_hinge(self) -> None:
+        """
+        Give this door a :class:`Hinge` when its root is wired straight to its parent
+        with a revolute connection and no hinge body carries that connection yet.
+
+        Formats like URDF often attach a door to its cabinet with a bare revolute
+        joint and no dedicated hinge body. This inserts one, carrying the same axis,
+        multiplier, offset and limits as the existing connection, so the door's
+        :attr:`mechanical_joint` reflects the joint that already moves it.
+        """
+        if self.mechanical_joint is not None:
+            return
+        connection = self.root.parent_connection
+        if not isinstance(connection, RevoluteConnection):
+            return
+        hinge = Hinge.create_with_new_body_in_world(
+            name=f"{self.root.name.name}_hinge",
+            world=self._world,
+            world_root_T_self=self.root.global_transform,
+            parent_connection_specification=Hinge.parent_connection_specification(
+                axis=connection.axis,
+                multiplier=connection.multiplier,
+                offset=connection.offset,
+                dof_limits=connection.raw_dof.limits,
+            ),
+        )
+        self.add(hinge)
 
 
 @dataclass(eq=False)

@@ -15,6 +15,10 @@ from semantic_digital_twin.reasoning.queries import (
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
 from semantic_digital_twin.semantic_annotations.semantic_annotations import *
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import (
+    FixedConnection,
+    RevoluteConnection,
+)
 from semantic_digital_twin.world_description.geometry import Color
 
 
@@ -241,3 +245,40 @@ def test_sort_annotations_by_volume(kitchen_environment_fixture):
     assert sort_annotations_by_volume(
         semantic_annotations_on_surfaces([table2], kitchen_environment_fixture)
     ) == [lettuce, carrot]
+
+
+def test_world_reasoner_adds_hinge_to_urdf_doors_with_direct_revolute_connection():
+    """
+    Doors loaded from a URDF are commonly wired straight to their cabinet with a
+    revolute joint and no separate hinge body, e.g. ``iai_fridge_main`` ->
+    (revolute) -> ``iai_fridge_door`` in ``coraplex``'s ``kitchen-small.urdf``. The
+    world reasoner must still give such doors a Hinge, splicing it in as:
+    cabinet -> revolute -> hinge -> fixed -> door.
+    """
+    coraplex_worlds_directory = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "..",
+        "..",
+        "coraplex",
+        "resources",
+        "worlds",
+    )
+    world = URDFParser.from_file(
+        file_path=os.path.join(coraplex_worlds_directory, "kitchen-small.urdf")
+    ).parse()
+    reasoner = WorldReasoner(world)
+
+    reasoner.infer_semantic_annotations()
+
+    doors = world.get_semantic_annotations_by_type(Door)
+    assert doors
+    for door in doors:
+        hinge = door.mechanical_joint
+        assert isinstance(hinge, Hinge)
+        assert door.root.parent_kinematic_structure_entity == hinge.root
+        assert isinstance(door.root.parent_connection, FixedConnection)
+        assert isinstance(hinge.root.parent_connection, RevoluteConnection)
+    # Collapsing each door's original direct revolute connection must not leave its
+    # degree of freedom orphaned.
+    assert world.validate()
