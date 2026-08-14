@@ -317,7 +317,7 @@ class GiskardExecutable(Executable):
                 ),
             ),
             ros_node=self.context.ros_node,
-            publish_debug_expressions=True,
+            publish_debug_expressions=False,
             # pacer=SimulationPacer(),
         )
         motion_state_chart = self.motion_state_chart
