@@ -8,6 +8,7 @@ from datetime import timedelta
 
 from typing_extensions import List, Dict, ClassVar, Optional, TYPE_CHECKING
 
+from giskardpy.executor import SimulationPacer
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
@@ -316,6 +317,8 @@ class GiskardExecutable(Executable):
                 ),
             ),
             ros_node=self.context.ros_node,
+            publish_debug_expressions=True,
+            # pacer=SimulationPacer(),
         )
         motion_state_chart = self.motion_state_chart
         executor.compile(motion_state_chart)
@@ -332,6 +335,7 @@ class GiskardExecutable(Executable):
                 continue
 
             executor.tick()
+            # executor.pacer.sleep()
             counter += 1
             if executor.motion_statechart.is_end_motion():
                 break

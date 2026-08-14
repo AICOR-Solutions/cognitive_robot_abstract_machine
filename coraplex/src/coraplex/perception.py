@@ -228,7 +228,7 @@ class Detection:
         root_V_target = root_P_target - root_T_frame.to_position()
 
         flip_z = root_T_frame[2, 2] < 0
-        flip_x = root_T_frame.to_rotation_matrix().x_vector().dot(root_V_target) < 0
+        flip_x = root_T_frame.to_rotation_matrix().x_vector().dot(root_V_target) > 0
 
         return root_T_frame @ HomogeneousTransformationMatrix.from_xyz_rpy(
             roll=np.pi if flip_z and not flip_x else 0,
@@ -264,11 +264,6 @@ class Detection:
 class PerceptionInterface(ABC):
     """
     A source of detections.
-    """
-
-    accept_first_if_multiple: bool = False
-    """
-    If there are multiple results of the same type returned, accept the first one
     """
 
     @abstractmethod
@@ -321,6 +316,12 @@ class WorldPerception(PerceptionInterface):
         detected_objects = query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
         )
+        body = detected_objects[0].root
+        return [
+            Detection(
+                semantic_annotation=query.semantic_annotation, pose=body.global_pose
+            )
+        ]
 
         if not detected_objects:
             raise NothingDetected(query.semantic_annotation)
@@ -338,7 +339,7 @@ class WorldPerception(PerceptionInterface):
 
         if len(detections) == 1:
             return detections
-        if not self.accept_first_if_multiple:
+        if not accept_first_if_multiple:
             raise UnidentifiedDetections(
                 query.semantic_annotation, len(detected_objects)
             )

@@ -85,7 +85,7 @@ Name of the shelf layer the cereal starts on.
 """
 
 CEREAL_SHELF_LAYER_T_CEREAL = HomogeneousTransformationMatrix.from_xyz_rpy(
-    x=-0.05, y=0.0, z=0.115
+    x=-0.15, y=0.0, z=0.115, yaw=np.pi / 8
 )
 """
 Where the cereal starts, relative to its shelf layer.
@@ -184,7 +184,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
-                        0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
+                        0.8, 0.6, 0, reference_frame=world.root
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
@@ -192,12 +192,13 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     DetectionTechnique.TYPES,
                     object_sem_annotation=CheezeIt,
                     trust_detected_orientation=True,
+                    accept_first_if_multiple=True,
                 ),
                 PickUpAction(cereal_body, Arms.LEFT, grasp_description),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
                     Pose.from_xyz_rpy(
-                        1.9, 1.9, 0, yaw=np.pi / 2, reference_frame=world.root
+                        0.8, 0, 0, yaw=-np.pi / 2, reference_frame=bedside_table_body
                     )
                 ),
                 PlaceAction(
@@ -219,7 +220,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
-                        1.9, 1.9, 0, yaw=np.pi / 2, reference_frame=world.root
+                        0.8, 0, 0, yaw=-np.pi / 2, reference_frame=bedside_table_body
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=bedside_table_body)),
@@ -227,6 +228,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     DetectionTechnique.TYPES,
                     object_sem_annotation=CheezeIt,
                     trust_detected_orientation=False,
+                    accept_first_if_multiple=True,
                 ),
                 a(PickUpAction)(
                     object_designator=cereal_body,
@@ -235,9 +237,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
-                    Pose.from_xyz_rpy(
-                        0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
-                    )
+                    Pose.from_xyz_rpy(0.8, 0.6, 0, reference_frame=world.root)
                 ),
                 a(PlaceAction)(
                     object_designator=cereal_body,
@@ -262,7 +262,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
         try:
             if not self.is_scene_populated(world):
                 self.populate_scene(world)
-            for _ in range(5):
+            for _ in range(1):
                 plan = self.build_plan(self.build_context(world))
                 with ExecutionEnvironment(
                     execution_type=self.execution_type,
@@ -290,4 +290,4 @@ def main(execution_type: ExecutionType = ExecutionType.SIMULATED) -> None:
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL)
+    main(execution_type=ExecutionType.SIMULATED)
