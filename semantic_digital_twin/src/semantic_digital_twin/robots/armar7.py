@@ -31,6 +31,7 @@ from semantic_digital_twin.robots.robot_parts import (
 )
 from semantic_digital_twin.spatial_types import Quaternion, Vector3
 from semantic_digital_twin.world_description.connections import OmniDrive
+from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
@@ -586,7 +587,7 @@ class Armar7(AbstractRobot, HasMobileBase[Armar7MobileBase]):
 
     @classmethod
     def _get_root_body_name(cls) -> str:
-        return "Dummy_Platform_link"
+        return "root"
 
     def _setup_collision_rules(self):
         pass

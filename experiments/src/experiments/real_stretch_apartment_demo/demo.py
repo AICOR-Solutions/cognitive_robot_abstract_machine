@@ -68,7 +68,12 @@ from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.predetermined_maps.apartment_environment import (
     ApartmentEnvironment,
 )
+from semantic_digital_twin.robots.armar7 import Armar7
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.mmp_dresden import MMPDresden
+from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
+from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import CheezeIt
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
@@ -85,7 +90,7 @@ Name of the shelf layer the cereal starts on.
 """
 
 CEREAL_SHELF_LAYER_T_CEREAL = HomogeneousTransformationMatrix.from_xyz_rpy(
-    x=-0.15, y=0.0, z=0.115, yaw=np.pi / 8
+    x=-0.1, y=0.0, z=0.115
 )
 """
 Where the cereal starts, relative to its shelf layer.
@@ -184,7 +189,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
-                        0.8, 0.6, 0, reference_frame=world.root
+                        0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
@@ -198,7 +203,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
                     Pose.from_xyz_rpy(
-                        0.8, 0, 0, yaw=-np.pi / 2, reference_frame=bedside_table_body
+                        0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
                     )
                 ),
                 PlaceAction(
@@ -220,7 +225,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
-                        0.8, 0, 0, yaw=-np.pi / 2, reference_frame=bedside_table_body
+                        0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
                     )
                 ),
                 LookAtAction(Pose.from_xyz_rpy(reference_frame=bedside_table_body)),
@@ -237,7 +242,9 @@ class StretchApartmentDemonstration(RobotDemonstration):
                 ),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
-                    Pose.from_xyz_rpy(0.8, 0.6, 0, reference_frame=world.root)
+                    Pose.from_xyz_rpy(
+                        0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
+                    )
                 ),
                 a(PlaceAction)(
                     object_designator=cereal_body,
@@ -283,11 +290,10 @@ def main(execution_type: ExecutionType = ExecutionType.SIMULATED) -> None:
     """
     # StretchApartmentDemonstration(used_robot=PR2, execution_type=execution_type).run()
     # StretchApartmentDemonstration(used_robot=HSRB, execution_type=execution_type).run()
-    # StretchApartmentDemonstration(used_robot=Tiago, execution_type=execution_type).run()
     StretchApartmentDemonstration(
         used_robot=Stretch, execution_type=execution_type
     ).run()
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL)
+    main(execution_type=ExecutionType.SIMULATED)

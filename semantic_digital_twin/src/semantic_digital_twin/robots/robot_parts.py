@@ -581,6 +581,21 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
     If False, only the robot will always stand still when moving an arm.
     """
 
+    def pose_facing(self, heading: Pose) -> Pose:
+        """
+        The base pose whose :attr:`forward_axis` points along ``heading``.
+
+        ``heading``'s orientation says where the robot's front should point, written as
+        its x-axis, so the same heading serves bases modelled with different axes. Its
+        position is kept as it is.
+        """
+        base_R_forward = RotationMatrix.from_vectors(x=self.forward_axis, z=Vector3.Z())
+        return HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            heading.to_position(),
+            heading.to_rotation_matrix() @ base_R_forward.inverse(),
+            reference_frame=heading.reference_frame,
+        ).to_pose()
+
     @classmethod
     def get_drive_connection_type(cls) -> Type[TGenericDrive]:
         """
