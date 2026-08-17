@@ -797,6 +797,10 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         Create a rotation matrix from the direction its x-axis points along.
 
         The y- and z-axis only complete the frame and are otherwise arbitrary.
+
+        :param x: the direction the x-axis should point along
+        :param reference_frame: the frame the resulting rotation matrix is expressed in
+        :return: a rotation matrix whose x-axis points along ``x``
         """
         # Crossing a direction with a world axis degenerates when the two are parallel, so
         # pick whichever of the X/Y axes yields the better-conditioned (longer) cross
