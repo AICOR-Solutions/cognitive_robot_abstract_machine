@@ -1715,7 +1715,7 @@ def create_world_with_free_floating_child() -> tuple[World, Body, Body]:
             Connection6DoF.create_with_dofs(parent=root, child=free_child, world=world)
         )
     free_child.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=0.3, y=-0.7, z=0.2, yaw=1.1
+        x=0.3, y=-0.7, z=0.2, yaw=1.1, reference_frame=root
     )
     return world, free_child, new_parent
 
