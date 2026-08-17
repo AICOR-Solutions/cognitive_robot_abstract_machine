@@ -663,6 +663,33 @@ class TestCollisionGroups:
         assert hash(group) == hash(CollisionGroup(root=root))
         assert group == CollisionGroup(root=root)
 
+    def test_group_membership_inspects_each_body_once(self, monkeypatch):
+        """
+        Restricting groups to bodies with collision geometry must inspect each body
+        once, not once per body already in a group.
+
+        Groups are rebuilt on every world model change, so an inspection per pair makes
+        each change quadratic in the size of the world.
+        """
+        world = World()
+        with world.modify_world():
+            root = create_body_with_collision("root")
+            world.add_body(root)
+            for index in range(5):
+                world.add_connection(
+                    FixedConnection(
+                        parent=root, child=create_body_with_collision(f"body_{index}")
+                    )
+                )
+        consumer = self.MockCollisionGroupConsumer()
+        counter = GeometryInspectionCounter()
+        counter.install(monkeypatch)
+
+        consumer.update_collision_groups(world)
+
+        # one pass over every body, plus the root of each group as it is created
+        assert counter.inspections == len(world.bodies) + len(consumer.collision_groups)
+
     def test_registered_group_survives_membership_change(self):
         """
         A group registered for external collision avoidance stays registered when a body

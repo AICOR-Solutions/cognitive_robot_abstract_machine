@@ -130,10 +130,10 @@ class CollisionGroupConsumer(CollisionConsumer, ABC):
                     collision_group = self.get_collision_group(parent)
                     collision_group.bodies.add(child)
 
+        # Inspecting a body's geometry is expensive, so ask the world once.
+        bodies_with_collision = set(world.bodies_with_collision)
         for group in self.collision_groups:
-            group.bodies = set(
-                b for b in group.bodies if b in world.bodies_with_collision
-            )
+            group.bodies = set(b for b in group.bodies if b in bodies_with_collision)
 
         self.collision_groups = [
             group for group in self.collision_groups if len(group.bodies) > 0
