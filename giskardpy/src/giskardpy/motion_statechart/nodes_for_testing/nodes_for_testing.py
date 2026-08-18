@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.context import MotionStatechartContext
+from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
@@ -46,6 +47,35 @@ class ConstTrueNode(MotionStatechartNode):
 class ConstFalseNode(MotionStatechartNode):
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         return NodeArtifacts(observation=sm.Scalar.const_false())
+
+
+@dataclass(repr=False, eq=False)
+class SucceedsAfterFailures(MotionStatechartNode):
+    """
+    Observes False on its first :attr:`failures` runs and True from the next one on.
+
+    Counting its own runs is what makes it useful to a
+    :class:`~giskardpy.motion_statechart.goals.templates.Retry`: how often the node was
+    actually attempted can be asserted directly.
+    """
+
+    failures: int = field(default=0, kw_only=True)
+    """
+    How many runs report a failed attempt before one succeeds.
+    """
+
+    runs: int = field(default=0, init=False)
+    """
+    How often this node has been started.
+    """
+
+    def on_start(self, context: MotionStatechartContext) -> None:
+        self.runs += 1
+
+    def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+        if self.runs > self.failures:
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE
 
 
 @dataclass(repr=False, eq=False)

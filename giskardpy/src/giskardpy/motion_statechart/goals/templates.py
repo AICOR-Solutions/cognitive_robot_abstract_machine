@@ -5,14 +5,21 @@ from typing import List
 
 from typing_extensions import Optional
 
-from krrood.symbolic_math.symbolic_math import sum
+from krrood.exceptions import DataclassException
+from krrood.symbolic_math.symbolic_math import (
+    sum,
+    trinary_logic_and,
+    trinary_logic_not,
+)
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.graph_node import (
+    CancelMotion,
     Goal,
     MotionStatechartNode,
     NodeArtifacts,
     TerminalNode,
 )
+from giskardpy.motion_statechart.monitors.payload_monitors import CountStarts
 
 
 @dataclass(repr=False, eq=False)
@@ -74,3 +81,54 @@ class Parallel(Goal):
         return NodeArtifacts(
             observation=minimum_success <= sum(*true_observation_variables)
         )
+
+
+@dataclass(repr=False, eq=False)
+class Retry(Goal):
+    """
+    Runs a node again from the start whenever it observes False, and cancels the motion
+    once the attempts are used up.
+
+    Its observation is the observation of the retried node, so it is True exactly when an
+    attempt succeeded.
+
+    ..note:: A failed attempt has to be reported as a False observation. A node that
+        raises instead aborts the whole chart before the retry can see it.
+    """
+
+    retried_node: MotionStatechartNode = field(kw_only=True)
+    """
+    The node that is run again after a failed attempt.
+    """
+
+    attempts: int = field(default=3, kw_only=True)
+    """
+    How often the node may be run in total, the first run included.
+    """
+
+    exception: DataclassException = field(kw_only=True)
+    """
+    Raised once the attempts are used up.
+    """
+
+    def expand(self, context: MotionStatechartContext) -> None:
+        attempt_counter = CountStarts(
+            name=f"{self.name}/attempts", starts=self.attempts
+        )
+        cancel = CancelMotion(exception=self.exception)
+        self.add_nodes([self.retried_node, attempt_counter, cancel])
+
+        attempt_failed = trinary_logic_not(self.retried_node.observation_variable)
+        attempt_left = trinary_logic_and(
+            attempt_failed, trinary_logic_not(attempt_counter.observation_variable)
+        )
+        # A failed attempt starts the counter, which counts that attempt, and the next
+        # tick sends both back to NOT_STARTED so the node runs again and the counter is
+        # ready to count the attempt after it.
+        attempt_counter.start_condition = attempt_failed
+        attempt_counter.reset_condition = attempt_left
+        self.retried_node.reset_condition = attempt_left
+        cancel.start_condition = attempt_counter.observation_variable
+
+    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(observation=self.retried_node.observation_variable)

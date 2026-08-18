@@ -136,6 +136,34 @@ class CountControlCycles(TickCounter):
 
 
 @dataclass(eq=False, repr=False)
+class CountStarts(MotionStatechartNode):
+    """
+    This node counts how often it has been started and then turns True.
+
+    Unlike :class:`TickCounter` it keeps its count across a reset, so a chart that
+    resets it between starts counts how often something was attempted.
+    """
+
+    starts: int = field(kw_only=True)
+    """
+    Turns True after this many starts.
+    """
+
+    _started_count: int = field(init=False, default=0)
+    """
+    How often this node has been started.
+    """
+
+    def on_start(self, context: MotionStatechartContext) -> None:
+        self._started_count += 1
+
+    def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+        if self._started_count >= self.starts:
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE
+
+
+@dataclass(eq=False, repr=False)
 class ThreadedPredicateMonitor(MotionStatechartNode):
     """
     Evaluates an arbitrary boolean predicate in a background thread and exposes the
