@@ -394,7 +394,7 @@ class RoboKudoPerception(PerceptionInterface):
             raise NothingDetected(query.semantic_annotation)
         if len(detections) == 1:
             return detections
-        if not self.accept_first_if_multiple:
+        if not accept_first_if_multiple:
             raise UnidentifiedDetections(query.semantic_annotation, len(detections))
         return [detections[0]]
 
