@@ -4,25 +4,27 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from semantic_digital_twin.adapters.usd import (
+from semantic_digital_twin.adapters.usd import USDParser
+from semantic_digital_twin.adapters.usd_exceptions import (
     IndeterminateRootPrimError,
-    USDParser,
+    UnsupportedUsdGeometryTypeError,
     UnsupportedUsdPhysicsJointTypeError,
     UsdPhysicsJointMissingChildBodyError,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     PrismaticConnection,
     RevoluteConnection,
 )
-from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Box, Cylinder, Sphere
 from semantic_digital_twin.world_description.world_entity import Body
 
 from .usd_stages import (
     PXR_AVAILABLE,
     build_jointless_stage_with_a_default_prim,
+    build_jointless_stage_with_unsupported_geometry,
     build_single_joint_stage,
     build_single_joint_stage_with_mass,
     build_stage_with_ambiguous_root,
@@ -130,6 +132,18 @@ def test_parse_raises_on_an_ambiguous_root_prim():
 
     with pytest.raises(IndeterminateRootPrimError):
         parse(stage)
+
+
+def test_parse_raises_on_unsupported_geometry_instead_of_silently_dropping_it():
+    # A Cone prim is a UsdGeom.Gprim this parser does not build a Shape for - it must
+    # not be silently skipped like a non-geometry Xform/Scope/Camera prim would be, or
+    # a stage using it builds a World quietly missing that piece of geometry.
+    stage = build_jointless_stage_with_unsupported_geometry()
+
+    with pytest.raises(UnsupportedUsdGeometryTypeError) as excinfo:
+        parse(stage)
+
+    assert excinfo.value.geometry_type == "Cone"
 
 
 # %% shapes

@@ -222,6 +222,21 @@ def build_stage_with_ambiguous_root() -> Usd.Stage:
     return stage
 
 
+def build_jointless_stage_with_unsupported_geometry() -> Usd.Stage:
+    """
+    A minimal in-memory stage with a default prim holding a ``Cone`` prim - a
+    :class:`~pxr.UsdGeom.Gprim` this parser does not build a Shape for.
+
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    root = UsdGeom.Xform.Define(stage, "/prop")
+    stage.SetDefaultPrim(root.GetPrim())
+    UsdGeom.Cone.Define(stage, "/prop/cone")
+
+    return stage
+
+
 def build_stage_with_primitive_shapes(
     *,
     cube_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),

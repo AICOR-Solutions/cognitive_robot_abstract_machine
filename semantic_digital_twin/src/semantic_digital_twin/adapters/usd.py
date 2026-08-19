@@ -2,20 +2,29 @@ from __future__ import annotations
 
 import logging
 import math
-import os
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import trimesh
-from typing_extensions import Callable, ClassVar, Dict, Optional, Tuple, Type
+from typing_extensions import ClassVar, Dict, Optional, Tuple, Type
 
 from semantic_digital_twin.adapters.package_resolver import (
     CompositePathResolver,
     PathResolver,
 )
-from semantic_digital_twin.adapters.world_model_parser import WorldModelParser
+from semantic_digital_twin.adapters.usd_exceptions import (
+    IndeterminateRootPrimError,
+    UnsupportedUsdGeometryTypeError,
+    UnsupportedUsdPhysicsJointTypeError,
+    UsdPhysicsJointMissingChildBodyError,
+)
+from semantic_digital_twin.adapters.world_model_parser import (
+    JointDescription,
+    WorldModelParser,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import ParsingError
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -61,7 +70,7 @@ except ImportError:
     )
 
 
-def _quaternion_pose_to_transform(
+def _usd_pose_to_transform(
     position: "Gf.Vec3d", rotation: "Gf.Quatf", **kwargs
 ) -> HomogeneousTransformationMatrix:
     """
@@ -105,52 +114,9 @@ def _decompose_local_transform(
     transform = Gf.Transform(prim_to_link)
     translation = transform.GetTranslation()
     rotation_quat = transform.GetRotation().GetQuat()
-    origin = _quaternion_pose_to_transform(translation, rotation_quat)
+    origin = _usd_pose_to_transform(translation, rotation_quat)
     return origin, transform.GetScale()
 
-
-@dataclass
-class _JointDescription:
-    """
-    A validated description of the Connection one physics joint prim becomes, built
-    without touching a world so that every joint is validated before any world
-    modification begins.
-    """
-
-    connection_type: Type[Connection]
-    """
-    The Connection class the joint becomes.
-    """
-
-    parent: Body
-    """
-    The connection's parent body.
-    """
-
-    child: Body
-    """
-    The connection's child body.
-    """
-
-    parent_T_connection: HomogeneousTransformationMatrix
-    """
-    The pose of the connection relative to its parent.
-    """
-
-    connection_T_child: HomogeneousTransformationMatrix
-    """
-    The pose of the child relative to the connection.
-    """
-
-    axis: Optional[Vector3] = None
-    """
-    The axis the connection moves along, ``None`` for a fixed connection.
-    """
-
-    dof_limits: Optional[DegreeOfFreedomLimits] = None
-    """
-    The limits of the connection's degree of freedom, ``None`` for a fixed connection.
-    """
 
 @dataclass
 class USDParser(WorldModelParser):
@@ -193,7 +159,7 @@ class USDParser(WorldModelParser):
     matching unit vector.
     """
 
-    file_path: str
+    file_path: Path
     """
     The path of the USD stage file.
     """
@@ -209,9 +175,9 @@ class USDParser(WorldModelParser):
     """
 
     def __post_init__(self):
-        self.stage = Usd.Stage.Open(self.file_path)
+        self.stage = Usd.Stage.Open(str(self.file_path))
         if self.prefix is None:
-            self.prefix = os.path.basename(self.file_path).split(".")[0]
+            self.prefix = self.file_path.stem
 
     # %% construction
 
@@ -231,7 +197,7 @@ class USDParser(WorldModelParser):
         :return: A parser for the described world.
         """
         path_resolver = path_resolver or CompositePathResolver()
-        resolved_path = path_resolver.resolve(file_path)
+        resolved_path = Path(path_resolver.resolve(file_path))
         parser = cls(file_path=resolved_path, prefix=prefix)
         parser.path_resolver = path_resolver
         return parser
@@ -240,18 +206,18 @@ class USDParser(WorldModelParser):
     def from_stage(cls, stage: "Usd.Stage", prefix: Optional[str] = None) -> USDParser:
         """
         Creates a parser for an already-open stage, e.g. one composed in memory rather
-        than read from a file.
+        than read from a file, by exporting it to a temporary file - the same trick
+        :meth:`MJCFParser.from_xml_string
+        <semantic_digital_twin.adapters.mjcf.MJCFParser.from_xml_string>` uses for an
+        XML string with no file of its own.
 
         :param stage: The stage to parse.
         :param prefix: The prefix for every name used in this world.
         :return: The parser for the given stage.
         """
-        parser = cls.__new__(cls)
-        parser.stage = stage
-        parser.file_path = stage.GetRootLayer().identifier
-        parser.prefix = prefix or os.path.basename(parser.file_path).split(".")[0]
-        parser.path_resolver = CompositePathResolver()
-        return parser
+        temporary_path = Path(tempfile.mktemp(suffix=".usda"))
+        stage.GetRootLayer().Export(str(temporary_path))
+        return cls.from_file(str(temporary_path), prefix=prefix)
 
     # %% entry point
 
@@ -285,22 +251,8 @@ class USDParser(WorldModelParser):
         # World left partway through a failed modification is unusable, so anything
         # that can raise must run first.
         link_bodies: Dict[str, Body] = {}
-
-        def link_body(prim_path) -> Body:
-            prim = self.stage.GetPrimAtPath(prim_path)
-            if prim.GetTypeName() == "Mesh":
-                # Most joints target the link's enclosing Xform, whose subtree holds
-                # its shape(s); some instead target a link's mesh prim directly. Both
-                # resolve to the same parent Xform, so a link is never split into two
-                # disconnected bodies.
-                prim = prim.GetParent()
-            path_string = str(prim.GetPath())
-            if path_string not in link_bodies:
-                link_bodies[path_string] = self._create_link_body(prim)
-            return link_bodies[path_string]
-
         descriptions = [
-            self._describe_joint(joint_prim, root_body, link_body)
+            self._describe_joint(joint_prim, root_body, link_bodies)
             for joint_prim in joint_prims
         ]
 
@@ -326,7 +278,7 @@ class USDParser(WorldModelParser):
         top_level_prims = self.stage.GetPseudoRoot().GetChildren()
         if len(top_level_prims) != 1:
             raise IndeterminateRootPrimError(
-                file_path=self.file_path,
+                file_path=str(self.file_path),
                 top_level_prim_paths=tuple(
                     str(prim.GetPath()) for prim in top_level_prims
                 ),
@@ -339,8 +291,8 @@ class USDParser(WorldModelParser):
         self,
         joint_prim: "Usd.Prim",
         root_body: Body,
-        link_body: Callable[["Sdf.Path"], Body],
-    ) -> _JointDescription:
+        link_bodies: Dict[str, Body],
+    ) -> JointDescription:
         """
         Validates and describes the Connection one physics joint prim becomes, without
         touching a world - a World left partway through a failed modification is
@@ -349,8 +301,8 @@ class USDParser(WorldModelParser):
         :param joint_prim: The USD physics joint prim (a Fixed/Revolute/PrismaticJoint).
         :param root_body: The world's root body, used as the connection's parent if the
             joint's ``body0`` relationship has no target.
-        :param link_body: Callable resolving a USD prim path to its (created-on-first-
-            use) link Body.
+        :param link_bodies: The link Bodies created so far, by stage path - extended in
+            place as new links are resolved.
         :return: The description of the connection the joint becomes.
         :raises UnsupportedUsdPhysicsJointTypeError: If the joint's type has no
             Connection counterpart.
@@ -360,7 +312,7 @@ class USDParser(WorldModelParser):
         connection_type = self.connection_type_map.get(joint_prim.GetTypeName())
         if connection_type is None:
             raise UnsupportedUsdPhysicsJointTypeError(
-                file_path=self.file_path,
+                file_path=str(self.file_path),
                 joint_path=str(joint_prim.GetPath()),
                 joint_type=joint_prim.GetTypeName(),
                 supported_types=list(self.connection_type_map),
@@ -371,24 +323,28 @@ class USDParser(WorldModelParser):
         body1_targets = joint.GetBody1Rel().GetTargets()
         if not body1_targets:
             raise UsdPhysicsJointMissingChildBodyError(
-                file_path=self.file_path, joint_path=str(joint_prim.GetPath())
+                file_path=str(self.file_path), joint_path=str(joint_prim.GetPath())
             )
-        parent = link_body(body0_targets[0]) if body0_targets else root_body
-        child = link_body(body1_targets[0])
+        parent = (
+            self._resolve_link_body(link_bodies, body0_targets[0])
+            if body0_targets
+            else root_body
+        )
+        child = self._resolve_link_body(link_bodies, body1_targets[0])
 
-        parent_T_connection = _quaternion_pose_to_transform(
+        parent_T_connection = _usd_pose_to_transform(
             joint.GetLocalPos0Attr().Get(),
             joint.GetLocalRot0Attr().Get(),
             reference_frame=parent,
         )
-        connection_T_child = _quaternion_pose_to_transform(
+        connection_T_child = _usd_pose_to_transform(
             joint.GetLocalPos1Attr().Get(),
             joint.GetLocalRot1Attr().Get(),
             child_frame=child,
         )
 
         if connection_type is FixedConnection:
-            return _JointDescription(
+            return JointDescription(
                 connection_type=connection_type,
                 parent=parent,
                 child=child,
@@ -416,20 +372,45 @@ class USDParser(WorldModelParser):
             # just its two extremes, so swapping the values (not negating them) keeps
             # the authored range of motion intact.
             lower, upper = upper, lower
-        return _JointDescription(
+        return JointDescription(
             connection_type=connection_type,
             parent=parent,
             child=child,
             parent_T_connection=parent_T_connection,
             connection_T_child=connection_T_child,
             axis=axis,
-            dof_limits=DegreeOfFreedomLimits(
+            limits=DegreeOfFreedomLimits(
                 lower=DerivativeMap(position=lower), upper=DerivativeMap(position=upper)
             ),
         )
 
+    def _resolve_link_body(
+        self, link_bodies: Dict[str, Body], prim_path: "Sdf.Path"
+    ) -> Body:
+        """
+        Resolves a USD prim path to its link Body, creating (and caching in
+        ``link_bodies``) the Body on first use.
+
+        :param link_bodies: The link Bodies created so far, by stage path - extended in
+            place if ``prim_path`` has not been resolved yet.
+        :param prim_path: The stage path a joint's ``body0``/``body1`` relationship
+            targets.
+        :return: The resolved link Body.
+        """
+        prim = self.stage.GetPrimAtPath(prim_path)
+        if prim.GetTypeName() == "Mesh":
+            # Most joints target the link's enclosing Xform, whose subtree holds its
+            # shape(s); some instead target a link's mesh prim directly. Both resolve
+            # to the same parent Xform, so a link is never split into two disconnected
+            # bodies.
+            prim = prim.GetParent()
+        path_string = str(prim.GetPath())
+        if path_string not in link_bodies:
+            link_bodies[path_string] = self._create_link_body(prim)
+        return link_bodies[path_string]
+
     @staticmethod
-    def _create_connection(world: World, description: _JointDescription) -> Connection:
+    def _create_connection(world: World, description: JointDescription) -> Connection:
         """
         Creates the Connection a joint description denotes, adding its degree of freedom
         to the world.
@@ -441,6 +422,7 @@ class USDParser(WorldModelParser):
         if description.connection_type is FixedConnection:
             return FixedConnection.create_with_dofs(
                 world=world,
+                name=description.name,
                 parent=description.parent,
                 child=description.child,
                 parent_T_connection_expression=description.parent_T_connection,
@@ -448,12 +430,13 @@ class USDParser(WorldModelParser):
             )
         return description.connection_type.create_with_dofs(
             world=world,
+            name=description.name,
             parent=description.parent,
             child=description.child,
             parent_T_connection_expression=description.parent_T_connection,
             connection_T_child_expression=description.connection_T_child,
             axis=description.axis,
-            dof_limits=description.dof_limits,
+            dof_limits=description.limits,
         )
 
     # %% links and shapes
@@ -499,21 +482,25 @@ class USDParser(WorldModelParser):
                 shapes.append(shape)
         return shapes
 
-    @staticmethod
     def _create_shape(
-        prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
+        self, prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
     ) -> Optional[Shape]:
         """
         Creates the Shape a mesh/primitive prim describes.
 
-        Any other prim type (a plain ``Xform`` grouping node, a camera, a shader, ...)
-        is not shape geometry and is silently skipped, the same way an unrecognised
-        joint type never reaches here.
+        A prim that is not a renderable geometric primitive at all (a plain ``Xform``
+        grouping node, a camera, a shader, ...) is not shape geometry and is silently
+        skipped; one that is (:class:`~pxr.UsdGeom.Gprim`) but of a type this parser
+        does not build a Shape for (e.g. ``Cone``, ``Capsule``) raises instead, the same
+        way an unrecognised joint type does, rather than silently vanishing from the
+        built world.
 
         :param prim: The prim to create a shape for.
         :param link_to_world: The enclosing link's local-to-world transform.
         :param body: The link's body, used as the shape's reference frame.
         :return: The created shape, or ``None`` if ``prim`` is not shape geometry.
+        :raises UnsupportedUsdGeometryTypeError: If ``prim`` is a renderable geometric
+            primitive of a type this parser does not build a Shape for.
         """
         type_name = prim.GetTypeName()
         if type_name == "Mesh":
@@ -524,6 +511,13 @@ class USDParser(WorldModelParser):
             return USDParser._create_sphere_shape(prim, link_to_world, body)
         if type_name == "Cylinder":
             return USDParser._create_cylinder_shape(prim, link_to_world, body)
+        if prim.IsA(UsdGeom.Gprim):
+            raise UnsupportedUsdGeometryTypeError(
+                file_path=str(self.file_path),
+                prim_path=str(prim.GetPath()),
+                geometry_type=type_name,
+                supported_types=["Cube", "Cylinder", "Mesh", "Sphere"],
+            )
         return None
 
     @staticmethod
@@ -761,7 +755,7 @@ class USDParser(WorldModelParser):
         principal_moments = PrincipalMoments.from_values(
             i1=diagonal_inertia[0], i2=diagonal_inertia[1], i3=diagonal_inertia[2]
         )
-        axes_rotation = _quaternion_pose_to_transform(
+        axes_rotation = _usd_pose_to_transform(
             Gf.Vec3d(0, 0, 0),
             principal_axes if principal_axes is not None else Gf.Quatf(1, 0, 0, 0),
         )
@@ -777,92 +771,3 @@ class USDParser(WorldModelParser):
             center_of_mass=Point3(*center_of_mass, reference_frame=body),
             inertia=inertia_tensor,
         )
-
-
-# %% exceptions
-
-
-@dataclass
-class IndeterminateRootPrimError(ParsingError):
-    """
-    Raised when a USD stage has no default prim and does not have exactly one top-level
-    prim, so its root prim cannot be identified unambiguously.
-    """
-
-    top_level_prim_paths: Tuple[str, ...] = field(kw_only=True)
-    """
-    The stage's top-level prim paths.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Stage '{self.file_path}' has no default prim and "
-            f"{len(self.top_level_prim_paths)} top-level prims, not exactly one: "
-            f"{self.top_level_prim_paths}."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Set the stage's default prim, or ensure it has exactly one top-level prim."
-
-
-@dataclass
-class UnsupportedUsdPhysicsJointTypeError(ParsingError):
-    """
-    Raised when a stage contains a physics joint of a type this parser does not build a
-    Connection for.
-
-    Silently skipping it would build a World missing whatever link that joint's body1 is
-    the only connection to.
-    """
-
-    joint_path: str = field(kw_only=True)
-    """
-    The unsupported joint prim's stage path.
-    """
-
-    joint_type: str = field(kw_only=True)
-    """
-    The unsupported joint prim's USD type name.
-    """
-
-    supported_types: list = field(kw_only=True, default_factory=list)
-    """
-    The joint types that can be mapped to connections.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Stage '{self.file_path}' has a joint of unsupported type "
-            f"'{self.joint_type}' at '{self.joint_path}'."
-        )
-
-    def suggest_correction(self) -> str:
-        if not self.supported_types:
-            return ""
-        return f"Use one of the supported types: {', '.join(sorted(self.supported_types))}."
-
-
-@dataclass
-class UsdPhysicsJointMissingChildBodyError(ParsingError):
-    """
-    Raised when a physics joint's ``body1`` relationship (its child link) has no target.
-
-    Unlike ``body0``, where an unset target is the USD convention for "the stage's own
-    root frame", ``body1`` has no such meaning here - every joint is expected to connect
-    a link into the world, so a joint with no child leaves nothing to build a Connection
-    to.
-    """
-
-    joint_path: str = field(kw_only=True)
-    """
-    The joint prim's stage path.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Stage '{self.file_path}' has a joint at '{self.joint_path}' with no "
-            f"body1 target."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Inspect the joint prim's body1 relationship on the stage."
