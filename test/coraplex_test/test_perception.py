@@ -32,9 +32,7 @@ from coraplex.datastructures.enums import (
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.exceptions import (
     AmbiguousDetection,
-    DetectionAttemptsExhausted,
     NothingDetected,
-    PerceptionException,
     PerceivedObjectNotInWorld,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
@@ -54,10 +52,8 @@ from coraplex.plans.plan_node import MotionNode
 from coraplex.robot_plans import MoveToolCenterPointMotion
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.motions.misc import DetectingMotion, PerceptionTask
-from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.goals.templates import Retry
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.ros_context import RosContextExtension
@@ -788,8 +784,8 @@ def test_detecting_motion_takes_the_execution_type_of_the_environment(
         executable = plan.parse()
 
     tasks = list(executable.motion_mappings.values())
-    assert [type(task) for task in tasks] == [Retry]
-    assert tasks[0].retried_node.execution_type is ExecutionType.SIMULATED
+    assert [type(task) for task in tasks] == [PerceptionTask]
+    assert tasks[0].execution_type is ExecutionType.SIMULATED
 
 
 def test_perception_task_survives_a_chart_round_trip(
@@ -856,211 +852,3 @@ def test_detection_in_a_chart_corrects_a_reach_planned_before_it(
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )
-
-
-# %% retrying a failed detection
-
-
-@dataclass
-class InconclusiveUntilAnswered(PerceptionInterface):
-    """
-    Source that is inconclusive a fixed number of times before it answers.
-
-    Standing in for a pipeline that only sees the object on a later frame, which is the
-    case a retry exists for.
-    """
-
-    failures: int
-    """
-    How many queries are answered with :attr:`failure` before one succeeds.
-    """
-
-    failure: PerceptionException
-    """
-    What an inconclusive query raises.
-    """
-
-    detection: Detection
-    """
-    What the query is answered with once it succeeds.
-    """
-
-    queries: int = 0
-    """
-    How often the source has been asked.
-    """
-
-    def detect(
-        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
-    ) -> List[Detection]:
-        self.queries += 1
-        if self.queries <= self.failures:
-            raise self.failure
-        return [self.detection]
-
-
-def run_detection_chart(
-    query: PerceptionQuery,
-    perception_source: PerceptionInterface,
-    world: World,
-    ros_node: Node,
-    attempts: int = 3,
-) -> None:
-    """
-    Run the chart of a detecting motion against a source of the test's choosing.
-
-    The source is swapped in after the chart is compiled, because which source answers
-    is decided during build from the execution type.
-
-    :param query: The query the motion answers.
-    :param perception_source: The source that answers it.
-    :param world: The world the chart runs against.
-    :param ros_node: Node the chart reaches a real perception pipeline through.
-    :param attempts: How often the motion may answer the query.
-    """
-    with simulated_robot:
-        retry = DetectingMotion(query=query, attempts=attempts)._motion_chart
-    chart = MotionStatechart()
-    chart.add_node(retry)
-    chart.add_node(EndMotion.when_true(retry))
-
-    context = MotionStatechartContext(world=world)
-    context.add_extension(RosContextExtension(ros_node))
-    executor = Executor(context)
-    executor.compile(motion_statechart=chart)
-    retry.retried_node.perception_source = perception_source
-    executor.tick_until_end(100)
-
-
-def milk_detection(world: World) -> Detection:
-    """
-    :param world: The world the detected body lives in.
-    :return: A detection reporting the milk where the world already holds it.
-    """
-    return Detection(
-        semantic_annotation=Milk,
-        pose=world.get_body_by_name("milk.stl").global_pose,
-    )
-
-
-def test_detection_is_answered_again_after_an_inconclusive_answer(
-    immutable_model_world, whole_scene_region, rclpy_node
-):
-    """
-    A pipeline that reports nothing on one frame may well report the object on the next,
-    so a single inconclusive answer must not end the motion.
-    """
-    world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    source = InconclusiveUntilAnswered(
-        failures=2, failure=NothingDetected(Milk), detection=milk_detection(world)
-    )
-
-    run_detection_chart(query, source, world, rclpy_node, attempts=3)
-
-    assert source.queries == 3
-
-
-def test_detection_answered_at_once_is_not_asked_again(
-    immutable_model_world, whole_scene_region, rclpy_node
-):
-    """
-    The query is expensive, so a detection that succeeded must not be repeated for the
-    attempts it did not need.
-    """
-    world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    source = InconclusiveUntilAnswered(
-        failures=0, failure=NothingDetected(Milk), detection=milk_detection(world)
-    )
-
-    run_detection_chart(query, source, world, rclpy_node, attempts=3)
-
-    assert source.queries == 1
-
-
-def test_detection_that_stays_inconclusive_cancels_the_motion(
-    immutable_model_world, whole_scene_region, rclpy_node
-):
-    """
-    An object that is never seen has to reach the plan as a detection that failed, and
-    not as one that silently left the world untouched.
-    """
-    world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    source = InconclusiveUntilAnswered(
-        failures=10, failure=NothingDetected(Milk), detection=milk_detection(world)
-    )
-
-    with pytest.raises(DetectionAttemptsExhausted) as exception_info:
-        run_detection_chart(query, source, world, rclpy_node, attempts=3)
-
-    assert exception_info.value.semantic_annotation is Milk
-    assert exception_info.value.attempts == 3
-    assert source.queries == 3
-
-
-def test_a_source_that_is_not_there_is_not_asked_again(
-    immutable_model_world, whole_scene_region, rclpy_node
-):
-    """
-    Looking again can turn an inconclusive answer into a detection, but it cannot
-    conjure up the pipeline that was supposed to give one, so that failure stays
-    terminal.
-    """
-    world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    source = InconclusiveUntilAnswered(
-        failures=10,
-        failure=PerceptionSourceUnavailable(ROBOKUDO_QUERY_ACTION_NAME),
-        detection=milk_detection(world),
-    )
-
-    with pytest.raises(PerceptionSourceUnavailable):
-        run_detection_chart(query, source, world, rclpy_node, attempts=3)
-
-    assert source.queries == 1
-
-
-def test_a_single_attempt_cancels_on_the_first_inconclusive_answer(
-    immutable_model_world, whole_scene_region, rclpy_node
-):
-    """
-    Retrying is a choice the motion makes, so a motion that was given one attempt fails
-    as soon as that attempt does.
-    """
-    world, view, context = immutable_model_world
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    source = InconclusiveUntilAnswered(
-        failures=10, failure=NothingDetected(Milk), detection=milk_detection(world)
-    )
-
-    with pytest.raises(DetectionAttemptsExhausted):
-        run_detection_chart(query, source, world, rclpy_node, attempts=1)
-
-    assert source.queries == 1
-
-
-def test_a_retried_detection_survives_a_chart_round_trip(
-    immutable_model_world, whole_scene_region
-):
-    """
-    The chart the real robot runs is the one that crossed to the controller, so the
-    retry has to arrive with its query pointing at the controller's copy of the world.
-    """
-    world, view, context = immutable_model_world
-    receiving_world = deepcopy(world)
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-    chart = MotionStatechart()
-    with simulated_robot:
-        chart.add_node(DetectingMotion(query=query, attempts=2)._motion_chart)
-
-    restored_chart = MotionStatechart.from_json(
-        json.loads(json.dumps(chart.to_json())),
-        **receiving_world_kwargs(receiving_world),
-    )
-
-    restored_retries = restored_chart.get_nodes_by_type(Retry)
-    assert len(restored_retries) == 1
-    assert restored_retries[0].attempts == 2
-    assert restored_retries[0].retried_node.query.world is receiving_world

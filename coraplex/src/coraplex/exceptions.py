@@ -195,44 +195,6 @@ class PerceptionExceptionWithSemanticAnnotation(PerceptionException, ABC):
 
 
 @dataclass
-class InconclusiveDetection(PerceptionExceptionWithSemanticAnnotation, ABC):
-    """
-    Raised when a perception source answered the query but the answer could not be used.
-
-    Grouping these apart from the failures that are about the source or the world model is
-    what lets a plan look again instead of giving up: see
-    :class:`~giskardpy.motion_statechart.goals.templates.Retry`.
-    """
-
-
-@dataclass
-class DetectionAttemptsExhausted(PerceptionExceptionWithSemanticAnnotation):
-    """
-    Raised when every attempt at answering a perception query was inconclusive.
-
-    What each attempt reported is written to the log as it happens, since the message of
-    a :class:`~krrood.exceptions.DataclassException` is composed when it is constructed.
-    """
-
-    attempts: int
-    """
-    How many attempts were made.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"No {self.semantic_annotation.__name__} could be detected in "
-            f"{self.attempts} attempts."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "read the log for what each attempt reported, and raise the motion's "
-            "attempts if the object only comes into view later."
-        )
-
-
-@dataclass
 class PerceivedObjectNotInWorld(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a detection names an object the world does not hold, so there is nothing
@@ -253,7 +215,7 @@ class PerceivedObjectNotInWorld(PerceptionExceptionWithSemanticAnnotation):
 
 
 @dataclass
-class AmbiguousDetection(InconclusiveDetection):
+class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a detection's annotation describes several bodies, so the perceived pose
     cannot be assigned to one of them.
@@ -275,7 +237,7 @@ class AmbiguousDetection(InconclusiveDetection):
 
 
 @dataclass
-class NothingDetected(InconclusiveDetection):
+class NothingDetected(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a perception source answers a query without reporting any object.
 
@@ -294,7 +256,7 @@ class NothingDetected(InconclusiveDetection):
 
 
 @dataclass
-class UnidentifiedDetections(InconclusiveDetection):
+class UnidentifiedDetections(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a perception source reports several candidates it cannot tell apart.
 

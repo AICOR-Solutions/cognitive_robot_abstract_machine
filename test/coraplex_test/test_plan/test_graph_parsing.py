@@ -25,9 +25,8 @@ from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.pick_up import ReachAction, PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
-from coraplex.robot_plans.motions.misc import DetectingMotion
+from coraplex.robot_plans.motions.misc import DetectingMotion, PerceptionTask
 from coraplex.utils import split_list_by_type
-from giskardpy.motion_statechart.goals.templates import Retry
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
@@ -350,7 +349,7 @@ def test_detecting_motion_merges_with_the_motions_around_it(immutable_model_worl
     assert len(executable.motion_mappings) == 3
     assert [type(task) for task in executable.motion_mappings.values()] == [
         CartesianPose,
-        Retry,
+        PerceptionTask,
         CartesianPose,
     ]
 
@@ -370,7 +369,9 @@ def test_detect_action_parses_to_a_single_motion_chart(immutable_model_world):
     executable = plan.parse()
 
     assert type(executable) == GiskardExecutable
-    assert [type(task) for task in executable.motion_mappings.values()] == [Retry]
+    assert [type(task) for task in executable.motion_mappings.values()] == [
+        PerceptionTask
+    ]
     assert executable.pre_condition_node
     assert executable.post_condition_node
 

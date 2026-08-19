@@ -105,7 +105,7 @@ class ReachAction(ActionDescription, ReachTuningParameters, HasGraspDetectionThr
             )
         children.extend(
             [
-                # LookAtAction(target_pose),
+                LookAtAction(target_pose),
                 DetectAction(
                     DetectionTechnique.TYPES,
                     object_sem_annotation=CheezeIt,
