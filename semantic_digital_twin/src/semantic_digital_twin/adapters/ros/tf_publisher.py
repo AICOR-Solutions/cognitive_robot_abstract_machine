@@ -214,7 +214,10 @@ class TFPublisher(StateChangeCallback):
 
     @classmethod
     def create_with_ignore_existing_tf(
-        cls, world: World, node: Node, wait_for_existing_tf: int
+        cls,
+        world: World,
+        node: Node,
+        wait_for_existing_tf: int = 5,
     ) -> Self:
         """
         Checks if any kinematic structure entity is already published in tf and ignores
