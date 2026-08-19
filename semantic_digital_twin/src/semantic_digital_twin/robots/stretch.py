@@ -169,7 +169,7 @@ class StretchArm(Arm[StretchGripper]):
         arm_park = JointState.from_mapping(
             name=PrefixedName("arm_park", prefix=self.name.name),
             mapping={
-                self._world.get_connection_by_name(StretchJoint.LIFT): 0.7,
+                self._world.get_connection_by_name(StretchJoint.LIFT): 0.65,
                 self._world.get_connection_by_name(StretchJoint.ARM_L3): 0.0,
                 self._world.get_connection_by_name(StretchJoint.ARM_L2): 0.0,
                 self._world.get_connection_by_name(StretchJoint.ARM_L1): 0.0,

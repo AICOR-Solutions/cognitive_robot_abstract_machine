@@ -222,7 +222,7 @@ class TFPublisher(StateChangeCallback):
         :param node: The ROS2 node used to create the publisher.
         """
         tf_wrapper = TFWrapper(node=node)
-        sleep(3)
+        sleep(5)
         all_frames = set(tf_wrapper.get_tf_frames())
         ignored_bodies = set(
             kse
