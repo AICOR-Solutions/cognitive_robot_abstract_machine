@@ -33,10 +33,9 @@ def build_single_joint_stage(
 ) -> Usd.Stage:
     """
     A minimal in-memory stage with a root link ("carcass") and a child link ("child")
-    connected by one joint of ``joint_type``, in the same shape
-    ``ArtVipDatasetLoader._build_world`` reads: ``Xform`` links each holding one
-    ``Mesh``, and a joint prim with body0/body1 relationships and
-    localPos/localRot/axis/limit attributes.
+    connected by one joint of ``joint_type``, in the same shape ``USDParser.parse``
+    reads: ``Xform`` links each holding one ``Mesh``, and a joint prim with
+    body0/body1 relationships and localPos/localRot/axis/limit attributes.
 
     :param joint_type: A ``UsdPhysics`` joint type name, e.g. ``"RevoluteJoint"``,
         ``"PrismaticJoint"``, ``"FixedJoint"``, or ``"SphericalJoint"`` for an
@@ -75,9 +74,9 @@ def build_single_joint_stage(
 def build_stage_with_joint_missing_body1() -> Usd.Stage:
     """
     A minimal in-memory stage with a single ``FixedJoint`` whose ``body1`` relationship
-    has no target - unlike ``body0``, an unset ``body1`` has no "object's own frame"
-    meaning for ``ArtVipDatasetLoader._connect_joint``, since every joint is expected to
-    connect a link into the object.
+    has no target - unlike ``body0``, an unset ``body1`` has no "the stage's own frame"
+    meaning for ``USDParser._describe_joint``, since every joint is expected to connect
+    a link into the world.
 
     :return: The built in-memory stage.
     """
@@ -132,7 +131,7 @@ def build_stage_with_textured_mesh(texture_file_path: str) -> Usd.Stage:
     A minimal in-memory stage with a single quad mesh, per-point ``st`` UV
     coordinates, and a material whose ``diffuseColor`` is driven by a texture read
     from ``texture_file_path`` - the layout
-    ``ArtVipDatasetLoader._diffuse_texture_path``/``_uv_coordinates`` read.
+    ``USDParser._diffuse_texture_path``/``_uv_coordinates`` read.
 
     :param texture_file_path: Path to the texture image the material's
         ``UsdUVTexture`` node reads.
@@ -186,5 +185,100 @@ def build_stage_with_scaled_mesh(scale: tuple[float, float, float]) -> Usd.Stage
     mesh.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])
     mesh.CreateFaceVertexCountsAttr([4])
     mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+
+    return stage
+
+
+def build_jointless_stage_with_a_default_prim() -> Usd.Stage:
+    """
+    A minimal in-memory stage with a default prim and no physics joints at all - a
+    plain, non-articulated static USD asset (e.g. a decorative prop), the shape a stage
+    with nothing for :class:`~pxr.UsdPhysics.Joint` to connect takes.
+
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    root = UsdGeom.Xform.Define(stage, "/prop")
+    stage.SetDefaultPrim(root.GetPrim())
+    mesh = UsdGeom.Mesh.Define(stage, "/prop/mesh")
+    mesh.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)])
+    mesh.CreateFaceVertexCountsAttr([4])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+
+    return stage
+
+
+def build_stage_with_ambiguous_root() -> Usd.Stage:
+    """
+    A minimal in-memory stage with no default prim and two top-level prims, so its root
+    cannot be identified unambiguously.
+
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    UsdGeom.Xform.Define(stage, "/object_a")
+    UsdGeom.Xform.Define(stage, "/object_b")
+
+    return stage
+
+
+def build_stage_with_primitive_shapes(
+    *,
+    cube_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    cylinder_axis: str = "Z",
+) -> Usd.Stage:
+    """
+    A minimal in-memory stage with a root link holding one ``Cube``, one ``Sphere``, and
+    one ``Cylinder`` prim - the native USD primitive shapes ArtVIP never uses but a
+    general-purpose USD asset can.
+
+    :param cube_scale: The cube prim's authored scale.
+    :param cylinder_axis: The cylinder prim's authored axis token.
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    root = UsdGeom.Xform.Define(stage, "/object")
+    stage.SetDefaultPrim(root.GetPrim())
+
+    cube = UsdGeom.Cube.Define(stage, "/object/cube")
+    cube.AddTranslateOp().Set(Gf.Vec3d(1, 0, 0))
+    cube.AddScaleOp().Set(Gf.Vec3f(*cube_scale))
+    cube.CreateSizeAttr(2.0)
+
+    sphere = UsdGeom.Sphere.Define(stage, "/object/sphere")
+    sphere.AddTranslateOp().Set(Gf.Vec3d(0, 1, 0))
+    sphere.CreateRadiusAttr(0.5)
+
+    cylinder = UsdGeom.Cylinder.Define(stage, "/object/cylinder")
+    cylinder.AddTranslateOp().Set(Gf.Vec3d(0, 0, 1))
+    cylinder.CreateRadiusAttr(0.5)
+    cylinder.CreateHeightAttr(2.0)
+    cylinder.CreateAxisAttr(cylinder_axis)
+
+    return stage
+
+
+def build_single_joint_stage_with_mass(
+    *,
+    mass: float = 2.0,
+    center_of_mass: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    diagonal_inertia: tuple[float, float, float] = (1.0, 2.0, 3.0),
+) -> Usd.Stage:
+    """
+    A minimal in-memory stage like :func:`build_single_joint_stage`, but with
+    :class:`~pxr.UsdPhysics.MassAPI` applied to the child link.
+
+    :param mass: The child link's authored mass.
+    :param center_of_mass: The child link's authored centre of mass.
+    :param diagonal_inertia: The child link's authored diagonal inertia.
+    :return: The built in-memory stage.
+    """
+    stage = build_single_joint_stage("FixedJoint")
+    link_prim = stage.GetPrimAtPath("/object/child")
+    mass_api = UsdPhysics.MassAPI.Apply(link_prim)
+    mass_api.CreateMassAttr(mass)
+    mass_api.CreateCenterOfMassAttr(Gf.Vec3f(*center_of_mass))
+    mass_api.CreateDiagonalInertiaAttr(Gf.Vec3f(*diagonal_inertia))
+    mass_api.CreatePrincipalAxesAttr(Gf.Quatf(1, 0, 0, 0))
 
     return stage

@@ -83,7 +83,10 @@ obj.world  # one Body per rigid link
 ArtVIP ships clean, hand-authored CAD meshes decomposed into rigid links connected by real USD Physics
 joints, each with an authored axis, frame, and limit read directly from the object's USD file.
 `RevoluteConnection`/`PrismaticConnection` are used for links with a joint of the matching type,
-`FixedConnection` for everything else.
+`FixedConnection` for everything else. The USD stage itself is parsed by the general-purpose
+`semantic_digital_twin.adapters.usd.USDParser`, the USD counterpart to `URDFParser`/`MJCFParser`; this
+loader only handles what is ArtVIP-specific - discovering, downloading, and disambiguating an object's
+files on Hugging Face.
 
 The catalog is 450 objects across the 9 categories in `ArtVipCategory`. Some categories nest an extra
 subcategory level on Hugging Face (e.g. a `MAJOR_APPLIANCES` object under
