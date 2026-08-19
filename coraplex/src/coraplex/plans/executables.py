@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 
 from typing_extensions import List, Dict, ClassVar, Optional, TYPE_CHECKING
 
-from giskardpy.executor import SimulationPacer
+from coraplex.datastructures.enums import ExecutionType
+from coraplex.exceptions import (
+    MotionDidNotFinish,
+    ConditionNotSatisfied,
+    UnknownExecutionType,
+)
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import (
     LifeCycleValues,
@@ -18,36 +22,27 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
 )
 from giskardpy.motion_statechart.goals.templates import Sequence
+from giskardpy.motion_statechart.graph_node import CancelMotion
 from giskardpy.motion_statechart.graph_node import EndMotion, Task
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.ros_executor import Ros2Executor
 from krrood.entity_query_language.factories import evaluate_condition
-from coraplex.datastructures.enums import ExecutionType
-from coraplex.exceptions import (
-    MotionDidNotFinish,
-    ConditionNotSatisfied,
-    UnknownExecutionType,
-)
-from semantic_digital_twin.world_description.connections import (
-    Connection6DoF,
-    FixedConnection,
-)
-from semantic_digital_twin.world_description.world_entity import Body
-
-from giskardpy.motion_statechart.graph_node import CancelMotion
 from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
     trinary_logic_not,
     trinary_logic_or,
 )
+from semantic_digital_twin.world_description.connections import (
+    Connection6DoF,
+)
+from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
-    from giskardpy.middleware.ros2.python_interface import GiskardWrapper
     from coraplex.robot_plans.actions.base import ActionDescription
 
     from coraplex.plans.condition_nodes import ConditionNode
-    from coraplex.plans.plan_node import MotionNode, UnderspecifiedNode, ActionNode
+    from coraplex.plans.plan_node import MotionNode, UnderspecifiedNode
     from coraplex.datastructures.dataclasses import Context
 
 logger = logging.getLogger(__name__)
@@ -317,8 +312,6 @@ class GiskardExecutable(Executable):
                 ),
             ),
             ros_node=self.context.ros_node,
-            publish_debug_expressions=False,
-            # pacer=SimulationPacer(),
         )
         motion_state_chart = self.motion_state_chart
         executor.compile(motion_state_chart)
@@ -335,7 +328,6 @@ class GiskardExecutable(Executable):
                 continue
 
             executor.tick()
-            # executor.pacer.sleep()
             counter += 1
             if executor.motion_statechart.is_end_motion():
                 break
