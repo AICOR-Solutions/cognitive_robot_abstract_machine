@@ -187,6 +187,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                         1.2, 1.2, 0, yaw=np.pi, reference_frame=world.root
                     )
                 ),
+                LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
                         0.8, 0.6, 0, yaw=-np.pi / 2, reference_frame=world.root
@@ -223,6 +224,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
                         1.2, 1.2, 0, yaw=np.pi, reference_frame=world.root
                     )
                 ),
+                LookAtAction(Pose.from_xyz_rpy(reference_frame=shelf_layer_body)),
                 a(NavigateAction)(
                     target_location=Pose.from_xyz_rpy(
                         0.8, 0, 0, yaw=np.pi, reference_frame=bedside_table_body
@@ -269,7 +271,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
         try:
             if not self.is_scene_populated(world):
                 self.populate_scene(world)
-            for _ in range(1):
+            for _ in range(5):
                 plan = self.build_plan(self.build_context(world))
                 with ExecutionEnvironment(
                     execution_type=self.execution_type,
