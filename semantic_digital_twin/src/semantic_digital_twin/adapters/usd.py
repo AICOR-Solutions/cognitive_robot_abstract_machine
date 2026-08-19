@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import math
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -159,9 +158,14 @@ class USDParser(WorldModelParser):
     matching unit vector.
     """
 
-    file_path: Path
+    stage: "Usd.Stage"
     """
-    The path of the USD stage file.
+    The USD stage to parse.
+
+    Unlike URDF/SDF, a USD stage is not a flat block of source text one file happens to
+    hold: composition (references, sublayers, ...) makes the opened stage itself, not
+    any single file's text, the thing that fully describes what to parse. So this - not
+    a file path - is the parser's payload field; :meth:`from_file` opens the file first.
     """
 
     prefix: Optional[str] = None
@@ -175,9 +179,8 @@ class USDParser(WorldModelParser):
     """
 
     def __post_init__(self):
-        self.stage = Usd.Stage.Open(str(self.file_path))
         if self.prefix is None:
-            self.prefix = self.file_path.stem
+            self.prefix = Path(self.stage.GetRootLayer().identifier).stem
 
     # %% construction
 
@@ -197,8 +200,8 @@ class USDParser(WorldModelParser):
         :return: A parser for the described world.
         """
         path_resolver = path_resolver or CompositePathResolver()
-        resolved_path = Path(path_resolver.resolve(file_path))
-        parser = cls(file_path=resolved_path, prefix=prefix)
+        resolved_path = path_resolver.resolve(file_path)
+        parser = cls(stage=Usd.Stage.Open(resolved_path), prefix=prefix)
         parser.path_resolver = path_resolver
         return parser
 
@@ -206,18 +209,24 @@ class USDParser(WorldModelParser):
     def from_stage(cls, stage: "Usd.Stage", prefix: Optional[str] = None) -> USDParser:
         """
         Creates a parser for an already-open stage, e.g. one composed in memory rather
-        than read from a file, by exporting it to a temporary file - the same trick
-        :meth:`MJCFParser.from_xml_string
-        <semantic_digital_twin.adapters.mjcf.MJCFParser.from_xml_string>` uses for an
-        XML string with no file of its own.
+        than read from a file.
 
         :param stage: The stage to parse.
         :param prefix: The prefix for every name used in this world.
         :return: The parser for the given stage.
         """
-        temporary_path = Path(tempfile.mktemp(suffix=".usda"))
-        stage.GetRootLayer().Export(str(temporary_path))
-        return cls.from_file(str(temporary_path), prefix=prefix)
+        return cls(stage=stage, prefix=prefix)
+
+    # %% diagnostics
+
+    @property
+    def source_description(self) -> str:
+        """
+        :return: A human-readable identifier of :attr:`stage`, used in error messages -
+            its file path if it was opened from one, its in-memory layer identifier
+            otherwise.
+        """
+        return self.stage.GetRootLayer().identifier
 
     # %% entry point
 
@@ -278,7 +287,7 @@ class USDParser(WorldModelParser):
         top_level_prims = self.stage.GetPseudoRoot().GetChildren()
         if len(top_level_prims) != 1:
             raise IndeterminateRootPrimError(
-                file_path=str(self.file_path),
+                file_path=self.source_description,
                 top_level_prim_paths=tuple(
                     str(prim.GetPath()) for prim in top_level_prims
                 ),
@@ -312,7 +321,7 @@ class USDParser(WorldModelParser):
         connection_type = self.connection_type_map.get(joint_prim.GetTypeName())
         if connection_type is None:
             raise UnsupportedUsdPhysicsJointTypeError(
-                file_path=str(self.file_path),
+                file_path=self.source_description,
                 joint_path=str(joint_prim.GetPath()),
                 joint_type=joint_prim.GetTypeName(),
                 supported_types=list(self.connection_type_map),
@@ -323,7 +332,7 @@ class USDParser(WorldModelParser):
         body1_targets = joint.GetBody1Rel().GetTargets()
         if not body1_targets:
             raise UsdPhysicsJointMissingChildBodyError(
-                file_path=str(self.file_path), joint_path=str(joint_prim.GetPath())
+                file_path=self.source_description, joint_path=str(joint_prim.GetPath())
             )
         parent = (
             self._resolve_link_body(link_bodies, body0_targets[0])
@@ -513,7 +522,7 @@ class USDParser(WorldModelParser):
             return USDParser._create_cylinder_shape(prim, link_to_world, body)
         if prim.IsA(UsdGeom.Gprim):
             raise UnsupportedUsdGeometryTypeError(
-                file_path=str(self.file_path),
+                file_path=self.source_description,
                 prim_path=str(prim.GetPath()),
                 geometry_type=type_name,
                 supported_types=["Cube", "Cylinder", "Mesh", "Sphere"],
