@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from coraplex.language_giskard_templates import TryInOrder
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
+
 from giskardpy.motion_statechart.goals.templates import Sequence
+
+from giskardpy.motion_statechart.goals.templates import Retry
+
 from giskardpy.motion_statechart.graph_node import NodeArtifacts, Task
 from giskardpy.motion_statechart.monitors.payload_monitors import CountSeconds
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from typing_extensions import Optional
 
 from coraplex.datastructures.enums import ExecutionType
+from coraplex.exceptions import DetectionAttemptsExhausted, InconclusiveDetection
 from coraplex.perception import PerceptionInterface, PerceptionQuery
 from coraplex.plans.executables import GiskardExecutable
 from coraplex.robot_plans.motions.base import BaseMotion
+
+logger = logging.getLogger(__name__)
 
 # %% perceiving inside the motion chart
 
@@ -28,6 +36,10 @@ class PerceptionTask(Task):
     The node adds no motion constraints. The query is answered on the node's first tick,
     so the whole detection takes one tick however long the source needs to reply, and the
     node then observes ``TRUE`` so the surrounding sequence continues.
+
+    An inconclusive answer is observed as ``FALSE`` rather than raised, so that a
+    :class:`~giskardpy.motion_statechart.goals.templates.Retry` around this node can look
+    again. Every other failure is raised, since looking again cannot change it.
 
     ..warning:: That tick blocks until the source replies, which on the real robot holds
         up the control loop for as long as the pipeline takes to answer.
@@ -53,14 +65,17 @@ class PerceptionTask(Task):
     The source answering the query, resolved during :meth:`build`.
     """
 
-    _detections_applied: bool = field(init=False, default=False, repr=False)
+    _attempt_observation: Optional[ObservationStateValues] = field(
+        init=False, default=None, repr=False
+    )
     """
-    Whether the query has already been answered and written into the world.
+    What the attempt this node already made observed, None while it still has to be
+    made.
     """
 
     accept_first_if_multiple: bool = False
     """
-    If there are multiple results of the same type returned, accept the first one
+    If there are multiple results of the same type returned, accept the first one.
     """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
@@ -71,21 +86,33 @@ class PerceptionTask(Task):
         return NodeArtifacts()
 
     def on_start(self, context: MotionStatechartContext) -> None:
-        self._detections_applied = False
+        self._attempt_observation = None
 
     def on_tick(
         self, context: MotionStatechartContext
     ) -> Optional[ObservationStateValues]:
-        if self._detections_applied:
-            return ObservationStateValues.TRUE
-        for detection in self.perception_source.detect(
-            self.query, self.accept_first_if_multiple
-        ):
-            detection.apply_to(
-                self.query.world,
-                trust_orientation=self.query.trust_detected_orientation,
-            )
-        self._detections_applied = True
+        if self._attempt_observation is None:
+            self._attempt_observation = self._answer_query()
+        return self._attempt_observation
+
+    def _answer_query(self) -> ObservationStateValues:
+        """
+        Make one attempt at answering the query and writing what it saw into the world.
+
+        :return: The observation of the attempt: true when the query was answered, false
+            when the answer was inconclusive.
+        """
+        try:
+            for detection in self.perception_source.detect(
+                self.query, self.accept_first_if_multiple
+            ):
+                detection.apply_to(
+                    self.query.world,
+                    trust_orientation=self.query.trust_detected_orientation,
+                )
+        except InconclusiveDetection as inconclusive_answer:
+            logger.warning("%s: %s", self.unique_name, inconclusive_answer)
+            return ObservationStateValues.FALSE
         return ObservationStateValues.TRUE
 
 
@@ -96,6 +123,10 @@ class DetectingMotion(BaseMotion):
 
     The detection runs inside the motion statechart, so it merges with the surrounding
     motions and a motion planned after it binds the corrected pose when it starts.
+
+    An inconclusive answer is asked again, because the object is often only in view a few
+    frames later. The motion is cancelled with a
+    :class:`~coraplex.exceptions.DetectionAttemptsExhausted` once the attempts are used up.
     """
 
     query: PerceptionQuery
@@ -105,13 +136,25 @@ class DetectingMotion(BaseMotion):
 
     accept_first_if_multiple: bool = False
     """
-    If there are multiple results of the same type returned, accept the first one
+    If there are multiple results of the same type returned, accept the first one.
+    """
+
+    attempts: int = 3
+    """
+    How often the query may be answered before the motion is cancelled.
     """
 
     @property
-    def _motion_chart(self) -> Task:
-        return PerceptionTask(
+    def _motion_chart(self) -> Retry:
+        perception = PerceptionTask(
             query=self.query,
             execution_type=GiskardExecutable.execution_type,
             accept_first_if_multiple=self.accept_first_if_multiple,
+        )
+        return Retry(
+            retried_node=perception,
+            attempts=self.attempts,
+            exception=DetectionAttemptsExhausted(
+                self.query.semantic_annotation, self.attempts
+            ),
         )
