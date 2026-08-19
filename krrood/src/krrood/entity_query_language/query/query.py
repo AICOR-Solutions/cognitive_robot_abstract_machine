@@ -30,7 +30,10 @@ from typing_extensions import (
     Iterator,
 )
 
-from krrood.entity_query_language.core.mapped_variable import CanBehaveLikeAVariable
+from krrood.entity_query_language.core.mapped_variable import (
+    CanBehaveLikeAVariable,
+    MappedVariable,
+)
 from krrood.entity_query_language.core.expression_structure import chain_root
 from krrood.entity_query_language.query.builders import (
     WhereBuilder,
@@ -72,6 +75,7 @@ from krrood.entity_query_language.core.variable import (
 )
 from krrood.entity_query_language.enums import DomainSource
 from krrood.entity_query_language.exceptions import (
+    AmbiguousQueryAttribute,
     UnsupportedNegation,
     NonPositiveLimitValue,
 )
@@ -288,6 +292,81 @@ class Query(
             return self._expression_.evaluate()
         return MultiArityExpressionThatPerformsACartesianProduct.evaluate(self)
 
+    def _correlate_conditions_(
+        self, *conditions: ConditionType
+    ) -> Tuple[ConditionType, ...]:
+        """
+        Re-root the attribute chains that this query's own conditions take from the query
+        itself onto the variable it selects.
+
+        Such a chain names an attribute of the row the query yields, so within the query's
+        own conditions it has to follow the row being filtered. Left rooted at the query it
+        would instead range over the query's results, which passes every row that any result
+        satisfies.
+
+        :param conditions: The conditions being attached to this query.
+        :return: The conditions, with every chain rooted at this query re-rooted onto its
+            selection.
+        """
+        return tuple(self._correlate_condition_(condition) for condition in conditions)
+
+    def _correlate_condition_(self, condition: ConditionType) -> ConditionType:
+        """
+        Re-root every attribute chain that one condition takes from this query.
+
+        A nested subquery is a scope of its own, so chains inside one are left alone. A
+        condition that is not a symbolic expression is left to the filter builder, which
+        reports it.
+
+        :param condition: The condition being attached to this query.
+        :return: The condition, with its chains rooted at this query re-rooted.
+        """
+        if not isinstance(condition, SymbolicExpression):
+            return condition
+        if self._is_attribute_of_self_(condition):
+            return self._rerooted_on_selection_(condition)
+        visited: Set[uuid.UUID] = set()
+        pending = [condition]
+        while pending:
+            expression = pending.pop()
+            if expression._id_ in visited:
+                continue
+            visited.add(expression._id_)
+            for child in tuple(expression._children_):
+                if self._is_attribute_of_self_(child):
+                    expression._replace_child_(
+                        child, self._rerooted_on_selection_(child)
+                    )
+                elif not isinstance(child, Query):
+                    pending.append(child)
+        return condition
+
+    def _is_attribute_of_self_(self, expression: SymbolicExpression) -> bool:
+        """
+        .. note::
+            Attaching a chain to a query, and compiling a query into its product, both copy
+            the query node while preserving its identifier, so a chain is matched by
+            identifier rather than by object identity.
+
+        :param expression: An expression appearing in this query's conditions.
+        :return: Whether the expression is a mapping chain based on this query.
+        """
+        if not isinstance(expression, MappedVariable):
+            return False
+        base = expression._chain_root_
+        return isinstance(base, Query) and base._id_ == self._id_
+
+    def _rerooted_on_selection_(self, attribute: MappedVariable) -> MappedVariable:
+        """
+        :param attribute: A mapping chain based on this query.
+        :return: The same chain rebuilt on the variable this query selects.
+        :raises AmbiguousQueryAttribute: If this query selects several variables, so the
+            chain has no single subject to follow.
+        """
+        if len(self._selected_variables_) != 1:
+            raise AmbiguousQueryAttribute(self, attribute)
+        return attribute._reroot_on_(self._selected_variables_[0])
+
     @modifies_query_structure
     def where(self, *conditions: ConditionType) -> Self:
         """
@@ -298,6 +377,7 @@ class Query(
             object.
         :return: This query.
         """
+        conditions = self._correlate_conditions_(*conditions)
         if self._where_builder_ is None:
             self._where_builder_ = WhereBuilder(conditions=conditions, query=self)
         else:
@@ -314,6 +394,7 @@ class Query(
             object.
         :return: This query.
         """
+        conditions = self._correlate_conditions_(*conditions)
         if self._having_builder_ is None:
             self._having_builder_ = HavingBuilder(conditions=conditions, query=self)
         else:

@@ -245,6 +245,40 @@ class NoConditionsProvided(UsageError):
 
 
 @dataclass
+class AmbiguousQueryAttribute(UsageError):
+    """
+    Raised when a condition takes an attribute from a query that selects several
+    variables, leaving the attribute without a single subject.
+
+    For further details, see the section on writing queries and `where` clauses in
+    :doc:`/krrood/doc/eql/writing_queries`.
+    """
+
+    query: Query
+    """
+    The query the attribute was taken from.
+    """
+
+    attribute: SymbolicExpression
+    """
+    The attribute chain rooted at that query.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.attribute._name_} takes an attribute from the query {self.query}, which "
+            f"selects {len(self.query._selected_variables_)} variables, so the attribute has no "
+            f"single subject."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Take the attribute from the variable it belongs to, e.g. `body.name` instead of "
+            "`query.name`."
+        )
+
+
+@dataclass
 class NestedAggregationError(UsageError):
     """
     Raised when an aggregation is nested within another aggregation.

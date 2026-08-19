@@ -110,20 +110,23 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         """
         Surface the wrapped value type's attributes for interactive completion.
 
-        ``__getattr__`` already makes every non-dunder name a valid (symbolic) attribute, but
-        completion engines list ``__dir__`` only — which would otherwise show just this
-        expression's own members. We union those with the public attributes of the value type so
-        e.g. ``case_variable.<tab>`` offers the case type's fields.
+        ``__getattr__`` already makes every non-dunder name a valid (symbolic)
+        attribute, but completion engines list ``__dir__`` only — which would otherwise
+        show just this expression's own members. We union those with the public
+        attributes of the value type so e.g. ``case_variable.<tab>`` offers the case
+        type's fields.
 
-        ``_type_`` is read from ``__dict__`` directly (never ``getattr``, which routes through
-        ``__getattr__`` and would return a :class:`MappedVariable` instead of ``None``). This does
-        not affect attribute resolution in any way.
+        ``_type_`` is read from ``__dict__`` directly (never ``getattr``, which routes
+        through ``__getattr__`` and would return a :class:`MappedVariable` instead of
+        ``None``). This does not affect attribute resolution in any way.
         """
         names = set(super().__dir__())
         type_ = self.__dict__.get("_type_")
         if isinstance(type_, type):
             names.update(
-                name for name in dir(type_) if not (name.startswith("__") and name.endswith("__"))
+                name
+                for name in dir(type_)
+                if not (name.startswith("__") and name.endswith("__"))
             )
             for klass in type_.__mro__:
                 names.update(getattr(klass, "__annotations__", {}).keys())
@@ -299,6 +302,29 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         pass
 
     @property
+    @abstractmethod
+    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+        """
+        :return: The arguments, after the child, that reconstruct this mapping.
+        """
+
+    def _reroot_on_(self, root: CanBehaveLikeAVariable) -> MappedVariable:
+        """
+        Rebuild this mapping chain on top of another expression.
+
+        :param root: The expression to place at the base of the rebuilt chain.
+        :return: A chain applying this chain's mappings, in the same order, to ``root``.
+        """
+        rebuilt_child = (
+            self._child_._reroot_on_(root)
+            if isinstance(self._child_, MappedVariable)
+            else root
+        )
+        return rebuilt_child._get_mapped_variable_(
+            type(self), *self._mapping_arguments_
+        )
+
+    @property
     def _access_path_(self) -> List[Self]:
         """
         :return: The access path of the variable as a list of operations.
@@ -411,6 +437,10 @@ class Attribute(MappedVariable[T]):
             yield getattr(value, self._attribute_name_)
 
     @property
+    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+        return (self._attribute_name_,)
+
+    @property
     def _name_(self):
         return f"{self._child_._name_}.{self._attribute_name_}"
 
@@ -446,6 +476,10 @@ class Index(MappedVariable):
             return
 
     @property
+    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+        return (self._key_,)
+
+    @property
     def _name_(self):
         return f"{self._child_._var_._name_}[{repr(self._key_)}]"
 
@@ -478,6 +512,10 @@ class Call(MappedVariable):
             yield value()
 
     @property
+    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+        return self._args_, self._kwargs_
+
+    @property
     def _name_(self):
         return f"{self._child_._var_._name_}()"
 
@@ -503,6 +541,10 @@ class FlatVariable(MappedVariable[T]):
         self, value: Iterable[T], sources: Optional[OperationResult] = None
     ) -> Iterable[T]:
         yield from value
+
+    @property
+    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+        return ()
 
     @cached_property
     def _name_(self) -> str:
