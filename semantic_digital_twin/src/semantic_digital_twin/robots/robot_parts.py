@@ -458,7 +458,7 @@ class Camera(Sensor, ABC):
 
     forward_facing_axis: Vector3 = field(kw_only=True)
     """
-    The axis of the camera that is facing forward.
+    The axis of the camera that is facing forward, expressed in the camera's root frame.
     """
 
     field_of_view: FieldOfView = field(kw_only=True)
@@ -483,6 +483,26 @@ class Camera(Sensor, ABC):
     """
     The maximal height of the camera above the ground, in meters.
     """
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.forward_facing_axis.reference_frame = self.root
+
+    @property
+    def root_T_forward_view(self) -> HomogeneousTransformationMatrix:
+        """
+        The camera's pose in the world root frame, with its x axis along the direction
+        the camera looks.
+
+        The y and z axes only complete the frame and carry no meaning.
+        """
+        root_T_camera = self.root.global_transform
+        root_V_forward = root_T_camera.to_rotation_matrix() @ self.forward_facing_axis
+        return HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            point=root_T_camera.to_position(),
+            rotation_matrix=RotationMatrix.from_x_axis(root_V_forward),
+            reference_frame=root_T_camera.reference_frame,
+        )
 
 
 @dataclass(eq=False)

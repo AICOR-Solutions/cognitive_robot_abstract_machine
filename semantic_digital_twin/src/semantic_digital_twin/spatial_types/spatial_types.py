@@ -790,19 +790,22 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     @classmethod
     def from_x_axis(
         cls,
-        x: Vector3,
+        x_vector: Vector3,
         reference_frame: Optional[KinematicStructureEntity] = None,
     ) -> RotationMatrix:
         """
         Create a rotation matrix from the direction its x-axis points along.
 
         The y- and z-axis only complete the frame and are otherwise arbitrary.
+        :param x_vector: The vector being taken as the x-axis.
+        :param reference_frame: The reference frame for the created RotationMatrix
+        :return: A RotationMatrix with the x-axis pointing along the given vector.
         """
         # Crossing a direction with a world axis degenerates when the two are parallel, so
         # pick whichever of the X/Y axes yields the better-conditioned (longer) cross
         # product.
-        frame_V_cross_x = x.cross(Vector3.X())
-        frame_V_cross_y = x.cross(Vector3.Y())
+        frame_V_cross_x = x_vector.cross(Vector3.X())
+        frame_V_cross_y = x_vector.cross(Vector3.Y())
         y = Vector3.from_iterable(
             [
                 sm.if_greater(
@@ -814,7 +817,7 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
                 for i in range(3)
             ]
         )
-        return cls.from_vectors(x=x, y=y, reference_frame=reference_frame)
+        return cls.from_vectors(x=x_vector, y=y, reference_frame=reference_frame)
 
     @classmethod
     def from_rpy(

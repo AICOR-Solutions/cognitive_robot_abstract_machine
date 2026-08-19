@@ -213,16 +213,19 @@ class TFPublisher(StateChangeCallback):
         )
 
     @classmethod
-    def create_with_ignore_existing_tf(cls, world: World, node: Node) -> Self:
+    def create_with_ignore_existing_tf(
+        cls, world: World, node: Node, wait_for_existing_tf: int
+    ) -> Self:
         """
         Checks if any kinematic structure entity is already published in tf and ignores
         them.
 
         :param world: The world for which to create the TF publisher.
         :param node: The ROS2 node used to create the publisher.
+        :param wait_for_existing_tf: The time to wait for existing tf to be published.
         """
         tf_wrapper = TFWrapper(node=node)
-        sleep(5)
+        sleep(wait_for_existing_tf)
         all_frames = set(tf_wrapper.get_tf_frames())
         ignored_bodies = set(
             kse

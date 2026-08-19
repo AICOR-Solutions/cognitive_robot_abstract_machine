@@ -277,6 +277,26 @@ def test_world_perception_reports_the_pose_the_world_holds(
     )
 
 
+def test_world_perception_follows_the_robots_head(
+    immutable_model_world, whole_scene_region
+):
+    """
+    The simulated source answers from the robot's camera, so turning the head away from
+    a body has to take it out of the answer.
+    """
+    world, view, context = immutable_model_world
+    milk_body = world.get_body_by_name("milk.stl")
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    assert query.from_world() == [milk_body]
+
+    head_pan = world.get_degree_of_freedom_by_name("head_pan_joint")
+    world.state[head_pan.id].position = np.pi
+    world.notify_state_change()
+
+    assert query.from_world() == []
+
+
 def test_world_perception_reports_nothing_outside_the_queried_region(
     immutable_model_world,
 ):

@@ -255,6 +255,9 @@ class WorldState(MutableMapping[UUID, WorldStateEntryView]):
             )
 
     def to_uuid_position_dict(self) -> dict[uuid.UUID, float]:
+        """
+        :returns: A dictionary mapping each degree of freedom id to its current position.
+        """
         return {dof_id: self[dof_id].position for dof_id in self._ids}
 
     def to_position_dict(self) -> Dict[PrefixedName, float]:

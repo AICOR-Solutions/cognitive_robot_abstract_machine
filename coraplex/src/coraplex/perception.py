@@ -12,7 +12,7 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.reasoning.predicates import visible
-from semantic_digital_twin.robots.robot_parts import Camera, AbstractRobot
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3
@@ -90,41 +90,21 @@ class PerceptionQuery(SubclassJSONSerializer):
         :return: The bodies of the queried annotation that lie inside the region and are
             visible to the robot's camera.
         """
-        result = []
-        sem_instances = self.world.get_semantic_annotations_by_type(
-            self.semantic_annotation
-        )
-        bodies = []
-        for sem_instance in sem_instances:
-            bodies.extend(sem_instance.bodies)
-
-        region_bodies = list(
-            filter(
-                None,
-                [
-                    (
-                        body
-                        if self.region.contains(body.global_transform.to_position())
-                        else None
-                    )
-                    for body in bodies
-                ],
+        bodies = [
+            body
+            for sem_instance in self.world.get_semantic_annotations_by_type(
+                self.semantic_annotation
             )
-        )
+            for body in sem_instance.bodies
+        ]
+        region_bodies = [
+            body
+            for body in bodies
+            if self.region.contains(body.global_transform.to_position())
+        ]
 
-        robot_camera = list(
-            filter(
-                None,
-                [
-                    cam if isinstance(cam, Camera) else None
-                    for cam in self.robot.get_sensors()
-                ],
-            )
-        )[0]
-        for body in region_bodies:
-            if visible(robot_camera, body):
-                result.append(body)
-        return result
+        robot_camera = self.robot.get_default_camera()
+        return [body for body in region_bodies if visible(robot_camera, body)]
 
     def to_json(self) -> Dict[str, Any]:
         result = super().to_json()
@@ -217,12 +197,12 @@ class Detection:
     ) -> HomogeneousTransformationMatrix:
         """
         Return ``root_T_frame`` rotated by 180° around its own axes so that its z axis
-        points along the world z axis and its x axis points towards ``root_P_target``
-        as closely as those rotations allow.
+        points along the world z axis and its x axis points towards ``root_P_target`` as
+        closely as those rotations allow.
 
         The position is left untouched, and every axis stays on the axis it started on.
-        :param root_T_frame: ``HomogeneousTransformationMatrix`` which will be rotated
-        :param root_P_target: ``Point3`` towards which root_T_frame x axis will point
+        :param root_T_frame:``HomogeneousTransformationMatrix`` which will be rotated
+        :param root_P_target:``Point3`` towards which root_T_frame x axis will point
         :return: rotated transformation matrix
         """
         root_V_target = root_P_target - root_T_frame.to_position()
@@ -274,7 +254,8 @@ class PerceptionInterface(ABC):
         Answer a perception query.
 
         :param query: What to look for and where.
-        :param accept_first_if_multiple: Whether if there are multiple results of the same type returned, accept the first one
+        :param accept_first_if_multiple: Whether if there are multiple results of the
+            same type returned, accept the first one
         :return: The objects this source saw.
         """
 
@@ -316,15 +297,6 @@ class WorldPerception(PerceptionInterface):
         detected_objects = query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
         )
-        body = detected_objects[0].root
-        return [
-            Detection(
-                semantic_annotation=query.semantic_annotation, pose=body.global_pose
-            )
-        ]
-
-        if not detected_objects:
-            raise NothingDetected(query.semantic_annotation)
 
         for annotation in detected_objects:
             annotation_by_body.setdefault(annotation.root, type(annotation))
@@ -336,6 +308,9 @@ class WorldPerception(PerceptionInterface):
             for body in query.from_world()
             if body in annotation_by_body
         ]
+
+        if not detections:
+            raise NothingDetected(query.semantic_annotation)
 
         if len(detections) == 1:
             return detections
