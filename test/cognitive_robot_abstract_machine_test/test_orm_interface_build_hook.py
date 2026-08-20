@@ -2,10 +2,8 @@ import pytest
 
 from cognitive_robot_abstract_machine.orm_interfaces import WORKSPACE_ORM_INTERFACES
 
-from ..orm_interface_build import (
-    PytestEnvironmentVariable,
-    regenerate_orm_interfaces,
-)
+from ..orm_interface_build import regenerate_orm_interfaces
+from ..pytest_environment import PytestEnvironmentVariable
 
 
 @pytest.fixture()
@@ -20,6 +18,7 @@ def recorded_builds(monkeypatch) -> list:
     monkeypatch.setattr(
         WORKSPACE_ORM_INTERFACES, "regenerate", lambda: builds.append("built")
     )
+    regenerate_orm_interfaces.cache_clear()
     return builds
 
 
@@ -43,6 +42,13 @@ class TestOrmInterfacesBuiltOnlyByTheXdistController:
 
     def test_controller_builds_them(self, monkeypatch, recorded_builds):
         monkeypatch.delenv(PytestEnvironmentVariable.XDIST_WORKER, raising=False)
+
+        assert regenerate_orm_interfaces() is True
+        assert recorded_builds == ["built"]
+
+    def test_a_second_ask_does_not_build_again(self, monkeypatch, recorded_builds):
+        monkeypatch.delenv(PytestEnvironmentVariable.XDIST_WORKER, raising=False)
+        regenerate_orm_interfaces()
 
         assert regenerate_orm_interfaces() is True
         assert recorded_builds == ["built"]

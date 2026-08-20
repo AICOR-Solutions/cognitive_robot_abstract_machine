@@ -8,13 +8,18 @@ be persisted or turned into a data access object until they have been generated 
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from krrood.class_diagrams.progress_report import (
+    ClassDiagramProgress,
+    ProgressEnvironmentVariable,
+)
 from tqdm import tqdm
-from typing_extensions import Sequence
+from typing_extensions import Optional, Sequence
 
 from cognitive_robot_abstract_machine.exceptions import (
     MissingOrmGeneratorError,
@@ -35,6 +40,99 @@ PROGRESS_DESCRIPTION = "Building ORM interfaces"
 """
 What the progress bar of a build calls itself.
 """
+
+PROGRESS_REQUESTED = "1"
+"""
+What a generator is told to report the classes it finishes.
+"""
+
+# %% what a build shows while it runs
+
+
+@dataclass
+class BuildProgress:
+    """
+    A bar counting the classes of the interface being built, and how many of the
+    interfaces are done.
+    """
+
+    total_interfaces: int
+    """
+    How many interfaces the build covers.
+    """
+
+    show_generator_output: bool
+    """
+    Whether the generators write to the terminal, which leaves no room for a bar.
+    """
+
+    completed_interfaces: int = field(default=0, init=False)
+    """
+    How many of them are built.
+    """
+
+    bar: Optional[tqdm] = field(default=None, init=False)
+    """
+    The bar, absent while the generators have the terminal to themselves.
+    """
+
+    counted_classes: bool = field(default=False, init=False)
+    """
+    Whether the interface being built has said how many classes it holds.
+    """
+
+    def __enter__(self) -> BuildProgress:
+        if not self.show_generator_output:
+            self.bar = tqdm(unit="class")
+            self.show_interfaces_done()
+        return self
+
+    def __exit__(self, *exception: object) -> None:
+        if self.bar is not None:
+            self.bar.close()
+
+    def show_interfaces_done(self) -> None:
+        """
+        Put how far along the interfaces are beside the bar.
+        """
+        self.bar.set_description_str(
+            f"{PROGRESS_DESCRIPTION} {self.completed_interfaces}/{self.total_interfaces}"
+        )
+
+    def start(self, package_name: str) -> None:
+        """
+        Begin reporting on the interface of a package.
+
+        :param package_name: The package whose interface is being built.
+        """
+        self.counted_classes = False
+        if self.bar is None:
+            return
+        self.bar.set_postfix_str(package_name)
+
+    def advance(self, report: ClassDiagramProgress) -> None:
+        """
+        Count one class of the interface being built as done.
+
+        :param report: What the generator said about the class it finished.
+        """
+        if self.bar is None:
+            return
+        if not self.counted_classes:
+            self.bar.reset(total=report.total_classes)
+            self.counted_classes = True
+            self.show_interfaces_done()
+        self.bar.update(1)
+
+    def finish(self) -> None:
+        """
+        Count the interface being built as done.
+        """
+        self.completed_interfaces += 1
+        if self.bar is None:
+            return
+        self.show_interfaces_done()
+
 
 # %% a single package's interface
 
@@ -90,42 +188,69 @@ class OrmInterface:
         """
         self.path.unlink(missing_ok=True)
 
-    def generate(self, show_generator_output: bool = False) -> None:
+    def generate(self, progress: BuildProgress) -> None:
         """
         Run this package's generator in a subprocess.
 
-        A generator logs its way through a whole class hierarchy, which buries the
-        progress of a build, so what it writes is kept for the failure report instead of
-        reaching the terminal.
-
-        :param show_generator_output: Whether to let the generator write to the terminal
-            rather than into the report of a failure.
+        :param progress: What to report the classes the generator finishes to.
         :raises MissingOrmGeneratorError: If the package has no generator.
         :raises OrmGenerationFailedError: If the generator exits without having built
             the interface.
         """
         if not self.generator.exists():
             raise MissingOrmGeneratorError(self.package_name, self.generator)
+        progress.start(self.package_name)
+        if progress.show_generator_output:
+            self.run_writing_to_the_terminal()
+        else:
+            self.run_reporting_to(progress)
+        progress.finish()
+
+    def run_writing_to_the_terminal(self) -> None:
+        """
+        Run the generator with the terminal, so its logging can be read as it happens.
+
+        :raises OrmGenerationFailedError: If the generator exits without having built
+            the interface.
+        """
         result = subprocess.run(
-            [sys.executable, str(self.generator)],
-            cwd=self.generator.parent,
-            capture_output=not show_generator_output,
-            text=True,
+            [sys.executable, str(self.generator)], cwd=self.generator.parent
         )
         if result.returncode != 0:
-            raise OrmGenerationFailedError(
-                self.package_name, self.reported_output(result)
-            )
+            raise OrmGenerationFailedError(self.package_name, "")
 
-    @staticmethod
-    def reported_output(result: subprocess.CompletedProcess) -> str:
+    def run_reporting_to(self, progress: BuildProgress) -> None:
         """
-        Collect what a finished generator wrote, for a failure to report.
+        Run the generator, counting the classes it reports and keeping the rest of what
+        it writes for a failure to report.
 
-        :param result: The finished generator run.
-        :return: Everything it wrote, empty when it wrote to the terminal instead.
+        A generator logs its way through a whole class hierarchy, which would bury the
+        bar, so its logging is held back rather than shown.
+
+        :param progress: What to report the classes it finishes to.
+        :raises OrmGenerationFailedError: If the generator exits without having built
+            the interface.
         """
-        return "".join(stream for stream in (result.stdout, result.stderr) if stream)
+        generation = subprocess.Popen(
+            [sys.executable, str(self.generator)],
+            cwd=self.generator.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env={
+                **os.environ,
+                ProgressEnvironmentVariable.REPORT_PROGRESS: PROGRESS_REQUESTED,
+            },
+        )
+        written = []
+        for line in generation.stdout:
+            report = ClassDiagramProgress.from_line(line)
+            if report is None:
+                written.append(line)
+                continue
+            progress.advance(report)
+        if generation.wait() != 0:
+            raise OrmGenerationFailedError(self.package_name, "".join(written))
 
 
 # %% every interface of the repository
@@ -164,15 +289,9 @@ class WorkspaceOrmInterfaces:
         for interface in self.interfaces:
             interface.remove()
 
-        progress = tqdm(
-            self.interfaces,
-            desc=PROGRESS_DESCRIPTION,
-            unit="interface",
-            disable=show_generator_output,
-        )
-        for interface in progress:
-            progress.set_postfix_str(interface.package_name)
-            interface.generate(show_generator_output=show_generator_output)
+        with BuildProgress(len(self.interfaces), show_generator_output) as progress:
+            for interface in self.interfaces:
+                interface.generate(progress)
 
     def ensure_generated(self, show_generator_output: bool = False) -> bool:
         """

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+
+from krrood.class_diagrams.progress_report import is_progress_wanted, report_progress
 from typing_extensions import List
 
 GENERATION_LOG_NAME = "generation_log.txt"
@@ -111,12 +113,20 @@ PROGRESS_LINE = "introspecting the class hierarchy"
 What this generator writes while it works, standing in for a real one's logging.
 """
 
+MAPPED_CLASS_NAMES = ("Container", "Handle", "Drawer")
+"""
+The classes this generator stands in for mapping.
+"""
+
 
 def main() -> None:
     """
     Log what the checkout holds so far and generate this package's interface.
     """
     print(PROGRESS_LINE)
+    if is_progress_wanted():
+        for class_name in MAPPED_CLASS_NAMES:
+            report_progress(class_name, len(MAPPED_CLASS_NAMES))
     package_root = Path(__file__).resolve().parents[1]
     repository_root = package_root.parent
     record = GenerationRecord(package_root.name, generated_packages(repository_root))

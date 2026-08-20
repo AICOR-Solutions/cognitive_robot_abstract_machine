@@ -1,15 +1,3 @@
-# %% ORM interfaces
-
-# Built here rather than from a hook, and before the imports below: pytest imports every
-# conftest of a run first and only then calls the hooks, so a hook would fire after the
-# conftests that import a mapped datastructure have already failed to find one.
-from .orm_interface_build import PytestEnvironmentVariable, regenerate_orm_interfaces
-
-regenerate_orm_interfaces()
-
-
-# %% test session setup
-
 import gc
 import os
 import threading
@@ -24,6 +12,8 @@ from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
+
+from .pytest_environment import PytestEnvironmentVariable
 
 try:
     from semantic_digital_twin.robots.garmi import Garmi

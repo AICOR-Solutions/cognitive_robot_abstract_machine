@@ -240,54 +240,6 @@ def failing_workspace(checkout: Path) -> WorkspaceOrmInterfaces:
     )
 
 
-@dataclass
-class RecordedProgress:
-    """
-    A stand-in for the progress bar, remembering how it was asked to report.
-    """
-
-    wrapped: List[OrmInterface] = field(default_factory=list)
-    """
-    The interfaces the bar was given to iterate.
-    """
-
-    disabled: Optional[bool] = None
-    """
-    Whether the bar was asked to keep quiet.
-    """
-
-    labelled: List[str] = field(default_factory=list)
-    """
-    The labels the bar was asked to show, one per interface it reported on.
-    """
-
-    def __call__(self, interfaces, **keywords) -> RecordedProgress:
-        self.wrapped = list(interfaces)
-        self.disabled = keywords.get("disable")
-        return self
-
-    def __iter__(self):
-        return iter(self.wrapped)
-
-    def set_postfix_str(self, text: str) -> None:
-        """
-        Record the label a real bar would render beside itself.
-
-        :param text: The label.
-        """
-        self.labelled.append(text)
-
-
-@pytest.fixture
-def recorded_progress(monkeypatch) -> RecordedProgress:
-    """
-    Replace the progress bar with one that records how it was used.
-    """
-    progress = RecordedProgress()
-    monkeypatch.setattr(orm_interfaces, "tqdm", progress)
-    return progress
-
-
 def test_a_quiet_build_keeps_the_generator_output_off_the_terminal(
     workspace: WorkspaceOrmInterfaces, capfd
 ):
@@ -316,19 +268,46 @@ def test_a_failing_generator_reports_what_it_wrote(
     assert failure.value.package_name == PACKAGE_NAMES[0]
 
 
-def test_progress_is_reported_for_every_interface(
-    workspace: WorkspaceOrmInterfaces, recorded_progress: RecordedProgress
+def test_the_bar_counts_every_class_of_every_interface(
+    workspace: WorkspaceOrmInterfaces, monkeypatch
 ):
+    advanced = []
+    monkeypatch.setattr(
+        orm_interfaces.BuildProgress,
+        "advance",
+        lambda self, report: advanced.append(report.class_name),
+    )
+
     workspace.regenerate()
 
-    assert recorded_progress.wrapped == list(workspace.interfaces)
-    assert recorded_progress.labelled == list(PACKAGE_NAMES)
-    assert recorded_progress.disabled is False
+    assert advanced == list(generate_orm.MAPPED_CLASS_NAMES) * len(PACKAGE_NAMES)
 
 
-def test_progress_stays_out_of_the_way_of_the_generator_output(
-    workspace: WorkspaceOrmInterfaces, recorded_progress: RecordedProgress
+def test_the_bar_learns_how_many_classes_an_interface_holds(
+    workspace: WorkspaceOrmInterfaces,
 ):
-    workspace.regenerate(show_generator_output=True)
+    progress = orm_interfaces.BuildProgress(len(PACKAGE_NAMES), False)
+    with progress:
+        workspace.interfaces[0].generate(progress)
 
-    assert recorded_progress.disabled is True
+        assert progress.bar.total == len(generate_orm.MAPPED_CLASS_NAMES)
+        assert progress.bar.n == len(generate_orm.MAPPED_CLASS_NAMES)
+
+
+def test_the_interfaces_done_are_counted_as_the_build_goes(
+    workspace: WorkspaceOrmInterfaces,
+):
+    progress = orm_interfaces.BuildProgress(len(PACKAGE_NAMES), False)
+    with progress:
+        for interface in workspace.interfaces:
+            interface.generate(progress)
+
+    assert progress.completed_interfaces == len(PACKAGE_NAMES)
+
+
+def test_a_build_showing_generator_output_keeps_no_bar(
+    workspace: WorkspaceOrmInterfaces,
+):
+    progress = orm_interfaces.BuildProgress(len(PACKAGE_NAMES), True)
+    with progress:
+        assert progress.bar is None
