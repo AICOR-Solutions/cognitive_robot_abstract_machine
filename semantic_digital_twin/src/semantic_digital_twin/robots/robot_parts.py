@@ -28,6 +28,7 @@ from krrood.class_diagrams.attribute_introspector import (
     DataclassOnlyIntrospector,
 )
 from krrood.entity_query_language.factories import variable, contains, a, entity
+from krrood.ormatic.utils import classproperty
 from krrood.utils import get_generic_type_parameters
 from semantic_digital_twin.datastructures.definitions import JointStateType
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
@@ -589,17 +590,19 @@ class MobileBase(AbstractRobotPart, Generic[TGenericDrive], ABC):
     generic parameter (e.g. ``MobileBase[OmniDrive]``) by each concrete mobile base.
     """
 
-    forward_axis: Vector3 = field(default_factory=Vector3.X)
-    """
-    Axis along which the robot manipulates.
-    """
-
     full_body_controlled: bool = field(default=False, kw_only=True)
     """
     If True, the robot can move its entire body during a motion.
 
     If False, only the robot will always stand still when moving an arm.
     """
+
+    @classproperty
+    @abstractmethod
+    def forward_axis(cls) -> Vector3:
+        """
+        The axis of this base that points where the robot faces.
+        """
 
     def pose_facing(self, heading: Pose) -> Pose:
         """
