@@ -9,9 +9,15 @@ over the query's own results.
 import pytest
 
 from krrood.entity_query_language.exceptions import AmbiguousQueryAttribute
-from krrood.entity_query_language.factories import an, entity, set_of, variable
+from krrood.entity_query_language.factories import (
+    an,
+    entity,
+    flat_variable,
+    set_of,
+    variable,
+)
 
-from ...dataset.semantic_world_like_classes import Body, Handle
+from ...dataset.semantic_world_like_classes import Body, Cabinet, Handle
 
 # %% query-rooted conditions filter
 
@@ -55,6 +61,29 @@ def test_match_condition_rooted_at_the_lowered_query_filters(
     match.where(match.expression.size > 1)
 
     assert match.tolist() == [body for body in bodies if body.size > 1]
+
+
+def test_query_rooted_condition_through_a_flattened_attribute_filters(
+    handles_and_containers_world,
+):
+    """
+    Every mapping a chain can be built from has to survive re-rooting, including the
+    flattening one, whose values are reached by iterating rather than by an operator
+    symbolic expressions trace.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    handle_name = cabinets[0].drawers[0].handle.name
+
+    query = entity(variable(Cabinet, domain=cabinets))
+    query.where(flat_variable(query.drawers).handle.name == handle_name)
+
+    assert query.tolist() == [
+        cabinet
+        for cabinet in cabinets
+        if any(drawer.handle.name == handle_name for drawer in cabinet.drawers)
+    ]
 
 
 # %% conditions that must keep their uncorrelated meaning
