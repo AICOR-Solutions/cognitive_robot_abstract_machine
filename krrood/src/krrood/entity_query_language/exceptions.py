@@ -279,6 +279,39 @@ class AmbiguousQueryAttribute(UsageError):
 
 
 @dataclass
+class UnselectedQueryVariable(UsageError):
+    """
+    Raised when a query over several variables is indexed by a variable it does not
+    select, so the index names nothing in the rows the query yields.
+
+    For further details, see the section on writing queries and `where` clauses in
+    :doc:`/krrood/doc/eql/writing_queries`.
+    """
+
+    query: Query
+    """
+    The query that was indexed.
+    """
+
+    key: Any
+    """
+    What the query was indexed by.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The query {self.query} was indexed by {self.key}, which is not one of the "
+            f"variables it selects, so its rows hold nothing under that key."
+        )
+
+    def suggest_correction(self) -> str:
+        selected = ", ".join(
+            variable._name_ for variable in self.query._selected_variables_
+        )
+        return f"Index the query by one of the variables it selects: {selected}."
+
+
+@dataclass
 class NestedAggregationError(UsageError):
     """
     Raised when an aggregation is nested within another aggregation.

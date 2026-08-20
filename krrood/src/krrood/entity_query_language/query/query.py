@@ -77,6 +77,7 @@ from krrood.entity_query_language.core.variable import (
 from krrood.entity_query_language.enums import DomainSource
 from krrood.entity_query_language.exceptions import (
     AmbiguousQueryAttribute,
+    UnselectedQueryVariable,
     UnsupportedNegation,
     NonPositiveLimitValue,
 )
@@ -377,25 +378,13 @@ class Query(
 
     def _selection_indexed_by_(self, step: MappedVariable) -> Optional[Selectable]:
         """
-        Indexing a query by one of the variables it selects names that variable, the
-        same way indexing one of the query's results does.
+        A query stands for the value its selection takes, so indexing it indexes that
+        value rather than naming a variable.
 
         :param step: The first mapping a chain applies to this query.
-        :return: The selected variable that step indexes this query by, or ``None`` if
-            it indexes the query by something else.
+        :return: ``None``, since no index of this query names one of its variables.
         """
-        if not isinstance(step, Index) or not isinstance(
-            step._key_, SymbolicExpression
-        ):
-            return None
-        return next(
-            (
-                selected
-                for selected in self._selected_variables_
-                if selected._id_ == step._key_._id_
-            ),
-            None,
-        )
+        return None
 
     @modifies_query_structure
     def where(self, *conditions: ConditionType) -> Self:
@@ -1017,6 +1006,47 @@ class SetOf(Query):
     """
     A query over a set of variables.
     """
+
+    def __getitem__(self, key: Any) -> CanBehaveLikeAVariable:
+        """
+        :param key: The selected variable to name.
+        :return: A symbolic reference to what a row of this query binds that variable
+            to.
+        :raises UnselectedQueryVariable: If the key is not one of the selected
+            variables, since a row holds nothing else.
+        """
+        if self._selection_named_by_(key) is None:
+            raise UnselectedQueryVariable(self, key)
+        return super().__getitem__(key)
+
+    def _selection_indexed_by_(self, step: MappedVariable) -> Optional[Selectable]:
+        """
+        Indexing a query over several variables by one of them names that variable, the
+        same way indexing one of the query's results does.
+
+        :param step: The first mapping a chain applies to this query.
+        :return: The selected variable that step indexes this query by, or ``None`` if
+            the step is not an index.
+        """
+        if not isinstance(step, Index):
+            return None
+        return self._selection_named_by_(step._key_)
+
+    def _selection_named_by_(self, key: Any) -> Optional[Selectable]:
+        """
+        :param key: Something this query was indexed by.
+        :return: The selected variable it names, or ``None`` if it names none of them.
+        """
+        if not isinstance(key, SymbolicExpression):
+            return None
+        return next(
+            (
+                selected
+                for selected in self._selected_variables_
+                if selected._id_ == key._id_
+            ),
+            None,
+        )
 
     def _get_operation_result_(self, child_result: OperationResult) -> OperationResult:
         """

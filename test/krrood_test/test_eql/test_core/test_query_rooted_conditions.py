@@ -8,7 +8,10 @@ over the query's own results.
 
 import pytest
 
-from krrood.entity_query_language.exceptions import AmbiguousQueryAttribute
+from krrood.entity_query_language.exceptions import (
+    AmbiguousQueryAttribute,
+    UnselectedQueryVariable,
+)
 from krrood.entity_query_language.factories import (
     an,
     entity,
@@ -195,19 +198,35 @@ def test_condition_on_a_selection_indexed_by_its_variable_filters(
     assert selected_values(query) == selected_values(variable_rooted)
 
 
-def test_condition_indexing_a_multi_variable_query_by_a_foreign_variable_is_rejected(
+def test_indexing_a_multi_variable_query_by_an_unselected_variable_is_rejected(
     handles_and_containers_world,
 ):
     """
-    Indexing by a variable the query does not select names nothing, so the chain is left
-    without a subject just as a bare attribute would be.
+    A row of a multi-variable query holds only the variables it selects, so indexing it
+    by any other is rejected where it is written rather than where it is used.
     """
     bodies = handles_and_containers_world.bodies
     query = set_of(variable(Body, domain=bodies), variable(Handle, domain=bodies))
-    foreign = variable(Container, domain=bodies)
+    unselected = variable(Container, domain=bodies)
 
-    with pytest.raises(AmbiguousQueryAttribute):
-        query.where(query[foreign].size > 1)
+    with pytest.raises(UnselectedQueryVariable):
+        query[unselected]
+
+
+def test_indexing_a_single_variable_query_indexes_its_selected_value(
+    handles_and_containers_world,
+):
+    """
+    A single-variable query stands for the value its variable takes, so indexing it
+    indexes that value instead of naming the variable.
+    """
+    bodies = handles_and_containers_world.bodies
+    body = variable(Body, domain=bodies)
+    query = entity(body)
+    query.where(query[body].size > 1)
+
+    with pytest.raises(TypeError):
+        query.tolist()
 
 
 # %% attributes a query cannot give a subject
