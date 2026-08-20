@@ -457,7 +457,6 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             ],
         )
         update = WorldUpdate(meta_data=self.meta_data, modification_block=model_block)
-        self._debug_report("publishing model")
         self._publish_or_defer(update)
 
     def on_state_change(
@@ -488,9 +487,6 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             self._world.state.to_uuid_position_dict()
             if force_republish
             else self.compute_state_changes()
-        )
-        self._debug_report(
-            f"publishing state force_republish={force_republish} count={len(changes)}"
         )
         if not changes:
             return
@@ -593,37 +589,6 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         """
         with self._world.modify_world(publish_changes=False):
             modification_block_message.modifications.apply(self._world)
-        self._debug_report("after _apply_model")
-
-    def _debug_report(self, label: str) -> None:
-        import os
-
-        box = None
-        for body in self._world.kinematic_structure_entities:
-            if "cheeze" in str(body.name):
-                box = body
-        if box is None or box.parent_connection is None:
-            return
-        missing = [
-            str(dof.name)
-            for dof in box.parent_connection.dofs
-            if self._world.state._index.get(dof.id) is None
-        ]
-        try:
-            position = (
-                self._world.compute_forward_kinematics(self._world.root, box)
-                .to_position()
-                .to_np()
-                .flatten()[:3]
-            )
-        except Exception as error:  # noqa: BLE001
-            position = f"<{error}>"
-        with open(f"/tmp/sync_debug_{os.getpid()}.log", "a") as handle:
-            handle.write(
-                f"{label} world={self._world.name} "
-                f"parent={box.parent_connection.parent.name} "
-                f"position={position} missing_from_state={missing}\n"
-            )
 
     def _apply_state(self, state_update_message: WorldStateUpdate):
         """
@@ -653,7 +618,6 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             self._world.state._data[0, indices] = np.asarray(state_values, dtype=float)
             self.update_previous_world_state()
         self._world.notify_state_change(publish_changes=False)
-        self._debug_report("after _apply_state")
 
     def apply_missed_messages(self):
         """
