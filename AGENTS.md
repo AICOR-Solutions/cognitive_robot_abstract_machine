@@ -3,7 +3,7 @@
 ## Avoid Behaviour
 - Avoid using global variables
 - Avoid accessing any ormatic_interface.py files. if there are issues regarding the ormatic interface run the script `scripts/regenerate_all_orm.py`. If it does not fix the issue, consider consulting the developer.
-- ormatic_interface.py files are generated, never written, so the repository ignores them instead of tracking them (see the rule in `.gitignore`): the test suite builds them for its runs, and a local checkout builds them with `scripts/ensure_orm_interfaces.py` or `scripts/regenerate_all_orm.py`. Never track one again - git refuses to overwrite a tracked path a checkout has generated its own copy of, which is what used to make every branch switch fail.
+- ormatic_interface.py files are generated, never written, so the repository ignores them instead of tracking them (see the rule in `.gitignore`): the test suite builds them for its runs, and a local checkout builds them with `scripts/regenerate_all_orm.py`. Never track one again - git refuses to overwrite a tracked path a checkout has generated its own copy of, which is what used to make every branch switch fail.
 - Avoid using mutable objects as default arguments
 - If you are unsure why something was done or why specific numbers were chosen, ask the developer instead of inventing the reason and writing it as a comment.
 - Never comment on or modify pull requests on the upstream `cram2/cognitive_robot_abstract_machine` repository. You may only do so when working in a fork and the user has explicitly allowed it - either through existing personal notes/instructions, or by asking the user first and having them accept.

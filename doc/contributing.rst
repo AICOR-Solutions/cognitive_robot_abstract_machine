@@ -14,9 +14,9 @@ install pre-commit hooks:
 ``ormatic_interface.py`` files are generated and never reviewed, so the repository
 ignores them rather than tracking them: git never proposes them for staging -- not
 even with ``git add -A`` -- and never has to overwrite your generated copy to switch
-branches. Run ``python scripts/ensure_orm_interfaces.py`` to build the ones a fresh
-clone is missing, and ``python scripts/regenerate_all_orm.py`` to build them anew
-after changing a mapped datastructure; CI generates them the same way for its tests.
+branches. Run ``python scripts/regenerate_all_orm.py`` to build them, which a fresh
+clone needs before it can persist anything and a changed mapped datastructure needs
+again; CI generates them the same way for its tests.
 
 If you have any questions or feedback, consider submitting a `GitHub
 Issue <https://github.com/cram2/cognitive_robot_abstract_machine/issues>`__.

@@ -107,21 +107,6 @@ def git_ignores(repository_root: Path, path: Path) -> bool:
     )
 
 
-# %% telling a generated checkout from a fresh one
-
-
-def test_workspace_is_not_generated_while_one_interface_is_missing(
-    workspace: WorkspaceOrmInterfaces,
-):
-    assert workspace.are_generated
-
-    workspace.interfaces[-1].remove()
-
-    assert workspace.interfaces[0].is_generated
-    assert not workspace.interfaces[-1].is_generated
-    assert not workspace.are_generated
-
-
 # %% regeneration
 
 
@@ -147,33 +132,10 @@ def test_regeneration_clears_every_interface_before_generating_any(
 def test_regeneration_fills_every_interface(workspace: WorkspaceOrmInterfaces):
     workspace.regenerate()
 
-    assert workspace.are_generated
     for interface in workspace.interfaces:
         assert interface.path.read_text(
             encoding="utf-8"
         ) == generate_orm.interface_content(interface.package_name)
-
-
-# %% building only a checkout that needs it
-
-
-def test_a_checkout_that_already_has_its_interfaces_is_left_alone(
-    workspace: WorkspaceOrmInterfaces, checkout: Path
-):
-    assert not workspace.ensure_generated()
-
-    assert generate_orm.read_generation_log(checkout) == []
-
-
-def test_a_checkout_missing_one_interface_has_every_one_built(
-    workspace: WorkspaceOrmInterfaces, checkout: Path
-):
-    workspace.interfaces[-1].remove()
-
-    assert workspace.ensure_generated()
-
-    records = generate_orm.read_generation_log(checkout)
-    assert [record.package_name for record in records] == list(PACKAGE_NAMES)
 
 
 # %% incomplete checkouts

@@ -174,13 +174,6 @@ class OrmInterface:
             / INTERFACE_FILE_NAME
         )
 
-    @property
-    def is_generated(self) -> bool:
-        """
-        Whether this checkout holds the interface.
-        """
-        return self.path.exists()
-
     def remove(self) -> None:
         """
         Delete the interface, so that a stale version cannot be imported while the new
@@ -268,13 +261,6 @@ class WorkspaceOrmInterfaces:
     interfaces of the packages listed before it.
     """
 
-    @property
-    def are_generated(self) -> bool:
-        """
-        Whether every interface holds generated content.
-        """
-        return all(interface.is_generated for interface in self.interfaces)
-
     def regenerate(self, show_generator_output: bool = False) -> None:
         """
         Build every interface anew, from an empty state and in dependency order.
@@ -292,23 +278,6 @@ class WorkspaceOrmInterfaces:
         with BuildProgress(len(self.interfaces), show_generator_output) as progress:
             for interface in self.interfaces:
                 interface.generate(progress)
-
-    def ensure_generated(self, show_generator_output: bool = False) -> bool:
-        """
-        Leave the checkout with interfaces it can persist objects through.
-
-        A checkout that is missing one is built whole rather than in part: a generator
-        reads the interfaces of the packages before it, so the one that is missing
-        decides nothing about which of the others are still valid.
-
-        :param show_generator_output: Whether to let the generators write to the
-            terminal rather than reporting progress.
-        :return: Whether they had to be built.
-        """
-        if self.are_generated:
-            return False
-        self.regenerate(show_generator_output=show_generator_output)
-        return True
 
 
 WORKSPACE_ORM_INTERFACES = WorkspaceOrmInterfaces(

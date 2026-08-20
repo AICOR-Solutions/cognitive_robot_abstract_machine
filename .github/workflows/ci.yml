@@ -58,7 +58,7 @@ jobs:
           if [ -n "$tracked" ]; then
             echo "These generated ORM interface files must not be tracked:"
             echo "$tracked"
-            echo "Untrack them with 'git rm --cached', and build them locally with scripts/ensure_orm_interfaces.py."
+            echo "Untrack them with 'git rm --cached', and build them locally with scripts/regenerate_all_orm.py."
             exit 1
           fi
 
