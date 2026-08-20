@@ -86,6 +86,69 @@ def test_query_rooted_condition_through_a_flattened_attribute_filters(
     ]
 
 
+# %% flattenings keep their own identity across re-rooting
+
+
+def test_query_rooted_condition_keeps_two_flattenings_independent(
+    handles_and_containers_world,
+):
+    """
+    Two flattenings of the same attribute are two iteration variables, so they range
+    over the elements independently of each other.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    cabinet = next(cabinet for cabinet in cabinets if len(cabinet.drawers) > 1)
+    handle_name = cabinet.drawers[0].handle.name
+    container_name = cabinet.drawers[1].container.name
+
+    subject = variable(Cabinet, domain=cabinets)
+    variable_rooted = entity(subject).where(
+        flat_variable(subject.drawers).handle.name == handle_name,
+        flat_variable(subject.drawers).container.name == container_name,
+    )
+
+    query = entity(variable(Cabinet, domain=cabinets))
+    query.where(
+        flat_variable(query.drawers).handle.name == handle_name,
+        flat_variable(query.drawers).container.name == container_name,
+    )
+
+    assert query.tolist() == variable_rooted.tolist()
+
+
+def test_query_rooted_condition_keeps_one_flattening_shared(
+    handles_and_containers_world,
+):
+    """
+    One flattening used by several conditions is one iteration variable, so every
+    condition follows the same element.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    cabinet = next(cabinet for cabinet in cabinets if len(cabinet.drawers) > 1)
+    excluded_handle_name = cabinet.drawers[0].handle.name
+    container_name = cabinet.drawers[0].container.name
+
+    subject = variable(Cabinet, domain=cabinets)
+    subject_drawer = flat_variable(subject.drawers)
+    variable_rooted = entity(subject).where(
+        subject_drawer.handle.name != excluded_handle_name,
+        subject_drawer.container.name == container_name,
+    )
+
+    query = entity(variable(Cabinet, domain=cabinets))
+    query_drawer = flat_variable(query.drawers)
+    query.where(
+        query_drawer.handle.name != excluded_handle_name,
+        query_drawer.container.name == container_name,
+    )
+
+    assert query.tolist() == variable_rooted.tolist()
+
+
 # %% conditions that must keep their uncorrelated meaning
 
 

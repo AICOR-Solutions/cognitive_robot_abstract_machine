@@ -8,6 +8,7 @@ expressions.
 from __future__ import annotations
 
 import operator
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property
@@ -256,6 +257,14 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
     The child expression to apply the mapping to.
     """
 
+    _rerooted_chains_: Dict[uuid.UUID, MappedVariable] = field(
+        init=False, default_factory=dict
+    )
+    """
+    This chain rebuilt on other roots, keyed by the identifier of the root each was
+    rebuilt on.
+    """
+
     def __post_init__(self):
         self._var_ = self
         super().__post_init__()
@@ -301,28 +310,32 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         """
         pass
 
-    @property
     @abstractmethod
-    def _mapping_arguments_(self) -> Tuple[Any, ...]:
+    def _rebuild_on_(self, child: CanBehaveLikeAVariable) -> MappedVariable:
         """
-        :return: The arguments, after the child, that reconstruct this mapping.
+        :param child: The expression to apply this mapping to.
+        :return: This mapping applied to ``child``.
         """
 
     def _reroot_on_(self, root: CanBehaveLikeAVariable) -> MappedVariable:
         """
         Rebuild this mapping chain on top of another expression.
 
+        Each mapping is rebuilt once per root, so chains that share a mapping still
+        share it afterwards and keep ranging over the same values.
+
         :param root: The expression to place at the base of the rebuilt chain.
         :return: A chain applying this chain's mappings, in the same order, to ``root``.
         """
+        if root._id_ in self._rerooted_chains_:
+            return self._rerooted_chains_[root._id_]
         rebuilt_child = (
             self._child_._reroot_on_(root)
             if isinstance(self._child_, MappedVariable)
             else root
         )
-        return rebuilt_child._get_mapped_variable_(
-            type(self), *self._mapping_arguments_
-        )
+        self._rerooted_chains_[root._id_] = self._rebuild_on_(rebuilt_child)
+        return self._rerooted_chains_[root._id_]
 
     @property
     def _access_path_(self) -> List[Self]:
@@ -436,9 +449,10 @@ class Attribute(MappedVariable[T]):
         if hasattr(value, self._attribute_name_):
             yield getattr(value, self._attribute_name_)
 
-    @property
-    def _mapping_arguments_(self) -> Tuple[Any, ...]:
-        return (self._attribute_name_,)
+    def _rebuild_on_(self, child: CanBehaveLikeAVariable) -> MappedVariable:
+        return child._get_mapped_variable_(
+            Attribute, _attribute_name_=self._attribute_name_
+        )
 
     @property
     def _name_(self):
@@ -475,9 +489,8 @@ class Index(MappedVariable):
         except IndexError:  # break iterator if the key does not exist
             return
 
-    @property
-    def _mapping_arguments_(self) -> Tuple[Any, ...]:
-        return (self._key_,)
+    def _rebuild_on_(self, child: CanBehaveLikeAVariable) -> MappedVariable:
+        return child._get_mapped_variable_(Index, _key_=self._key_)
 
     @property
     def _name_(self):
@@ -511,9 +524,10 @@ class Call(MappedVariable):
         else:
             yield value()
 
-    @property
-    def _mapping_arguments_(self) -> Tuple[Any, ...]:
-        return self._args_, self._kwargs_
+    def _rebuild_on_(self, child: CanBehaveLikeAVariable) -> MappedVariable:
+        return child._get_mapped_variable_(
+            Call, _args_=self._args_, _kwargs_=self._kwargs_
+        )
 
     @property
     def _name_(self):
@@ -542,9 +556,10 @@ class FlatVariable(MappedVariable[T]):
     ) -> Iterable[T]:
         yield from value
 
-    @property
-    def _mapping_arguments_(self) -> Tuple[Any, ...]:
-        return ()
+    def _rebuild_on_(self, child: CanBehaveLikeAVariable) -> MappedVariable:
+        # Not routed through the mapped-variable cache: a flattening is an iteration
+        # variable, so each one written ranges over the elements on its own.
+        return FlatVariable(child)
 
     @cached_property
     def _name_(self) -> str:
