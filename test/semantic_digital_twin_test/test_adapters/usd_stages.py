@@ -7,6 +7,13 @@ try:
 except ImportError:
     PXR_AVAILABLE = False
 
+try:
+    from pxr import UsdSemantics
+
+    USD_SEMANTICS_AVAILABLE = True
+except ImportError:
+    USD_SEMANTICS_AVAILABLE = False
+
 
 def _define_link(stage: Usd.Stage, path: str) -> None:
     """
@@ -295,5 +302,25 @@ def build_single_joint_stage_with_mass(
     mass_api.CreateCenterOfMassAttr(Gf.Vec3f(*center_of_mass))
     mass_api.CreateDiagonalInertiaAttr(Gf.Vec3f(*diagonal_inertia))
     mass_api.CreatePrincipalAxesAttr(Gf.Quatf(1, 0, 0, 0))
+
+    return stage
+
+
+def build_single_joint_stage_with_semantic_labels() -> Usd.Stage:
+    """
+    A minimal in-memory stage like :func:`build_single_joint_stage`, but with
+    :class:`~pxr.UsdSemantics.LabelsAPI` labels applied to the child link in two
+    taxonomies.
+
+    :return: The built in-memory stage.
+    """
+    stage = build_single_joint_stage("FixedJoint")
+    link_prim = stage.GetPrimAtPath("/object/child")
+    UsdSemantics.LabelsAPI.Apply(link_prim, "class").CreateLabelsAttr().Set(
+        ["chair", "furniture"]
+    )
+    UsdSemantics.LabelsAPI.Apply(link_prim, "category").CreateLabelsAttr().Set(
+        ["seating"]
+    )
 
     return stage

@@ -25,6 +25,7 @@ from semantic_digital_twin.adapters.world_model_parser import (
     WorldModelParser,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.usd_semantics import UsdSemanticLabels
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -68,6 +69,13 @@ except ImportError:
         "usd-core is required for USD parsing. Please install it using "
         "'pip install usd-core'"
     )
+
+try:
+    from pxr import UsdSemantics
+except ImportError:
+    # UsdSemantics (UsdSemantics.LabelsAPI) is only available from usd-core 24.11
+    # onward; an older install simply never yields UsdSemanticLabels annotations.
+    UsdSemantics = None
 
 
 def _usd_pose_to_transform(
@@ -296,6 +304,7 @@ class USDParser(WorldModelParser):
             root_body.collision = shape_collection
             with world.modify_world():
                 world.add_body(root_body)
+                self._attach_semantic_labels(world, root_prim, root_body)
             return world
 
         # Every joint is described (and so validated) before the world is touched: a
@@ -309,8 +318,12 @@ class USDParser(WorldModelParser):
 
         with world.modify_world():
             world.add_body(root_body)
-            for link_body_instance in link_bodies.values():
+            self._attach_semantic_labels(world, root_prim, root_body)
+            for path_string, link_body_instance in link_bodies.items():
                 world.add_body(link_body_instance)
+                self._attach_semantic_labels(
+                    world, self.stage.GetPrimAtPath(path_string), link_body_instance
+                )
             for description in descriptions:
                 world.add_connection(self._create_connection(world, description))
 
@@ -822,3 +835,48 @@ class USDParser(WorldModelParser):
             center_of_mass=Point3(*center_of_mass, reference_frame=body),
             inertia=inertia_tensor,
         )
+
+    # %% semantics
+
+    @staticmethod
+    def _attach_semantic_labels(world: World, prim: "Usd.Prim", body: Body) -> None:
+        """
+        Attaches a :class:`UsdSemanticLabels` annotation to ``body`` for every
+        ``UsdSemantics.LabelsAPI`` taxonomy directly authored on ``prim``, if any.
+
+        Must be called inside ``world``'s modification context, alongside adding
+        ``body`` itself.
+
+        :param world: The world to add the annotation to.
+        :param prim: The USD prim ``body`` was built from.
+        :param body: The already-added body the annotation's root is.
+        """
+        labels_by_taxonomy = USDParser._read_semantic_labels(prim)
+        if not labels_by_taxonomy:
+            return
+        world.add_semantic_annotation(
+            UsdSemanticLabels(root=body, labels=tuple(labels_by_taxonomy.items()))
+        )
+
+    @staticmethod
+    def _read_semantic_labels(prim: "Usd.Prim") -> Dict[str, Tuple[str, ...]]:
+        """
+        Reads every ``UsdSemantics.LabelsAPI`` taxonomy directly authored on a prim.
+
+        Only labels authored directly on ``prim`` are read, the same way
+        :meth:`_parse_inertial` only reads a link's own ``UsdPhysics.MassAPI`` - not
+        the taxonomies USD's inheritance semantics would additionally consider
+        accumulated from an ancestor prim.
+
+        :param prim: The prim to read semantic labels from.
+        :return: A mapping of taxonomy to the labels authored under it, empty if
+            ``usd-core`` predates ``UsdSemantics`` or the prim has none.
+        """
+        if UsdSemantics is None:
+            return {}
+        return {
+            taxonomy: tuple(
+                UsdSemantics.LabelsAPI.Get(prim, taxonomy).GetLabelsAttr().Get() or ()
+            )
+            for taxonomy in UsdSemantics.LabelsAPI.GetDirectTaxonomies(prim)
+        }

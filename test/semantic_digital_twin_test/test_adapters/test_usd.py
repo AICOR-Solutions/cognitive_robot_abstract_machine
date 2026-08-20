@@ -12,6 +12,7 @@ from semantic_digital_twin.adapters.usd_exceptions import (
     UsdPhysicsJointMissingChildBodyError,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.usd_semantics import UsdSemanticLabels
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
@@ -23,10 +24,12 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 from .usd_stages import (
     PXR_AVAILABLE,
+    USD_SEMANTICS_AVAILABLE,
     build_jointless_stage_with_a_default_prim,
     build_jointless_stage_with_unsupported_geometry,
     build_single_joint_stage,
     build_single_joint_stage_with_mass,
+    build_single_joint_stage_with_semantic_labels,
     build_stage_with_ambiguous_root,
     build_stage_with_joint_missing_body1,
     build_stage_with_mesh_targeted_body0,
@@ -234,6 +237,58 @@ def test_parse_sets_body_inertial_from_mass_api():
 
     [child] = [body for body in world.bodies if body is not world.root]
     assert child.inertial.mass == pytest.approx(2.0)
+
+
+# %% semantics
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="UsdSemantics not available in this usd-core"
+)
+def test_read_semantic_labels_reads_every_taxonomy():
+    stage = build_single_joint_stage_with_semantic_labels()
+    link_prim = stage.GetPrimAtPath("/object/child")
+
+    labels_by_taxonomy = USDParser._read_semantic_labels(link_prim)
+
+    assert labels_by_taxonomy == {
+        "class": ("chair", "furniture"),
+        "category": ("seating",),
+    }
+
+
+def test_read_semantic_labels_is_empty_without_any_applied():
+    stage = build_single_joint_stage("FixedJoint")
+    link_prim = stage.GetPrimAtPath("/object/child")
+
+    assert USDParser._read_semantic_labels(link_prim) == {}
+
+
+@pytest.mark.skipif(
+    not USD_SEMANTICS_AVAILABLE, reason="UsdSemantics not available in this usd-core"
+)
+def test_parse_attaches_usd_semantic_labels_to_the_labelled_body():
+    stage = build_single_joint_stage_with_semantic_labels()
+    world = parse(stage)
+
+    [child] = [body for body in world.bodies if body is not world.root]
+    [annotation] = [
+        annotation
+        for annotation in world.semantic_annotations
+        if isinstance(annotation, UsdSemanticLabels)
+    ]
+    assert annotation.root is child
+    assert annotation.labels_by_taxonomy["class"] == ("chair", "furniture")
+
+
+def test_parse_attaches_no_annotation_for_an_unlabelled_body():
+    stage = build_single_joint_stage("FixedJoint")
+    world = parse(stage)
+
+    assert not any(
+        isinstance(annotation, UsdSemanticLabels)
+        for annotation in world.semantic_annotations
+    )
 
 
 # %% materials
