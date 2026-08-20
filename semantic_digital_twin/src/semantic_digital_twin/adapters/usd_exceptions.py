@@ -10,8 +10,13 @@ from semantic_digital_twin.exceptions import ParsingError
 @dataclass
 class IndeterminateRootPrimError(ParsingError):
     """
-    Raised when a USD stage has no default prim and does not have exactly one top-level
-    prim, so its root prim cannot be identified unambiguously.
+    Raised when a stage that has physics joints has no default prim and does not have
+    exactly one top-level prim, so the joint graph's own root (an unset ``body0``) has
+    no prim to take its name from.
+
+    A joint-less stage has no such requirement: with no default prim and more than one
+    top-level prim, it parses into a synthetic root with each top-level prim attached as
+    its own freely posable body instead of raising this.
     """
 
     top_level_prim_paths: Tuple[str, ...] = field(kw_only=True)

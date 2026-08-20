@@ -36,6 +36,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection,
+    Connection6DoF,
     FixedConnection,
     PrismaticConnection,
     RevoluteConnection,
@@ -137,6 +138,25 @@ class UsdGeomPrimType(StrEnum):
     SPHERE = "Sphere"
     CYLINDER = "Cylinder"
 
+    def create_shape(
+        self, prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
+    ) -> Shape:
+        """
+        Creates the Shape a prim of this type describes.
+
+        :param prim: The prim to create a shape for.
+        :param link_to_world: The enclosing link's local-to-world transform.
+        :param body: The link's body, used as the shape's reference frame.
+        :return: The created shape.
+        """
+        builders = {
+            UsdGeomPrimType.MESH: USDParser._create_mesh_shape,
+            UsdGeomPrimType.CUBE: USDParser._create_cube_shape,
+            UsdGeomPrimType.SPHERE: USDParser._create_sphere_shape,
+            UsdGeomPrimType.CYLINDER: USDParser._create_cylinder_shape,
+        }
+        return builders[self](prim, link_to_world, body)
+
 
 class UsdPhysicsJointType(StrEnum):
     """
@@ -146,6 +166,17 @@ class UsdPhysicsJointType(StrEnum):
     FIXED = "PhysicsFixedJoint"
     REVOLUTE = "PhysicsRevoluteJoint"
     PRISMATIC = "PhysicsPrismaticJoint"
+
+    @property
+    def connection_type(self) -> Type[Connection]:
+        """
+        :return: The Connection class this joint type becomes.
+        """
+        return {
+            UsdPhysicsJointType.FIXED: FixedConnection,
+            UsdPhysicsJointType.REVOLUTE: RevoluteConnection,
+            UsdPhysicsJointType.PRISMATIC: PrismaticConnection,
+        }[self]
 
 
 class UsdAxis(StrEnum):
@@ -187,15 +218,6 @@ class USDParser(WorldModelParser):
         every transform it builds is relative to a prim's own parent, computed straight
         from the authored ``xformOpOrder``, so it comes out correct in whatever up axis
         and unit scale the stage itself declares.
-    """
-
-    connection_type_map: ClassVar[Dict[UsdPhysicsJointType, Type[Connection]]] = {
-        UsdPhysicsJointType.FIXED: FixedConnection,
-        UsdPhysicsJointType.REVOLUTE: RevoluteConnection,
-        UsdPhysicsJointType.PRISMATIC: PrismaticConnection,
-    }
-    """
-    Maps a USD physics joint prim's type name to the matching Connection class.
     """
 
     axis_vectors: ClassVar[Dict[UsdAxis, Tuple[float, float, float]]] = {
@@ -285,27 +307,23 @@ class USDParser(WorldModelParser):
         Parses the stage into a world.
 
         :return: The parsed world.
+        :raises IndeterminateRootPrimError: If the stage has physics joints, no default
+            prim, and not exactly one top-level prim, so the joint graph's own root (an
+            unset ``body0``) cannot be named.
         :raises UnsupportedUsdPhysicsJointTypeError: If the stage contains a physics
             joint of a type this parser does not build a Connection for.
         :raises UsdPhysicsJointMissingChildBodyError: If a physics joint's ``body1``
             relationship has no target.
         """
-        root_prim = self._root_prim()
-        root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
         joint_prims = [
             prim for prim in self.stage.Traverse() if prim.IsA(UsdPhysics.Joint)
         ]
-
-        world = World()
         if not joint_prims:
-            shapes = self._shapes_in_subtree(root_prim, root_prim, root_body)
-            shape_collection = ShapeCollection(shapes, reference_frame=root_body)
-            root_body.visual = shape_collection
-            root_body.collision = shape_collection
-            with world.modify_world():
-                world.add_body(root_body)
-                self._attach_semantic_labels(world, root_prim, root_body)
-            return world
+            return self._parse_jointless_stage()
+
+        root_prim = self._root_prim()
+        root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
+        world = World()
 
         # Every joint is described (and so validated) before the world is touched: a
         # World left partway through a failed modification is unusable, so anything
@@ -327,6 +345,55 @@ class USDParser(WorldModelParser):
             for description in descriptions:
                 world.add_connection(self._create_connection(world, description))
 
+        return world
+
+    def _parse_jointless_stage(self) -> World:
+        """
+        Builds the world for a stage with no physics joints at all.
+
+        Its default prim (or single top-level prim, if it has no default prim set)
+        becomes a single-body World the same as any joint-driven stage's root. With
+        neither a default prim nor exactly one top-level prim, there is nothing to
+        unambiguously name as "the" root the way :meth:`_root_prim` does for a
+        joint-driven stage - so rather than raise, a synthetic root is created and
+        every top-level prim becomes its own body, attached to it with a
+        :class:`~semantic_digital_twin.world_description.connections.Connection6DoF`
+        (freely posable, since the stage itself asserts no relationship between them).
+
+        :return: The parsed world.
+        """
+        world = World()
+        default_prim = self.stage.GetDefaultPrim()
+        top_level_prims = (
+            [default_prim]
+            if default_prim.IsValid()
+            else list(self.stage.GetPseudoRoot().GetChildren())
+        )
+
+        if len(top_level_prims) == 1:
+            [root_prim] = top_level_prims
+            root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
+            shapes = self._shapes_in_subtree(root_prim, root_prim, root_body)
+            shape_collection = ShapeCollection(shapes, reference_frame=root_body)
+            root_body.visual = shape_collection
+            root_body.collision = shape_collection
+            with world.modify_world():
+                world.add_body(root_body)
+                self._attach_semantic_labels(world, root_prim, root_body)
+            return world
+
+        root_body = Body(name=PrefixedName(self.prefix, self.prefix))
+        with world.modify_world():
+            world.add_body(root_body)
+            for prim in top_level_prims:
+                body = self._create_link_body(prim)
+                world.add_body(body)
+                self._attach_semantic_labels(world, prim, body)
+                world.add_connection(
+                    Connection6DoF.create_with_dofs(
+                        world=world, parent=root_body, child=body
+                    )
+                )
         return world
 
     def _root_prim(self) -> "Usd.Prim":
@@ -373,14 +440,16 @@ class USDParser(WorldModelParser):
         :raises UsdPhysicsJointMissingChildBodyError: If the joint's ``body1``
             relationship has no target.
         """
-        connection_type = self.connection_type_map.get(joint_prim.GetTypeName())
-        if connection_type is None:
+        try:
+            usd_joint_type = UsdPhysicsJointType(joint_prim.GetTypeName())
+        except ValueError as error:
             raise UnsupportedUsdPhysicsJointTypeError(
                 file_path=self.source_description,
                 joint_path=str(joint_prim.GetPath()),
                 joint_type=joint_prim.GetTypeName(),
-                supported_types=list(self.connection_type_map),
-            )
+                supported_types=list(UsdPhysicsJointType),
+            ) from error
+        connection_type = usd_joint_type.connection_type
 
         joint = UsdPhysics.Joint(joint_prim)
         body0_targets = joint.GetBody0Rel().GetTargets()
@@ -567,22 +636,18 @@ class USDParser(WorldModelParser):
             primitive of a type this parser does not build a Shape for.
         """
         type_name = prim.GetTypeName()
-        if type_name == UsdGeomPrimType.MESH:
-            return USDParser._create_mesh_shape(prim, link_to_world, body)
-        if type_name == UsdGeomPrimType.CUBE:
-            return USDParser._create_cube_shape(prim, link_to_world, body)
-        if type_name == UsdGeomPrimType.SPHERE:
-            return USDParser._create_sphere_shape(prim, link_to_world, body)
-        if type_name == UsdGeomPrimType.CYLINDER:
-            return USDParser._create_cylinder_shape(prim, link_to_world, body)
-        if prim.IsA(UsdGeom.Gprim):
-            raise UnsupportedUsdGeometryTypeError(
-                file_path=self.source_description,
-                prim_path=str(prim.GetPath()),
-                geometry_type=type_name,
-                supported_types=list(UsdGeomPrimType),
-            )
-        return None
+        try:
+            geom_type = UsdGeomPrimType(type_name)
+        except ValueError as error:
+            if prim.IsA(UsdGeom.Gprim):
+                raise UnsupportedUsdGeometryTypeError(
+                    file_path=self.source_description,
+                    prim_path=str(prim.GetPath()),
+                    geometry_type=type_name,
+                    supported_types=list(UsdGeomPrimType),
+                ) from error
+            return None
+        return geom_type.create_shape(prim, link_to_world, body)
 
     @staticmethod
     def _create_cube_shape(
@@ -851,12 +916,10 @@ class USDParser(WorldModelParser):
         :param prim: The USD prim ``body`` was built from.
         :param body: The already-added body the annotation's root is.
         """
-        labels_by_taxonomy = USDParser._read_semantic_labels(prim)
-        if not labels_by_taxonomy:
-            return
-        world.add_semantic_annotation(
-            UsdSemanticLabels(root=body, labels=tuple(labels_by_taxonomy.items()))
-        )
+        for taxonomy, labels in USDParser._read_semantic_labels(prim).items():
+            world.add_semantic_annotation(
+                UsdSemanticLabels(root=body, taxonomy=taxonomy, labels=labels)
+            )
 
     @staticmethod
     def _read_semantic_labels(prim: "Usd.Prim") -> Dict[str, Tuple[str, ...]]:

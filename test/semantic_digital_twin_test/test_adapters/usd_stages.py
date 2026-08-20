@@ -215,16 +215,40 @@ def build_jointless_stage_with_a_default_prim() -> Usd.Stage:
     return stage
 
 
-def build_stage_with_ambiguous_root() -> Usd.Stage:
+def build_stage_with_ambiguous_root_and_a_joint() -> Usd.Stage:
     """
-    A minimal in-memory stage with no default prim and two top-level prims, so its root
-    cannot be identified unambiguously.
+    A minimal in-memory stage with no default prim, two top-level prims, and a physics
+    joint - so, unlike a joint-less stage, its root cannot fall back to a synthetic one:
+    the joint graph's own root (an unset ``body0``) still needs a name, and neither
+    top-level prim can be picked out as it unambiguously.
 
     :return: The built in-memory stage.
     """
     stage = Usd.Stage.CreateInMemory()
     UsdGeom.Xform.Define(stage, "/object_a")
-    UsdGeom.Xform.Define(stage, "/object_b")
+    _define_link(stage, "/object_b")
+    joint = UsdPhysics.FixedJoint.Define(stage, "/object_b/joint")
+    joint.CreateBody1Rel().SetTargets(["/object_b"])
+    joint.CreateLocalPos0Attr(Gf.Vec3f(0, 0, 0))
+    joint.CreateLocalRot0Attr(Gf.Quatf(1, 0, 0, 0))
+    joint.CreateLocalPos1Attr(Gf.Vec3f(0, 0, 0))
+    joint.CreateLocalRot1Attr(Gf.Quatf(1, 0, 0, 0))
+
+    return stage
+
+
+def build_jointless_stage_with_multiple_top_level_prims() -> Usd.Stage:
+    """
+    A minimal in-memory stage with no default prim and two top-level prims, each its
+    own labelled link with visual geometry, and no physics joints at all - the shape of
+    a USD "scene" file collecting several independent objects rather than one
+    articulated asset.
+
+    :return: The built in-memory stage.
+    """
+    stage = Usd.Stage.CreateInMemory()
+    _define_link(stage, "/object_a")
+    _define_link(stage, "/object_b")
 
     return stage
 

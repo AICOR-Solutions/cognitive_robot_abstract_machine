@@ -15,6 +15,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.usd_semantics import UsdSemanticLabels
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
+    Connection6DoF,
     FixedConnection,
     PrismaticConnection,
     RevoluteConnection,
@@ -26,11 +27,12 @@ from .usd_stages import (
     PXR_AVAILABLE,
     USD_SEMANTICS_AVAILABLE,
     build_jointless_stage_with_a_default_prim,
+    build_jointless_stage_with_multiple_top_level_prims,
     build_jointless_stage_with_unsupported_geometry,
     build_single_joint_stage,
     build_single_joint_stage_with_mass,
     build_single_joint_stage_with_semantic_labels,
-    build_stage_with_ambiguous_root,
+    build_stage_with_ambiguous_root_and_a_joint,
     build_stage_with_joint_missing_body1,
     build_stage_with_mesh_targeted_body0,
     build_stage_with_primitive_shapes,
@@ -130,11 +132,30 @@ def test_parse_builds_a_single_body_world_for_a_stage_without_joints():
     assert len(world.root.visual.shapes) == 1
 
 
-def test_parse_raises_on_an_ambiguous_root_prim():
-    stage = build_stage_with_ambiguous_root()
+def test_parse_raises_on_an_ambiguous_root_prim_with_a_joint():
+    stage = build_stage_with_ambiguous_root_and_a_joint()
 
     with pytest.raises(IndeterminateRootPrimError):
         parse(stage)
+
+
+def test_parse_attaches_multiple_top_level_prims_to_a_synthetic_root():
+    # A joint-less stage's ambiguous root is not an error the way one with a joint
+    # graph to name is: each top-level prim becomes its own freely posable body instead.
+    stage = build_jointless_stage_with_multiple_top_level_prims()
+    world = parse(stage)
+
+    assert len(world.bodies) == 3  # synthetic root + object_a + object_b
+    non_root_bodies = [body for body in world.bodies if body is not world.root]
+    assert {body.name.name for body in non_root_bodies} == {"object_a", "object_b"}
+    for body in non_root_bodies:
+        assert len(body.visual.shapes) == 1
+
+    [connection_a, connection_b] = world.connections
+    assert isinstance(connection_a, Connection6DoF)
+    assert isinstance(connection_b, Connection6DoF)
+    assert connection_a.parent is world.root
+    assert connection_b.parent is world.root
 
 
 def test_parse_raises_on_unsupported_geometry_instead_of_silently_dropping_it():
@@ -267,18 +288,24 @@ def test_read_semantic_labels_is_empty_without_any_applied():
 @pytest.mark.skipif(
     not USD_SEMANTICS_AVAILABLE, reason="UsdSemantics not available in this usd-core"
 )
-def test_parse_attaches_usd_semantic_labels_to_the_labelled_body():
+def test_parse_attaches_one_usd_semantic_labels_annotation_per_taxonomy():
     stage = build_single_joint_stage_with_semantic_labels()
     world = parse(stage)
 
     [child] = [body for body in world.bodies if body is not world.root]
-    [annotation] = [
+    annotations = [
         annotation
         for annotation in world.semantic_annotations
         if isinstance(annotation, UsdSemanticLabels)
     ]
-    assert annotation.root is child
-    assert annotation.labels_by_taxonomy["class"] == ("chair", "furniture")
+    labels_by_taxonomy = {
+        annotation.taxonomy: annotation.labels for annotation in annotations
+    }
+    assert all(annotation.root is child for annotation in annotations)
+    assert labels_by_taxonomy == {
+        "class": ("chair", "furniture"),
+        "category": ("seating",),
+    }
 
 
 def test_parse_attaches_no_annotation_for_an_unlabelled_body():
