@@ -274,7 +274,7 @@ class AmbiguousQueryAttribute(UsageError):
     def suggest_correction(self) -> str:
         return (
             "Take the attribute from the variable it belongs to, e.g. `body.name` instead of "
-            "`query.name`."
+            "`query.name`, or index the query by that variable, e.g. `query[body].name`."
         )
 
 

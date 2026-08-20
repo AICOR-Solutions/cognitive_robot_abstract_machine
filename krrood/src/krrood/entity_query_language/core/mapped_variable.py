@@ -257,12 +257,12 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
     The child expression to apply the mapping to.
     """
 
-    _rerooted_chains_: Dict[uuid.UUID, MappedVariable] = field(
+    _rerooted_chains_: Dict[Tuple[uuid.UUID, uuid.UUID], MappedVariable] = field(
         init=False, default_factory=dict
     )
     """
-    This chain rebuilt on other roots, keyed by the identifier of the root each was
-    rebuilt on.
+    This chain rebuilt on other roots, keyed by the identifiers of the expression each
+    root replaced and of the root itself.
     """
 
     def __post_init__(self):
@@ -317,7 +317,9 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         :return: This mapping applied to ``child``.
         """
 
-    def _reroot_on_(self, root: CanBehaveLikeAVariable) -> MappedVariable:
+    def _reroot_on_(
+        self, root: CanBehaveLikeAVariable, replaced: SymbolicExpression
+    ) -> CanBehaveLikeAVariable:
         """
         Rebuild this mapping chain on top of another expression.
 
@@ -325,17 +327,24 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         share it afterwards and keep ranging over the same values.
 
         :param root: The expression to place at the base of the rebuilt chain.
-        :return: A chain applying this chain's mappings, in the same order, to ``root``.
+        :param replaced: The expression ``root`` takes the place of, which is this
+            chain's own base unless a step within the chain names the new root.
+        :return: The mappings applied after ``replaced``, in the same order, on top of
+            ``root``.
         """
-        if root._id_ in self._rerooted_chains_:
-            return self._rerooted_chains_[root._id_]
-        rebuilt_child = (
-            self._child_._reroot_on_(root)
-            if isinstance(self._child_, MappedVariable)
-            else root
-        )
-        self._rerooted_chains_[root._id_] = self._rebuild_on_(rebuilt_child)
-        return self._rerooted_chains_[root._id_]
+        if self._id_ == replaced._id_:
+            return root
+        substitution = (replaced._id_, root._id_)
+        if substitution in self._rerooted_chains_:
+            return self._rerooted_chains_[substitution]
+        if isinstance(self._child_, MappedVariable):
+            rebuilt_child = self._child_._reroot_on_(root, replaced)
+        elif self._child_._id_ == replaced._id_:
+            rebuilt_child = root
+        else:
+            rebuilt_child = self._child_
+        self._rerooted_chains_[substitution] = self._rebuild_on_(rebuilt_child)
+        return self._rerooted_chains_[substitution]
 
     @property
     def _access_path_(self) -> List[Self]:

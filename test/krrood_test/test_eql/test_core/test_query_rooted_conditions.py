@@ -17,7 +17,16 @@ from krrood.entity_query_language.factories import (
     variable,
 )
 
-from ...dataset.semantic_world_like_classes import Body, Cabinet, Handle
+from ...dataset.semantic_world_like_classes import Body, Cabinet, Container, Handle
+
+
+def selected_values(query):
+    """
+    :param query: A query over several variables.
+    :return: What each result row binds, in the order the query selects the variables.
+    """
+    return [tuple(row.values()) for row in query.tolist()]
+
 
 # %% query-rooted conditions filter
 
@@ -161,6 +170,44 @@ def test_condition_rooted_at_another_query_stays_a_subquery(
     query = entity(body).where(body.name == handles.name)
 
     assert query.tolist() == [body for body in bodies if isinstance(body, Handle)]
+
+
+# %% naming one selection of a multi-variable query
+
+
+def test_condition_on_a_selection_indexed_by_its_variable_filters(
+    handles_and_containers_world,
+):
+    """
+    Indexing a query by one of the variables it selects names that variable, the same
+    way indexing a result of the query does, so a condition may be written through it.
+    """
+    bodies = handles_and_containers_world.bodies
+    body = variable(Body, domain=bodies)
+    handle = variable(Handle, domain=bodies)
+    variable_rooted = set_of(body, handle).where(body.size > 1)
+
+    indexed_body = variable(Body, domain=bodies)
+    indexed_handle = variable(Handle, domain=bodies)
+    query = set_of(indexed_body, indexed_handle)
+    query.where(query[indexed_body].size > 1)
+
+    assert selected_values(query) == selected_values(variable_rooted)
+
+
+def test_condition_indexing_a_multi_variable_query_by_a_foreign_variable_is_rejected(
+    handles_and_containers_world,
+):
+    """
+    Indexing by a variable the query does not select names nothing, so the chain is left
+    without a subject just as a bare attribute would be.
+    """
+    bodies = handles_and_containers_world.bodies
+    query = set_of(variable(Body, domain=bodies), variable(Handle, domain=bodies))
+    foreign = variable(Container, domain=bodies)
+
+    with pytest.raises(AmbiguousQueryAttribute):
+        query.where(query[foreign].size > 1)
 
 
 # %% attributes a query cannot give a subject

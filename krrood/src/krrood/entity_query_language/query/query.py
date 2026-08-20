@@ -32,6 +32,7 @@ from typing_extensions import (
 
 from krrood.entity_query_language.core.mapped_variable import (
     CanBehaveLikeAVariable,
+    Index,
     MappedVariable,
 )
 from krrood.entity_query_language.core.expression_structure import chain_root
@@ -356,16 +357,45 @@ class Query(
         base = expression._chain_root_
         return isinstance(base, Query) and base._id_ == self._id_
 
-    def _rerooted_on_selection_(self, attribute: MappedVariable) -> MappedVariable:
+    def _rerooted_on_selection_(
+        self, attribute: MappedVariable
+    ) -> CanBehaveLikeAVariable:
         """
         :param attribute: A mapping chain based on this query.
-        :return: The same chain rebuilt on the variable this query selects.
-        :raises AmbiguousQueryAttribute: If this query selects several variables, so the
-            chain has no single subject to follow.
+        :return: The same chain rebuilt on the variable it takes its subject from.
+        :raises AmbiguousQueryAttribute: If the chain neither names one of the selected
+            variables nor belongs to a query that selects a single one, so it has no
+            subject to follow.
         """
+        first_step = attribute._access_path_[0]
+        indexed_selection = self._selection_indexed_by_(first_step)
+        if indexed_selection is not None:
+            return attribute._reroot_on_(indexed_selection, first_step)
         if len(self._selected_variables_) != 1:
             raise AmbiguousQueryAttribute(self, attribute)
-        return attribute._reroot_on_(self._selected_variables_[0])
+        return attribute._reroot_on_(self._selected_variables_[0], self)
+
+    def _selection_indexed_by_(self, step: MappedVariable) -> Optional[Selectable]:
+        """
+        Indexing a query by one of the variables it selects names that variable, the
+        same way indexing one of the query's results does.
+
+        :param step: The first mapping a chain applies to this query.
+        :return: The selected variable that step indexes this query by, or ``None`` if
+            it indexes the query by something else.
+        """
+        if not isinstance(step, Index) or not isinstance(
+            step._key_, SymbolicExpression
+        ):
+            return None
+        return next(
+            (
+                selected
+                for selected in self._selected_variables_
+                if selected._id_ == step._key_._id_
+            ),
+            None,
+        )
 
     @modifies_query_structure
     def where(self, *conditions: ConditionType) -> Self:
