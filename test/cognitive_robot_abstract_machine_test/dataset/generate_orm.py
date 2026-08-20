@@ -106,10 +106,17 @@ def generated_packages(repository_root: Path) -> List[str]:
     )
 
 
+PROGRESS_LINE = "introspecting the class hierarchy"
+"""
+What this generator writes while it works, standing in for a real one's logging.
+"""
+
+
 def main() -> None:
     """
     Log what the checkout holds so far and generate this package's interface.
     """
+    print(PROGRESS_LINE)
     package_root = Path(__file__).resolve().parents[1]
     repository_root = package_root.parent
     record = GenerationRecord(package_root.name, generated_packages(repository_root))

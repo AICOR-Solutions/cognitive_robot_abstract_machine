@@ -12,6 +12,8 @@ datastructure; this one leaves interfaces that are already there alone.
 
 from __future__ import annotations
 
+import argparse
+
 from cognitive_robot_abstract_machine.orm_interfaces import WORKSPACE_ORM_INTERFACES
 
 
@@ -19,11 +21,21 @@ def main() -> None:
     """
     Build the ORM interfaces of this repository if it has none yet.
     """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=(
+            "Let the generators write their own logging to the terminal, in place of the progress bar, to follow what a build does."
+        ),
+    )
+    arguments = parser.parse_args()
+
     print(
         "Checking the ORM interfaces of this checkout. Building them, which a checkout "
-        "that has none needs, takes about a minute."
+        "that has none needs, takes about a minute and a half."
     )
-    if WORKSPACE_ORM_INTERFACES.ensure_generated():
+    if WORKSPACE_ORM_INTERFACES.ensure_generated(show_generator_output=arguments.debug):
         print("Built them; this checkout can persist objects now.")
     else:
         print("They were already there.")

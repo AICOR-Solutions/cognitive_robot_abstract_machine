@@ -6,12 +6,17 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
-from typing_extensions import Set, Tuple
+from typing_extensions import List, Optional, Set, Tuple
 
-from cognitive_robot_abstract_machine.exceptions import MissingOrmGeneratorError
+from cognitive_robot_abstract_machine import orm_interfaces
+from cognitive_robot_abstract_machine.exceptions import (
+    MissingOrmGeneratorError,
+    OrmGenerationFailedError,
+)
 from cognitive_robot_abstract_machine.orm_interfaces import (
     INTERFACE_FILE_NAME,
     OrmInterface,
@@ -20,7 +25,7 @@ from cognitive_robot_abstract_machine.orm_interfaces import (
     WorkspaceOrmInterfaces,
 )
 
-from .dataset import generate_orm
+from .dataset import failing_generate_orm, generate_orm
 
 # %% a checkout of packages that generate an interface
 
@@ -216,3 +221,114 @@ def test_this_repository_ignores_a_generated_interface_outside_a_workspace_packa
     )
 
     assert git_ignores(REPOSITORY_ROOT, krrood_test_dataset_interface)
+
+
+# %% what a build lets through to the terminal
+
+
+@pytest.fixture
+def failing_workspace(checkout: Path) -> WorkspaceOrmInterfaces:
+    """
+    The interfaces of a checkout whose first generator fails.
+    """
+    shutil.copy(
+        Path(failing_generate_orm.__file__),
+        checkout / PACKAGE_NAMES[0] / "scripts" / "generate_orm.py",
+    )
+    return WorkspaceOrmInterfaces(
+        tuple(OrmInterface(package_name, checkout) for package_name in PACKAGE_NAMES)
+    )
+
+
+@dataclass
+class RecordedProgress:
+    """
+    A stand-in for the progress bar, remembering how it was asked to report.
+    """
+
+    wrapped: List[OrmInterface] = field(default_factory=list)
+    """
+    The interfaces the bar was given to iterate.
+    """
+
+    disabled: Optional[bool] = None
+    """
+    Whether the bar was asked to keep quiet.
+    """
+
+    labelled: List[str] = field(default_factory=list)
+    """
+    The labels the bar was asked to show, one per interface it reported on.
+    """
+
+    def __call__(self, interfaces, **keywords) -> RecordedProgress:
+        self.wrapped = list(interfaces)
+        self.disabled = keywords.get("disable")
+        return self
+
+    def __iter__(self):
+        return iter(self.wrapped)
+
+    def set_postfix_str(self, text: str) -> None:
+        """
+        Record the label a real bar would render beside itself.
+
+        :param text: The label.
+        """
+        self.labelled.append(text)
+
+
+@pytest.fixture
+def recorded_progress(monkeypatch) -> RecordedProgress:
+    """
+    Replace the progress bar with one that records how it was used.
+    """
+    progress = RecordedProgress()
+    monkeypatch.setattr(orm_interfaces, "tqdm", progress)
+    return progress
+
+
+def test_a_quiet_build_keeps_the_generator_output_off_the_terminal(
+    workspace: WorkspaceOrmInterfaces, capfd
+):
+    workspace.regenerate()
+
+    assert generate_orm.PROGRESS_LINE not in capfd.readouterr().out
+
+
+def test_a_build_showing_generator_output_lets_it_through(
+    workspace: WorkspaceOrmInterfaces, capfd
+):
+    workspace.regenerate(show_generator_output=True)
+
+    assert capfd.readouterr().out.count(generate_orm.PROGRESS_LINE) == len(
+        PACKAGE_NAMES
+    )
+
+
+def test_a_failing_generator_reports_what_it_wrote(
+    failing_workspace: WorkspaceOrmInterfaces,
+):
+    with pytest.raises(OrmGenerationFailedError) as failure:
+        failing_workspace.regenerate()
+
+    assert failing_generate_orm.DIAGNOSTIC in str(failure.value)
+    assert failure.value.package_name == PACKAGE_NAMES[0]
+
+
+def test_progress_is_reported_for_every_interface(
+    workspace: WorkspaceOrmInterfaces, recorded_progress: RecordedProgress
+):
+    workspace.regenerate()
+
+    assert recorded_progress.wrapped == list(workspace.interfaces)
+    assert recorded_progress.labelled == list(PACKAGE_NAMES)
+    assert recorded_progress.disabled is False
+
+
+def test_progress_stays_out_of_the_way_of_the_generator_output(
+    workspace: WorkspaceOrmInterfaces, recorded_progress: RecordedProgress
+):
+    workspace.regenerate(show_generator_output=True)
+
+    assert recorded_progress.disabled is True
