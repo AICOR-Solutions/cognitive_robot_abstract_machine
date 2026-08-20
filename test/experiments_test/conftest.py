@@ -1,3 +1,9 @@
+"""
+Fixtures for running demonstrations against a controller in its own process.
+"""
+
+from __future__ import annotations
+
 # %% ORM interfaces
 
 # Built before the imports below, which read a mapped datastructure: pytest imports every
@@ -7,12 +13,6 @@ from ..orm_interface_build import regenerate_orm_interfaces
 
 regenerate_orm_interfaces()
 
-
-"""
-Fixtures for running demonstrations against a controller in its own process.
-"""
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib.resources import files
