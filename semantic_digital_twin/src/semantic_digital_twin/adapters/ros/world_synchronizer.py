@@ -434,8 +434,17 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         Synchronizer.__post_init__(self)
         ModelChangeCallback.__post_init__(self)
 
-    def on_model_change(self, **kwargs):
-        publish_changes = kwargs.get("publish_changes")
+    def on_model_change(self, publish_changes: Optional[bool] = None, **kwargs):
+        """
+        Send the modification block the world just recorded to the other synchronizers.
+
+        Implements
+        :meth:`~semantic_digital_twin.callbacks.callback.ModelChangeCallback.on_model_change`.
+
+        :param publish_changes: Whether this modification may leave the world.
+        :raises MissingPublishChangesKWARG: If the notification did not say whether to
+            publish.
+        """
         if publish_changes is None:
             raise MissingPublishChangesKWARG(kwargs)
         if not publish_changes:
@@ -448,20 +457,41 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             ],
         )
         update = WorldUpdate(meta_data=self.meta_data, modification_block=model_block)
+        self._debug_report("publishing model")
         self._publish_or_defer(update)
 
-    def on_state_change(self, **kwargs):
-        publish_changes = kwargs.get("publish_changes")
+    def on_state_change(
+        self,
+        publish_changes: Optional[bool] = None,
+        force_republish: bool = False,
+        **kwargs,
+    ):
+        """
+        Send the positions of the degrees of freedom to the other synchronizers.
+
+        Implements
+        :meth:`~semantic_digital_twin.callbacks.callback.StateChangeCallback.on_state_change`.
+
+        :param publish_changes: Whether this state change may leave the world.
+        :param force_republish: Whether to send every degree of freedom instead of only
+            the ones that moved since the last message, so a receiver that has just
+            applied a model modification is given the whole state.
+        :raises MissingPublishChangesKWARG: If the notification did not say whether to
+            publish.
+        """
         if publish_changes is None:
             raise MissingPublishChangesKWARG(kwargs)
         if not publish_changes:
             return
 
-        if kwargs.get("force_republish"):
-            changes = dict(self._world.state.to_uuid_position_dict())
-        else:
-            changes = self.compute_state_changes()
-
+        changes = (
+            self._world.state.to_uuid_position_dict()
+            if force_republish
+            else self.compute_state_changes()
+        )
+        self._debug_report(
+            f"publishing state force_republish={force_republish} count={len(changes)}"
+        )
         if not changes:
             return
 
@@ -563,6 +593,37 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         """
         with self._world.modify_world(publish_changes=False):
             modification_block_message.modifications.apply(self._world)
+        self._debug_report("after _apply_model")
+
+    def _debug_report(self, label: str) -> None:
+        import os
+
+        box = None
+        for body in self._world.kinematic_structure_entities:
+            if "cheeze" in str(body.name):
+                box = body
+        if box is None or box.parent_connection is None:
+            return
+        missing = [
+            str(dof.name)
+            for dof in box.parent_connection.dofs
+            if self._world.state._index.get(dof.id) is None
+        ]
+        try:
+            position = (
+                self._world.compute_forward_kinematics(self._world.root, box)
+                .to_position()
+                .to_np()
+                .flatten()[:3]
+            )
+        except Exception as error:  # noqa: BLE001
+            position = f"<{error}>"
+        with open(f"/tmp/sync_debug_{os.getpid()}.log", "a") as handle:
+            handle.write(
+                f"{label} world={self._world.name} "
+                f"parent={box.parent_connection.parent.name} "
+                f"position={position} missing_from_state={missing}\n"
+            )
 
     def _apply_state(self, state_update_message: WorldStateUpdate):
         """
@@ -592,6 +653,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
             self._world.state._data[0, indices] = np.asarray(state_values, dtype=float)
             self.update_previous_world_state()
         self._world.notify_state_change(publish_changes=False)
+        self._debug_report("after _apply_state")
 
     def apply_missed_messages(self):
         """

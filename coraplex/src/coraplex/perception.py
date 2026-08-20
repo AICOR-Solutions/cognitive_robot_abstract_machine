@@ -260,6 +260,30 @@ class PerceptionInterface(ABC):
         """
 
     @staticmethod
+    def narrow_to_single_detection(
+        detections: List[Detection],
+        query: PerceptionQuery,
+        accept_first_if_multiple: bool,
+    ) -> List[Detection]:
+        """
+        Reduce what a source saw to the one detection a query is answered with.
+
+        :param detections: What the source reported for the query.
+        :param query: The query that was answered.
+        :param accept_first_if_multiple: Whether several candidates may be resolved by
+            taking the first one.
+        :return: The single detection the query is answered with.
+        :raises NothingDetected: If the source saw nothing.
+        :raises UnidentifiedDetections: If several candidates were seen and none of them
+            may be picked.
+        """
+        if not detections:
+            raise NothingDetected(query.semantic_annotation)
+        if len(detections) > 1 and not accept_first_if_multiple:
+            raise UnidentifiedDetections(query.semantic_annotation, len(detections))
+        return detections[:1]
+
+    @staticmethod
     def for_execution_type(
         execution_type: Optional[ExecutionType], ros_node: Optional[Node] = None
     ) -> PerceptionInterface:
@@ -293,12 +317,9 @@ class WorldPerception(PerceptionInterface):
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> List[Detection]:
         annotation_by_body = {}
-
-        detected_objects = query.world.get_semantic_annotations_by_type(
+        for annotation in query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
-        )
-
-        for annotation in detected_objects:
+        ):
             annotation_by_body.setdefault(annotation.root, type(annotation))
 
         detections = [
@@ -309,16 +330,9 @@ class WorldPerception(PerceptionInterface):
             if body in annotation_by_body
         ]
 
-        if not detections:
-            raise NothingDetected(query.semantic_annotation)
-
-        if len(detections) == 1:
-            return detections
-        if not accept_first_if_multiple:
-            raise UnidentifiedDetections(
-                query.semantic_annotation, len(detected_objects)
-            )
-        return [detections[0]]
+        return self.narrow_to_single_detection(
+            detections, query, accept_first_if_multiple
+        )
 
 
 @dataclass
@@ -365,13 +379,9 @@ class RoboKudoPerception(PerceptionInterface):
             if designator.pose and self._can_be_requested_object(designator, query)
         ]
 
-        if not detections:
-            raise NothingDetected(query.semantic_annotation)
-        if len(detections) == 1:
-            return detections
-        if not accept_first_if_multiple:
-            raise UnidentifiedDetections(query.semantic_annotation, len(detections))
-        return [detections[0]]
+        return self.narrow_to_single_detection(
+            detections, query, accept_first_if_multiple
+        )
 
     @staticmethod
     def _can_be_requested_object(

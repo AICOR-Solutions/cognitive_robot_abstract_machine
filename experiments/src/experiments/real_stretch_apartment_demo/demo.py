@@ -42,11 +42,8 @@ from coraplex.datastructures.enums import (
 )
 from coraplex.datastructures.grasp import GraspDescription
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.execution_environment import ExecutionEnvironment
-from coraplex.plans.factories import sequential, repeat, execute_single
+from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans import MoveToolCenterPointMotion
-from coraplex.robot_plans.actions.composite.transporting import TransportAction
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
@@ -56,7 +53,6 @@ from coraplex.robot_plans.actions.core.robot_body import (
     SetGripperAction,
 )
 from coraplex.view_manager import ViewManager
-from giskardpy.utils.utils_for_tests import BIG_NUMBER
 from krrood.entity_query_language.factories import a
 from semantic_digital_twin.api import (
     BodySpecification,
@@ -68,12 +64,7 @@ from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.predetermined_maps.apartment_environment import (
     ApartmentEnvironment,
 )
-from semantic_digital_twin.robots.armar7 import Armar7
-from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.robots.mmp_dresden import MMPDresden
-from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
-from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import CheezeIt
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
@@ -96,6 +87,11 @@ CEREAL_SHELF_LAYER_T_CEREAL = HomogeneousTransformationMatrix.from_xyz_rpy(
 Where the cereal starts, relative to its shelf layer.
 
 Only a prior: a detection before the pick-up overwrites it with a perceived pose.
+"""
+
+LIVE_DEMONSTRATION_REPETITIONS = 5
+"""
+How often running this module as a script transports the cereal there and back again.
 """
 
 
@@ -261,41 +257,22 @@ class StretchApartmentDemonstration(RobotDemonstration):
 
         return plan
 
-    def run(self) -> World:
-        """
-        Acquire a world, populate it if needed, and perform the plan against it.
 
-        :return: The world the demonstration acted on.
-        """
-        world = self.acquire_world()
-        try:
-            if not self.is_scene_populated(world):
-                self.populate_scene(world)
-            for _ in range(5):
-                plan = self.build_plan(self.build_context(world))
-                with ExecutionEnvironment(
-                    execution_type=self.execution_type,
-                    collision_avoidance=self.collision_avoidance,
-                ):
-                    plan.perform()
-
-        finally:
-            self.tear_down()
-        return world
-
-
-def main(execution_type: ExecutionType = ExecutionType.SIMULATED) -> None:
+def main(
+    execution_type: ExecutionType = ExecutionType.SIMULATED, repetitions: int = 1
+) -> None:
     """
     Run the demonstration.
 
     :param execution_type: Whether to drive the real robot or simulate it.
+    :param repetitions: How often to transport the cereal there and back again.
     """
     # StretchApartmentDemonstration(used_robot=PR2, execution_type=execution_type).run()
     # StretchApartmentDemonstration(used_robot=HSRB, execution_type=execution_type).run()
     StretchApartmentDemonstration(
-        used_robot=Stretch, execution_type=execution_type
+        used_robot=Stretch, execution_type=execution_type, repetitions=repetitions
     ).run()
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL)
+    main(execution_type=ExecutionType.REAL, repetitions=LIVE_DEMONSTRATION_REPETITIONS)
