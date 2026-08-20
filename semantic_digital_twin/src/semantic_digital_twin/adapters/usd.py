@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 import numpy as np
@@ -117,6 +118,39 @@ def _decompose_local_transform(
     return origin, transform.GetScale()
 
 
+class UsdGeomPrimType(StrEnum):
+    """
+    The USD prim type names (``UsdGeom.Xxx.Define``'s ``Xxx``) this parser builds a
+    Shape for.
+    """
+
+    MESH = "Mesh"
+    CUBE = "Cube"
+    SPHERE = "Sphere"
+    CYLINDER = "Cylinder"
+
+
+class UsdPhysicsJointType(StrEnum):
+    """
+    The USD physics joint prim type names this parser builds a Connection for.
+    """
+
+    FIXED = "PhysicsFixedJoint"
+    REVOLUTE = "PhysicsRevoluteJoint"
+    PRISMATIC = "PhysicsPrismaticJoint"
+
+
+class UsdAxis(StrEnum):
+    """
+    A USD local-frame axis token, as authored on a joint's ``axis`` attribute or a
+    ``UsdGeom.Cylinder``'s.
+    """
+
+    X = "X"
+    Y = "Y"
+    Z = "Z"
+
+
 @dataclass
 class USDParser(WorldModelParser):
     """
@@ -137,21 +171,29 @@ class USDParser(WorldModelParser):
         Every rigid link is assumed to appear as the child (``body1``) of exactly one
         joint - a link that does not would be created (as another joint's parent) but
         never connected, and so would not appear in the parsed world.
+
+    .. note::
+        USD is right-handed. Unlike the axis convention, the up axis and the unit scale
+        are not fixed: they are stage metadata (``UsdGeom.GetStageUpAxis``, typically Y
+        or Z, and ``UsdGeom.GetStageMetersPerUnit``). This parser never assumes either -
+        every transform it builds is relative to a prim's own parent, computed straight
+        from the authored ``xformOpOrder``, so it comes out correct in whatever up axis
+        and unit scale the stage itself declares.
     """
 
-    connection_type_map: ClassVar[Dict[str, Type[Connection]]] = {
-        "PhysicsFixedJoint": FixedConnection,
-        "PhysicsRevoluteJoint": RevoluteConnection,
-        "PhysicsPrismaticJoint": PrismaticConnection,
+    connection_type_map: ClassVar[Dict[UsdPhysicsJointType, Type[Connection]]] = {
+        UsdPhysicsJointType.FIXED: FixedConnection,
+        UsdPhysicsJointType.REVOLUTE: RevoluteConnection,
+        UsdPhysicsJointType.PRISMATIC: PrismaticConnection,
     }
     """
     Maps a USD physics joint prim's type name to the matching Connection class.
     """
 
-    axis_vectors: ClassVar[Dict[str, Tuple[float, float, float]]] = {
-        "X": (1.0, 0.0, 0.0),
-        "Y": (0.0, 1.0, 0.0),
-        "Z": (0.0, 0.0, 1.0),
+    axis_vectors: ClassVar[Dict[UsdAxis, Tuple[float, float, float]]] = {
+        UsdAxis.X: (1.0, 0.0, 0.0),
+        UsdAxis.Y: (0.0, 1.0, 0.0),
+        UsdAxis.Z: (0.0, 0.0, 1.0),
     }
     """
     Maps a UsdPhysics joint's, or a UsdGeom.Cylinder's, local-frame axis token to the
@@ -407,7 +449,7 @@ class USDParser(WorldModelParser):
         :return: The resolved link Body.
         """
         prim = self.stage.GetPrimAtPath(prim_path)
-        if prim.GetTypeName() == "Mesh":
+        if prim.GetTypeName() == UsdGeomPrimType.MESH:
             # Most joints target the link's enclosing Xform, whose subtree holds its
             # shape(s); some instead target a link's mesh prim directly. Both resolve
             # to the same parent Xform, so a link is never split into two disconnected
@@ -512,20 +554,20 @@ class USDParser(WorldModelParser):
             primitive of a type this parser does not build a Shape for.
         """
         type_name = prim.GetTypeName()
-        if type_name == "Mesh":
+        if type_name == UsdGeomPrimType.MESH:
             return USDParser._create_mesh_shape(prim, link_to_world, body)
-        if type_name == "Cube":
+        if type_name == UsdGeomPrimType.CUBE:
             return USDParser._create_cube_shape(prim, link_to_world, body)
-        if type_name == "Sphere":
+        if type_name == UsdGeomPrimType.SPHERE:
             return USDParser._create_sphere_shape(prim, link_to_world, body)
-        if type_name == "Cylinder":
+        if type_name == UsdGeomPrimType.CYLINDER:
             return USDParser._create_cylinder_shape(prim, link_to_world, body)
         if prim.IsA(UsdGeom.Gprim):
             raise UnsupportedUsdGeometryTypeError(
                 file_path=self.source_description,
                 prim_path=str(prim.GetPath()),
                 geometry_type=type_name,
-                supported_types=["Cube", "Cylinder", "Mesh", "Sphere"],
+                supported_types=list(UsdGeomPrimType),
             )
         return None
 
@@ -590,9 +632,9 @@ class USDParser(WorldModelParser):
         origin.reference_frame = body
         usd_cylinder = UsdGeom.Cylinder(prim)
         axis = usd_cylinder.GetAxisAttr().Get()
-        if axis == "X":
+        if axis == UsdAxis.X:
             alignment = HomogeneousTransformationMatrix.from_xyz_rpy(pitch=math.pi / 2)
-        elif axis == "Y":
+        elif axis == UsdAxis.Y:
             alignment = HomogeneousTransformationMatrix.from_xyz_rpy(roll=-math.pi / 2)
         else:
             alignment = HomogeneousTransformationMatrix()

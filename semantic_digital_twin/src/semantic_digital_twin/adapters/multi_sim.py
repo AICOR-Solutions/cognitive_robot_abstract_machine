@@ -1905,9 +1905,9 @@ class MujocoBuilder(MultiSimBuilder):
         logger.info(
             f"Converting Collada mesh to STL for MuJoCo: {original_mesh_file_path}"
         )
-        tm = trimesh.load(original_mesh_file_path, force="mesh")
+        trimesh_mesh = trimesh.load(original_mesh_file_path, force="mesh")
 
-        tm.export(stl_file_path)
+        trimesh_mesh.export(stl_file_path)
 
     def _thicken_if_near_planar(self, mesh_file_path: str) -> str:
         """
@@ -1937,8 +1937,8 @@ class MujocoBuilder(MultiSimBuilder):
         if mesh_file_path in self._thickened_mesh_paths:
             return self._thickened_mesh_paths[mesh_file_path]
 
-        tm = trimesh.load(mesh_file_path, force="mesh")
-        centered_vertices = tm.vertices - tm.vertices.mean(axis=0)
+        trimesh_mesh = trimesh.load(mesh_file_path, force="mesh")
+        centered_vertices = trimesh_mesh.vertices - trimesh_mesh.vertices.mean(axis=0)
         _, _, principal_axes = numpy.linalg.svd(centered_vertices, full_matrices=False)
         normal = principal_axes[-1]
         projections = centered_vertices @ normal
@@ -1956,13 +1956,19 @@ class MujocoBuilder(MultiSimBuilder):
         # containing a "cover.stl"), and an existence check keyed only on that name
         # would silently reuse a stale, geometrically wrong thickened mesh left over
         # from a previous build that wrote into the same asset folder.
-        extent = numpy.linalg.norm(tm.vertices.max(axis=0) - tm.vertices.min(axis=0))
+        extent = numpy.linalg.norm(
+            trimesh_mesh.vertices.max(axis=0) - trimesh_mesh.vertices.min(axis=0)
+        )
         offset_magnitude = max(self.planar_thickness_epsilon, extent * 1e-5)
         offset = normal * (offset_magnitude / 2.0)
-        vertex_count = len(tm.vertices)
+        vertex_count = len(trimesh_mesh.vertices)
         thickened = trimesh.Trimesh(
-            vertices=numpy.concatenate([tm.vertices + offset, tm.vertices - offset]),
-            faces=numpy.concatenate([tm.faces, tm.faces[:, ::-1] + vertex_count]),
+            vertices=numpy.concatenate(
+                [trimesh_mesh.vertices + offset, trimesh_mesh.vertices - offset]
+            ),
+            faces=numpy.concatenate(
+                [trimesh_mesh.faces, trimesh_mesh.faces[:, ::-1] + vertex_count]
+            ),
             process=False,
         )
         thickened.export(thickened_file_path)
