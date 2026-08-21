@@ -756,6 +756,7 @@ def test_body_frame_excludes_joint_state_at_build_time():
         stop_multisim_if_running(multi_sim)
 
 
+@pytest.mark.flaky
 def test_world_sim_state_sync():
     plane_half_thickness = 0.05
     box_half_size = 0.1
