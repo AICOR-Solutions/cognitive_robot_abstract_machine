@@ -11,7 +11,6 @@ import operator
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property
-from itertools import islice
 from typing import Self
 
 from typing_extensions import (
@@ -134,7 +133,10 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         return sorted(names)
 
     def __getitem__(self, key) -> CanBehaveLikeAVariable[T]:
-        return self._get_mapped_variable_(Index, key)
+        indexing = (
+            IndexByExpression if isinstance(key, SymbolicExpression) else IndexByValue
+        )
+        return self._get_mapped_variable_(indexing, key)
 
     def __call__(self, *args, **kwargs) -> CanBehaveLikeAVariable[T]:
         return self._get_mapped_variable_(Call, args, kwargs)
@@ -366,24 +368,15 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
         :param instance: The value to follow the chain from.
         :return: The value the chain leads to.
-        :raises MultipleValuesAlongAccessPath: If a step maps one value to several,
+        :raises MultipleValuesAlongAccessPath: If a step reaches more than one value,
             leaving the rest of the chain without one value to follow.
         """
         current = instance
         for domain_mapping in self._access_path_:
-            current = domain_mapping._single_mapped_value_(current)
+            if not isinstance(domain_mapping, Projection):
+                raise MultipleValuesAlongAccessPath(self, domain_mapping)
+            current = next(domain_mapping._apply_mapping_(current))
         return current
-
-    def _single_mapped_value_(self, value: Any) -> Any:
-        """
-        :param value: The value to map.
-        :return: The one value this mapping maps it to.
-        :raises MultipleValuesAlongAccessPath: If it maps the value to several.
-        """
-        mapped_values = list(islice(self._apply_mapping_(value), 2))
-        if len(mapped_values) > 1:
-            raise MultipleValuesAlongAccessPath(self, value)
-        return next(iter(mapped_values))
 
     def get_clean_name_from_mapped_variable(self) -> str:
         """
@@ -453,10 +446,12 @@ class Attribute(Projection[T]):
 
 
 @dataclass(eq=False, repr=False)
-class Index(Projection):
+class Index(MappedVariable, ABC):
     """
-    A variable that was created through collection indexing by a certain key on its
-    child variable.
+    A variable created by indexing its child by a key.
+
+    What the key is decides how many values the indexing reaches, so the two kinds are
+    separate: see :class:`IndexByValue` and :class:`IndexByExpression`.
     """
 
     _key_: Any
@@ -464,27 +459,51 @@ class Index(Projection):
     The key to index with.
     """
 
-    def _apply_mapping_(
-        self, value: Any, sources: Optional[OperationResult] = None
-    ) -> Iterable[Any]:
-        try:
-            # Need to verify that this solution is general and not a hack.
-            if isinstance(self._key_, SymbolicExpression) and not (
-                isinstance(value, UnificationDict) and self._key_ in value
-            ):
-                for key in self._key_._evaluate_(sources):
-                    yield value[key.value]
-            else:
-                yield value[self._key_]
-        except IndexError:  # break iterator if the key does not exist
-            return
-
     @property
     def _name_(self):
         return f"{self._child_._var_._name_}[{repr(self._key_)}]"
 
     def _set_child_instance_value_(self, instance: Any, value: Any):
         instance[self._key_] = value
+
+
+@dataclass(eq=False, repr=False)
+class IndexByValue(Index, Projection):
+    """
+    Indexing by a key that is a plain value, which reaches the one element stored under
+    it.
+    """
+
+    def _apply_mapping_(
+        self, value: Any, sources: Optional[OperationResult] = None
+    ) -> Iterable[Any]:
+        try:
+            yield value[self._key_]
+        except IndexError:  # break iterator if the key does not exist
+            return
+
+
+@dataclass(eq=False, repr=False)
+class IndexByExpression(Index):
+    """
+    Indexing by a key that is itself an expression, which reaches one element per value
+    that expression takes.
+
+    A row of a query is the exception: it is keyed by the expressions it binds, so
+    indexing it by one of them reaches the single value bound to it.
+    """
+
+    def _apply_mapping_(
+        self, value: Any, sources: Optional[OperationResult] = None
+    ) -> Iterable[Any]:
+        try:
+            if isinstance(value, UnificationDict) and self._key_ in value:
+                yield value[self._key_]
+                return
+            for key in self._key_._evaluate_(sources):
+                yield value[key.value]
+        except IndexError:  # break iterator if the key does not exist
+            return
 
 
 @dataclass(eq=False, repr=False)

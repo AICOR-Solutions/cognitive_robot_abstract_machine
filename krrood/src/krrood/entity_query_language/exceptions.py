@@ -252,20 +252,21 @@ class MultipleValuesAlongAccessPath(UsageError):
     that value to several, leaving the rest of the chain without one value to follow.
     """
 
-    mapping: MappedVariable
+    chain: MappedVariable
     """
-    The step that mapped one value to several.
+    The chain that was being followed.
     """
 
-    value: Any
+    step: MappedVariable
     """
-    The value it was applied to.
+    The step along it that reaches more than one value.
     """
 
     def error_message(self) -> str:
         return (
-            f"{self.mapping._name_} maps {self.value} to several values, so the rest of "
-            f"the access path has no single value to follow."
+            f"{self.chain._name_} passes through {self.step._name_}, which reaches one "
+            f"value per element rather than a single one, so the rest of the access "
+            f"path has no one value to follow."
         )
 
     def suggest_correction(self) -> str:
