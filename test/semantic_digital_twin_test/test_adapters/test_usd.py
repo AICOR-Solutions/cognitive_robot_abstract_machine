@@ -309,8 +309,8 @@ def test_read_semantic_labels_reads_every_taxonomy():
     labels_by_taxonomy = USDParser._read_semantic_labels(link_prim)
 
     assert labels_by_taxonomy == {
-        "class": ("chair", "furniture"),
-        "category": ("seating",),
+        "class": ["chair", "furniture"],
+        "category": ["seating"],
     }
 
 
@@ -339,8 +339,8 @@ def test_parse_attaches_one_usd_semantic_labels_annotation_per_taxonomy():
     }
     assert all(annotation.root is child for annotation in annotations)
     assert labels_by_taxonomy == {
-        "class": ("chair", "furniture"),
-        "category": ("seating",),
+        "class": ["chair", "furniture"],
+        "category": ["seating"],
     }
 
 

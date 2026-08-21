@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing_extensions import Tuple
+from typing_extensions import List
 
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 
@@ -26,7 +26,7 @@ class UsdSemanticLabels(HasRootBody):
     The taxonomy (label namespace, e.g. ``"class"``) these labels were authored under.
     """
 
-    labels: Tuple[str, ...] = field(kw_only=True)
+    labels: List[str] = field(kw_only=True)
     """
-    The labels authored under this taxonomy (e.g. ``("chair", "furniture")``).
+    The labels authored under this taxonomy (e.g. ``["chair", "furniture"]``).
     """

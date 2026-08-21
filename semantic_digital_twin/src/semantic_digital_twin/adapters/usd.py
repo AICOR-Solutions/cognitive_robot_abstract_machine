@@ -9,7 +9,8 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
-from typing_extensions import ClassVar, Dict, List, Optional, Tuple, Type
+from numpy.typing import NDArray
+from typing_extensions import Dict, List, Optional, Sequence, Tuple, Type
 
 from semantic_digital_twin.adapters.package_resolver import (
     CompositePathResolver,
@@ -80,7 +81,7 @@ except ImportError:
 
 
 def _usd_pose_to_transform(
-    position: "Gf.Vec3d", rotation: "Gf.Quatf", **kwargs
+    position: Gf.Vec3d, rotation: Gf.Quatf, **kwargs
 ) -> HomogeneousTransformationMatrix:
     """
     Build a transform from a USD position and quaternion rotation.
@@ -105,8 +106,8 @@ def _usd_pose_to_transform(
 
 
 def _decompose_local_transform(
-    prim: "Usd.Prim", link_to_world: "Gf.Matrix4d"
-) -> Tuple[HomogeneousTransformationMatrix, "Gf.Vec3d"]:
+    prim: Usd.Prim, link_to_world: Gf.Matrix4d
+) -> Tuple[HomogeneousTransformationMatrix, Gf.Vec3d]:
     """
     Decompose a prim's pose relative to its enclosing link into a rigid transform and a
     scale, regardless of how the prim's ``xformOpOrder`` was authored.
@@ -139,7 +140,7 @@ class UsdGeomPrimType(StrEnum):
     CYLINDER = "Cylinder"
 
     def create_shape(
-        self, prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
+        self, prim: Usd.Prim, link_to_world: Gf.Matrix4d, body: Body
     ) -> Shape:
         """
         Creates the Shape a prim of this type describes.
@@ -189,6 +190,18 @@ class UsdAxis(StrEnum):
     Y = "Y"
     Z = "Z"
 
+    def vector(self, reference_frame: Body) -> Vector3:
+        """
+        :param reference_frame: The frame the returned vector is expressed in.
+        :return: The unit vector this axis token denotes.
+        """
+        unit_vectors = {
+            UsdAxis.X: (1.0, 0.0, 0.0),
+            UsdAxis.Y: (0.0, 1.0, 0.0),
+            UsdAxis.Z: (0.0, 0.0, 1.0),
+        }
+        return Vector3(*unit_vectors[self], reference_frame=reference_frame)
+
 
 @dataclass
 class UsdShapeBuilder(ABC):
@@ -197,12 +210,12 @@ class UsdShapeBuilder(ABC):
     geometry prim describes, relative to its enclosing link.
     """
 
-    prim: "Usd.Prim"
+    prim: Usd.Prim
     """
     The prim to build a shape for.
     """
 
-    link_to_world: "Gf.Matrix4d"
+    link_to_world: Gf.Matrix4d
     """
     The enclosing link's local-to-world transform.
     """
@@ -330,7 +343,9 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         )
 
     @staticmethod
-    def _transform_points(points: np.ndarray, matrix: "Gf.Matrix4d") -> np.ndarray:
+    def _transform_points(
+        points: NDArray[np.float64], matrix: Gf.Matrix4d
+    ) -> NDArray[np.float64]:
         """
         Applies a USD transform to an array of points.
 
@@ -342,7 +357,7 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         return (points_homogeneous @ np.array(matrix))[:, :3]
 
     @staticmethod
-    def _diffuse_texture_path(mesh_prim: "Usd.Prim") -> Optional[str]:
+    def _diffuse_texture_path(mesh_prim: Usd.Prim) -> Optional[str]:
         """
         Resolves the file path of the diffuse texture bound to a mesh prim's material.
 
@@ -373,7 +388,7 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         return asset_path.resolvedPath
 
     @staticmethod
-    def _uv_coordinates(mesh_prim: "Usd.Prim") -> Optional[np.ndarray]:
+    def _uv_coordinates(mesh_prim: Usd.Prim) -> Optional[NDArray[np.float64]]:
         """
         Reads a mesh prim's per-point UV coordinates from its ``st`` primvar.
 
@@ -396,7 +411,9 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
         return np.array(values, dtype=np.float64)
 
     @staticmethod
-    def _triangulate(face_vertex_counts, face_vertex_indices) -> np.ndarray:
+    def _triangulate(
+        face_vertex_counts: Sequence[int], face_vertex_indices: Sequence[int]
+    ) -> NDArray[np.int64]:
         """
         Fan-triangulates a USD mesh's polygonal faces.
 
@@ -445,17 +462,7 @@ class USDParser(WorldModelParser):
         and unit scale the stage itself declares.
     """
 
-    axis_vectors: ClassVar[Dict[UsdAxis, Tuple[float, float, float]]] = {
-        UsdAxis.X: (1.0, 0.0, 0.0),
-        UsdAxis.Y: (0.0, 1.0, 0.0),
-        UsdAxis.Z: (0.0, 0.0, 1.0),
-    }
-    """
-    Maps a UsdPhysics joint's, or a UsdGeom.Cylinder's, local-frame axis token to the
-    matching unit vector.
-    """
-
-    stage: "Usd.Stage"
+    stage: Usd.Stage
     """
     The USD stage to parse.
 
@@ -532,7 +539,7 @@ class USDParser(WorldModelParser):
             return self._parse_jointless_stage()
         return self._parse_joint_graph(joint_prims)
 
-    def _parse_joint_graph(self, joint_prims: List["Usd.Prim"]) -> World:
+    def _parse_joint_graph(self, joint_prims: List[Usd.Prim]) -> World:
         """
         Builds the world for a stage with physics joints.
 
@@ -546,17 +553,15 @@ class USDParser(WorldModelParser):
         :return: The parsed world.
         """
         root_prim = self._root_prim()
-        root_body = Body(
-            name=PrefixedName(
-                root_prim.GetName() if root_prim is not None else self.prefix,
-                self.prefix,
-            )
+        root_body_name = root_prim.GetName() if root_prim is not None else self.prefix
+        world = World.create_with_root_body(
+            root_body_name=root_body_name, prefix=self.prefix
         )
-        world = World()
+        root_body = world.root
 
-        # Every joint is described (and so validated) before the world is touched: a
-        # World left partway through a failed modification is unusable, so anything
-        # that can raise must run first.
+        # Every joint is described (and so validated) before the world is touched
+        # further: a World left partway through a failed modification is unusable, so
+        # anything that can raise must run before entering another modify_world block.
         link_bodies: Dict[str, Body] = {}
         descriptions = [
             self._describe_joint(joint_prim, root_body, link_bodies)
@@ -564,7 +569,6 @@ class USDParser(WorldModelParser):
         ]
 
         with world.modify_world():
-            world.add_body(root_body)
             if root_prim is not None:
                 self._attach_semantic_labels(world, root_prim, root_body)
             for path_string, link_body_instance in link_bodies.items():
@@ -590,23 +594,26 @@ class USDParser(WorldModelParser):
 
         :return: The parsed world.
         """
-        world = World()
         root_prim = self._root_prim()
 
         if root_prim is not None:
-            root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
+            world = World.create_with_root_body(
+                root_body_name=root_prim.GetName(), prefix=self.prefix
+            )
+            root_body = world.root
             shapes = self._shapes_in_subtree(root_prim, root_body)
             shape_collection = ShapeCollection(shapes, reference_frame=root_body)
             root_body.visual = shape_collection
             root_body.collision = shape_collection
             with world.modify_world():
-                world.add_body(root_body)
                 self._attach_semantic_labels(world, root_prim, root_body)
             return world
 
-        root_body = Body(name=PrefixedName(self.prefix, self.prefix))
+        world = World.create_with_root_body(
+            root_body_name=self.prefix, prefix=self.prefix
+        )
+        root_body = world.root
         with world.modify_world():
-            world.add_body(root_body)
             for prim in self._top_level_prims():
                 body = self._create_link_body(prim)
                 world.add_body(body)
@@ -618,7 +625,7 @@ class USDParser(WorldModelParser):
                 )
         return world
 
-    def _root_prim(self) -> Optional["Usd.Prim"]:
+    def _root_prim(self) -> Optional[Usd.Prim]:
         """
         :return: The stage's default prim, or its single top-level prim if it has no
             default prim and exactly one top-level prim, or ``None`` if neither
@@ -633,7 +640,7 @@ class USDParser(WorldModelParser):
             return None
         return top_level_prims[0]
 
-    def _top_level_prims(self) -> List["Usd.Prim"]:
+    def _top_level_prims(self) -> List[Usd.Prim]:
         """
         :return: Every top-level prim of the stage (the pseudo-root's direct children).
         """
@@ -643,7 +650,7 @@ class USDParser(WorldModelParser):
 
     def _describe_joint(
         self,
-        joint_prim: "Usd.Prim",
+        joint_prim: Usd.Prim,
         root_body: Body,
         link_bodies: Dict[str, Body],
     ) -> JointDescription:
@@ -717,9 +724,7 @@ class USDParser(WorldModelParser):
             if connection_type is RevoluteConnection
             else UsdPhysics.PrismaticJoint(joint_prim)
         )
-        axis = Vector3(
-            *self.axis_vectors[axis_joint.GetAxisAttr().Get()], reference_frame=parent
-        )
+        axis = UsdAxis(axis_joint.GetAxisAttr().Get()).vector(reference_frame=parent)
         lower = axis_joint.GetLowerLimitAttr().Get()
         upper = axis_joint.GetUpperLimitAttr().Get()
         if connection_type is RevoluteConnection:
@@ -745,7 +750,7 @@ class USDParser(WorldModelParser):
         )
 
     def _resolve_link_body(
-        self, link_bodies: Dict[str, Body], prim_path: "Sdf.Path"
+        self, link_bodies: Dict[str, Body], prim_path: Sdf.Path
     ) -> Body:
         """
         Resolves a USD prim path to its link Body, creating (and caching in
@@ -803,7 +808,7 @@ class USDParser(WorldModelParser):
 
     # %% links and shapes
 
-    def _create_link_body(self, link_prim: "Usd.Prim") -> Body:
+    def _create_link_body(self, link_prim: Usd.Prim) -> Body:
         """
         Creates the Body for one rigid link, with a Shape for every mesh/primitive in
         its USD subtree and its :class:`~pxr.UsdPhysics.MassAPI` inertial properties, if
@@ -822,7 +827,7 @@ class USDParser(WorldModelParser):
             body.inertial = inertial
         return body
 
-    def _shapes_in_subtree(self, link_prim: "Usd.Prim", body: Body) -> List[Shape]:
+    def _shapes_in_subtree(self, link_prim: Usd.Prim, body: Body) -> List[Shape]:
         """
         Creates the Shape for every mesh/primitive prim in a link's subtree.
 
@@ -842,7 +847,7 @@ class USDParser(WorldModelParser):
         return shapes
 
     def _create_shape(
-        self, prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
+        self, prim: Usd.Prim, link_to_world: Gf.Matrix4d, body: Body
     ) -> Optional[Shape]:
         """
         Creates the Shape a mesh/primitive prim describes.
@@ -878,7 +883,7 @@ class USDParser(WorldModelParser):
     # %% inertials
 
     @staticmethod
-    def _parse_inertial(link_prim: "Usd.Prim", body: Body) -> Optional[Inertial]:
+    def _parse_inertial(link_prim: Usd.Prim, body: Body) -> Optional[Inertial]:
         """
         Parses a link prim's :class:`~pxr.UsdPhysics.MassAPI` inertial properties.
 
@@ -922,7 +927,7 @@ class USDParser(WorldModelParser):
     # %% semantics
 
     @staticmethod
-    def _attach_semantic_labels(world: World, prim: "Usd.Prim", body: Body) -> None:
+    def _attach_semantic_labels(world: World, prim: Usd.Prim, body: Body) -> None:
         """
         Attaches a :class:`UsdSemanticLabels` annotation to ``body`` for every
         ``UsdSemantics.LabelsAPI`` taxonomy directly authored on ``prim``, if any.
@@ -940,7 +945,7 @@ class USDParser(WorldModelParser):
             )
 
     @staticmethod
-    def _read_semantic_labels(prim: "Usd.Prim") -> Dict[str, Tuple[str, ...]]:
+    def _read_semantic_labels(prim: Usd.Prim) -> Dict[str, List[str]]:
         """
         Reads every ``UsdSemantics.LabelsAPI`` taxonomy directly authored on a prim.
 
@@ -956,7 +961,7 @@ class USDParser(WorldModelParser):
         if UsdSemantics is None:
             return {}
         return {
-            taxonomy: tuple(
+            taxonomy: list(
                 UsdSemantics.LabelsAPI.Get(prim, taxonomy).GetLabelsAttr().Get() or ()
             )
             for taxonomy in UsdSemantics.LabelsAPI.GetDirectTaxonomies(prim)
