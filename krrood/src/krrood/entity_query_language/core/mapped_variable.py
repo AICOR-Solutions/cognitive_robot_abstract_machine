@@ -399,7 +399,20 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class Attribute(MappedVariable[T]):
+class Projection(MappedVariable[T], ABC):
+    """
+    A mapping fully determined by the expression it is applied to and its own arguments.
+
+    Two occurrences of one projection therefore denote the same values, and
+    :meth:`CanBehaveLikeAVariable._get_mapped_variable_` gives them one shared node. A
+    projection may still map a value to several - indexing by a symbolic key maps one
+    collection to one value per key - but the choice among them is made by an argument
+    the writer named, so both occurrences follow it together.
+    """
+
+
+@dataclass(eq=False, repr=False)
+class Attribute(Projection[T]):
     """
     A symbolic attribute that can be used to access attributes of symbolic variables.
 
@@ -440,7 +453,7 @@ class Attribute(MappedVariable[T]):
 
 
 @dataclass(eq=False, repr=False)
-class Index(MappedVariable):
+class Index(Projection):
     """
     A variable that was created through collection indexing by a certain key on its
     child variable.
@@ -475,7 +488,7 @@ class Index(MappedVariable):
 
 
 @dataclass(eq=False, repr=False)
-class Call(MappedVariable):
+class Call(Projection):
     """
     A variable created through a function call operation on its child variable.
     """
@@ -518,6 +531,10 @@ class FlatVariable(MappedVariable[T]):
     Given a child expression that evaluates to an iterable (e.g., Views.bodies), this mapping yields
     one solution per inner element while preserving the original bindings (e.g., the View instance),
     similar to UNNEST in SQL.
+
+    Unlike a :class:`Projection`, it takes no argument naming which element it means, so
+    the iteration belongs to the node itself: each flattening written is a variable of
+    its own, and two of them range over the elements independently.
     """
 
     def _apply_mapping_(

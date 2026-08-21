@@ -1002,6 +1002,24 @@ def test_flatten_iterable_attribute(handles_and_containers_world):
     assert {row.handle.name for row in results} == {"Handle1", "Handle2", "Handle3"}
 
 
+def test_two_indexings_by_one_key_variable_follow_the_same_element(
+    handles_and_containers_world,
+):
+    """
+    Indexing names which element it means, so two indexings by one key variable follow
+    that key together rather than ranging over the elements independently.
+    """
+    world = handles_and_containers_world
+
+    cabinet = variable(Cabinet, world.views)
+    position = variable(int, domain=[0, 1])
+    query = entity(cabinet).where(
+        cabinet.drawers[position].handle.name != cabinet.drawers[position].handle.name
+    )
+
+    assert query.distinct().tolist() == []
+
+
 def test_two_flattenings_of_one_attribute_range_independently(
     handles_and_containers_world,
 ):
