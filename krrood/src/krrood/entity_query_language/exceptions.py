@@ -24,6 +24,7 @@ if TYPE_CHECKING:
         SymbolicExpression,
         Selectable,
     )
+    from krrood.entity_query_language.core.mapped_variable import MappedVariable
     from krrood.entity_query_language.core.variable import Variable
     from krrood.entity_query_language.query.match import (
         Match,
@@ -242,6 +243,36 @@ class NoConditionsProvided(UsageError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class MultipleValuesAlongAccessPath(UsageError):
+    """
+    Raised when a chain is followed from a value outside query evaluation and a step maps
+    that value to several, leaving the rest of the chain without one value to follow.
+    """
+
+    mapping: MappedVariable
+    """
+    The step that mapped one value to several.
+    """
+
+    value: Any
+    """
+    The value it was applied to.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.mapping._name_} maps {self.value} to several values, so the rest of "
+            f"the access path has no single value to follow."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Follow a chain whose every step maps one value to one value, or aggregate "
+            "the collection instead of flattening it."
+        )
 
 
 @dataclass

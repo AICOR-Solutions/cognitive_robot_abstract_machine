@@ -11,6 +11,7 @@ import operator
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property
+from itertools import islice
 from typing import Self
 
 from typing_extensions import (
@@ -32,7 +33,10 @@ from krrood.entity_query_language.core.base_expressions import (
     SymbolicExpression,
     UnificationDict,
 )
-from krrood.entity_query_language.exceptions import SymbolicDunderAccessError
+from krrood.entity_query_language.exceptions import (
+    MultipleValuesAlongAccessPath,
+    SymbolicDunderAccessError,
+)
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.math_operations import MathOperator
 from krrood.entity_query_language.utils import (
@@ -353,16 +357,33 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
     def apply_mapping_on_external_root(self, instance: Any) -> Any:
         """
-        Apply the mapping on the given instance by following the access path and
-        applying the mapping at each step.
+        Follow this chain from a value outside query evaluation, applying each mapping
+        along the access path in turn.
 
-        :param instance: The instance to apply the mapping on.
-        :return: An iterable of the mapped values.
+        .. warning::
+            This is only for use cases where symbolic access is needed outside of EQL's
+            query evaluation.
+
+        :param instance: The value to follow the chain from.
+        :return: The value the chain leads to.
+        :raises MultipleValuesAlongAccessPath: If a step maps one value to several,
+            leaving the rest of the chain without one value to follow.
         """
         current = instance
         for domain_mapping in self._access_path_:
-            current = next(domain_mapping._apply_mapping_(current))
+            current = domain_mapping._single_mapped_value_(current)
         return current
+
+    def _single_mapped_value_(self, value: Any) -> Any:
+        """
+        :param value: The value to map.
+        :return: The one value this mapping maps it to.
+        :raises MultipleValuesAlongAccessPath: If it maps the value to several.
+        """
+        mapped_values = list(islice(self._apply_mapping_(value), 2))
+        if len(mapped_values) > 1:
+            raise MultipleValuesAlongAccessPath(self, value)
+        return next(iter(mapped_values))
 
     def get_clean_name_from_mapped_variable(self) -> str:
         """
