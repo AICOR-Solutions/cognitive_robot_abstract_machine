@@ -218,9 +218,8 @@ def build_jointless_stage_with_a_default_prim() -> Usd.Stage:
 def build_stage_with_ambiguous_root_and_a_joint() -> Usd.Stage:
     """
     A minimal in-memory stage with no default prim, two top-level prims, and a physics
-    joint - so, unlike a joint-less stage, its root cannot fall back to a synthetic one:
-    the joint graph's own root (an unset ``body0``) still needs a name, and neither
-    top-level prim can be picked out as it unambiguously.
+    joint targeting one of them - exercising the synthetic-root fallback in combination
+    with a joint graph, rather than the joint-less case it is otherwise exercised with.
 
     :return: The built in-memory stage.
     """
@@ -272,6 +271,7 @@ def build_stage_with_primitive_shapes(
     *,
     cube_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
     cylinder_axis: str = "Z",
+    cylinder_scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
 ) -> Usd.Stage:
     """
     A minimal in-memory stage with a root link holding one ``Cube``, one ``Sphere``, and
@@ -280,6 +280,7 @@ def build_stage_with_primitive_shapes(
 
     :param cube_scale: The cube prim's authored scale.
     :param cylinder_axis: The cylinder prim's authored axis token.
+    :param cylinder_scale: The cylinder prim's authored scale.
     :return: The built in-memory stage.
     """
     stage = Usd.Stage.CreateInMemory()
@@ -297,6 +298,7 @@ def build_stage_with_primitive_shapes(
 
     cylinder = UsdGeom.Cylinder.Define(stage, "/object/cylinder")
     cylinder.AddTranslateOp().Set(Gf.Vec3d(0, 0, 1))
+    cylinder.AddScaleOp().Set(Gf.Vec3f(*cylinder_scale))
     cylinder.CreateRadiusAttr(0.5)
     cylinder.CreateHeightAttr(2.0)
     cylinder.CreateAxisAttr(cylinder_axis)

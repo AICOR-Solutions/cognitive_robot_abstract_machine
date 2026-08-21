@@ -6,7 +6,6 @@ from PIL import Image
 
 from semantic_digital_twin.adapters.usd import USDParser
 from semantic_digital_twin.adapters.usd_exceptions import (
-    IndeterminateRootPrimError,
     UnsupportedUsdGeometryTypeError,
     UnsupportedUsdPhysicsJointTypeError,
     UsdPhysicsJointMissingChildBodyError,
@@ -78,6 +77,20 @@ def test_parse_connects_a_fixed_joint():
     assert isinstance(connection, FixedConnection)
 
 
+def test_parse_inverts_the_joints_local_pos1_into_connection_t_child():
+    # UsdPhysics.Joint documents localPos1/localRot1 as the joint frame's pose relative
+    # to body1 (child_T_connection) - the inverse of what Connection needs
+    # (connection_T_child). A pure translation makes a missing inversion visible as a
+    # sign flip: authoring local_pos1=(1, 0, 0) must place the child's own origin at
+    # (-1, 0, 0) relative to the connection frame, not (1, 0, 0).
+    stage = build_single_joint_stage("FixedJoint", local_pos1=(1.0, 0.0, 0.0))
+    world = parse(stage)
+
+    [connection] = world.connections
+    translation = connection.connection_T_child_expression.to_np()[:3, 3]
+    np.testing.assert_allclose(translation, [-1.0, 0.0, 0.0], atol=1e-6)
+
+
 def test_parse_raises_on_an_unsupported_joint_type_instead_of_building_an_incomplete_world():
     # An unrecognized joint type name must not be silently skipped like a non-joint
     # prim would be, or a stage using only unsupported joints builds a World with no
@@ -132,11 +145,15 @@ def test_parse_builds_a_single_body_world_for_a_stage_without_joints():
     assert len(world.root.visual.shapes) == 1
 
 
-def test_parse_raises_on_an_ambiguous_root_prim_with_a_joint():
+def test_parse_connects_a_joint_to_a_synthetic_root_with_an_ambiguous_root_prim():
+    # A joint's unset body0 never depended on the stage having an identifiable root
+    # prim: it works the same against a synthetic root as against a real one.
     stage = build_stage_with_ambiguous_root_and_a_joint()
+    world = parse(stage)
 
-    with pytest.raises(IndeterminateRootPrimError):
-        parse(stage)
+    [connection] = world.connections
+    assert isinstance(connection, FixedConnection)
+    assert connection.parent is world.root
 
 
 def test_parse_attaches_multiple_top_level_prims_to_a_synthetic_root():
@@ -223,6 +240,23 @@ def test_parse_aligns_an_x_axis_cylinder_prim_to_the_shapes_local_z_axis():
     rotation = cylinder.origin.to_np()[:3, :3]
     local_z_in_link_frame = rotation @ np.array([0.0, 0.0, 1.0])
     np.testing.assert_allclose(local_z_in_link_frame, [1.0, 0.0, 0.0], atol=1e-6)
+
+
+def test_parse_applies_scale_along_the_cylinders_own_axis_not_the_shapes():
+    # scale is authored in the prim's own local axes, unaffected by the alignment
+    # rotation that reorients an X/Y-axis cylinder to the shape's local Z: for an
+    # X-axis cylinder, scale[0] is height and scale[1]/scale[2] are radial, not
+    # scale[2]/scale[0:2] as for the default Z-axis case.
+    stage = build_stage_with_primitive_shapes(
+        cylinder_axis="X", cylinder_scale=(5.0, 1.0, 1.0)
+    )
+    world = parse(stage)
+
+    [cylinder] = [
+        shape for shape in world.root.visual.shapes if isinstance(shape, Cylinder)
+    ]
+    assert cylinder.height == pytest.approx(2.0 * 5.0)
+    assert cylinder.width == pytest.approx(1.0)
 
 
 # %% inertials

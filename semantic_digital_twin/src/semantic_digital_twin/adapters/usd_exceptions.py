@@ -2,37 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing_extensions import List, Tuple
+from typing_extensions import List
 
 from semantic_digital_twin.exceptions import ParsingError
-
-
-@dataclass
-class IndeterminateRootPrimError(ParsingError):
-    """
-    Raised when a stage that has physics joints has no default prim and does not have
-    exactly one top-level prim, so the joint graph's own root (an unset ``body0``) has
-    no prim to take its name from.
-
-    A joint-less stage has no such requirement: with no default prim and more than one
-    top-level prim, it parses into a synthetic root with each top-level prim attached as
-    its own freely posable body instead of raising this.
-    """
-
-    top_level_prim_paths: Tuple[str, ...] = field(kw_only=True)
-    """
-    The stage's top-level prim paths.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Stage '{self.file_path}' has no default prim and "
-            f"{len(self.top_level_prim_paths)} top-level prims, not exactly one: "
-            f"{self.top_level_prim_paths}."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Set the stage's default prim, or ensure it has exactly one top-level prim."
 
 
 @dataclass

@@ -8,14 +8,13 @@ from pathlib import Path
 
 import numpy as np
 import trimesh
-from typing_extensions import ClassVar, Dict, Optional, Tuple, Type
+from typing_extensions import ClassVar, Dict, List, Optional, Tuple, Type
 
 from semantic_digital_twin.adapters.package_resolver import (
     CompositePathResolver,
     PathResolver,
 )
 from semantic_digital_twin.adapters.usd_exceptions import (
-    IndeterminateRootPrimError,
     UnsupportedUsdGeometryTypeError,
     UnsupportedUsdPhysicsJointTypeError,
     UsdPhysicsJointMissingChildBodyError,
@@ -307,9 +306,6 @@ class USDParser(WorldModelParser):
         Parses the stage into a world.
 
         :return: The parsed world.
-        :raises IndeterminateRootPrimError: If the stage has physics joints, no default
-            prim, and not exactly one top-level prim, so the joint graph's own root (an
-            unset ``body0``) cannot be named.
         :raises UnsupportedUsdPhysicsJointTypeError: If the stage contains a physics
             joint of a type this parser does not build a Connection for.
         :raises UsdPhysicsJointMissingChildBodyError: If a physics joint's ``body1``
@@ -320,9 +316,28 @@ class USDParser(WorldModelParser):
         ]
         if not joint_prims:
             return self._parse_jointless_stage()
+        return self._parse_joint_graph(joint_prims)
 
+    def _parse_joint_graph(self, joint_prims: List["Usd.Prim"]) -> World:
+        """
+        Builds the world for a stage with physics joints.
+
+        The joint graph's own root (a joint's unset ``body0``, the USD convention for
+        "the stage's own frame") becomes a Body named after :meth:`_root_prim`, or a
+        synthetic one if that is ambiguous - unlike a joint's ``body1``, which always
+        names a specific link, an unset ``body0`` never depended on the stage having an
+        identifiable root prim in the first place, so there is nothing to name it after.
+
+        :param joint_prims: Every ``UsdPhysics.Joint`` prim in the stage.
+        :return: The parsed world.
+        """
         root_prim = self._root_prim()
-        root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
+        root_body = Body(
+            name=PrefixedName(
+                root_prim.GetName() if root_prim is not None else self.prefix,
+                self.prefix,
+            )
+        )
         world = World()
 
         # Every joint is described (and so validated) before the world is touched: a
@@ -336,7 +351,8 @@ class USDParser(WorldModelParser):
 
         with world.modify_world():
             world.add_body(root_body)
-            self._attach_semantic_labels(world, root_prim, root_body)
+            if root_prim is not None:
+                self._attach_semantic_labels(world, root_prim, root_body)
             for path_string, link_body_instance in link_bodies.items():
                 world.add_body(link_body_instance)
                 self._attach_semantic_labels(
@@ -351,29 +367,21 @@ class USDParser(WorldModelParser):
         """
         Builds the world for a stage with no physics joints at all.
 
-        Its default prim (or single top-level prim, if it has no default prim set)
-        becomes a single-body World the same as any joint-driven stage's root. With
-        neither a default prim nor exactly one top-level prim, there is nothing to
-        unambiguously name as "the" root the way :meth:`_root_prim` does for a
-        joint-driven stage - so rather than raise, a synthetic root is created and
-        every top-level prim becomes its own body, attached to it with a
+        Its root prim (see :meth:`_root_prim`) becomes a single-body World. With no
+        identifiable root prim, there is nothing to unambiguously treat as "the" object
+        either - so a synthetic root is created instead, and every top-level prim
+        becomes its own body, attached to it with a
         :class:`~semantic_digital_twin.world_description.connections.Connection6DoF`
         (freely posable, since the stage itself asserts no relationship between them).
 
         :return: The parsed world.
         """
         world = World()
-        default_prim = self.stage.GetDefaultPrim()
-        top_level_prims = (
-            [default_prim]
-            if default_prim.IsValid()
-            else list(self.stage.GetPseudoRoot().GetChildren())
-        )
+        root_prim = self._root_prim()
 
-        if len(top_level_prims) == 1:
-            [root_prim] = top_level_prims
+        if root_prim is not None:
             root_body = Body(name=PrefixedName(root_prim.GetName(), self.prefix))
-            shapes = self._shapes_in_subtree(root_prim, root_prim, root_body)
+            shapes = self._shapes_in_subtree(root_prim, root_body)
             shape_collection = ShapeCollection(shapes, reference_frame=root_body)
             root_body.visual = shape_collection
             root_body.collision = shape_collection
@@ -385,7 +393,7 @@ class USDParser(WorldModelParser):
         root_body = Body(name=PrefixedName(self.prefix, self.prefix))
         with world.modify_world():
             world.add_body(root_body)
-            for prim in top_level_prims:
+            for prim in self._top_level_prims():
                 body = self._create_link_body(prim)
                 world.add_body(body)
                 self._attach_semantic_labels(world, prim, body)
@@ -396,25 +404,26 @@ class USDParser(WorldModelParser):
                 )
         return world
 
-    def _root_prim(self) -> "Usd.Prim":
+    def _root_prim(self) -> Optional["Usd.Prim"]:
         """
-        :return: The stage's default prim, or its single top-level prim if none is set.
-        :raises IndeterminateRootPrimError: If no default prim is set and the stage does
-            not have exactly one top-level prim.
+        :return: The stage's default prim, or its single top-level prim if it has no
+            default prim and exactly one top-level prim, or ``None`` if neither
+            identifies a single prim unambiguously.
         """
         default_prim = self.stage.GetDefaultPrim()
         if default_prim.IsValid():
             return default_prim
 
-        top_level_prims = self.stage.GetPseudoRoot().GetChildren()
+        top_level_prims = self._top_level_prims()
         if len(top_level_prims) != 1:
-            raise IndeterminateRootPrimError(
-                file_path=self.source_description,
-                top_level_prim_paths=tuple(
-                    str(prim.GetPath()) for prim in top_level_prims
-                ),
-            )
+            return None
         return top_level_prims[0]
+
+    def _top_level_prims(self) -> List["Usd.Prim"]:
+        """
+        :return: Every top-level prim of the stage (the pseudo-root's direct children).
+        """
+        return list(self.stage.GetPseudoRoot().GetChildren())
 
     # %% joints
 
@@ -470,11 +479,15 @@ class USDParser(WorldModelParser):
             joint.GetLocalRot0Attr().Get(),
             reference_frame=parent,
         )
-        connection_T_child = _usd_pose_to_transform(
+        # UsdPhysics.Joint documents localPos1/localRot1 as the joint frame's pose
+        # relative to body1 (child_T_connection), the opposite of what is needed here -
+        # unlike localPos0/localRot0, which is already parent_T_connection as authored.
+        child_T_connection = _usd_pose_to_transform(
             joint.GetLocalPos1Attr().Get(),
             joint.GetLocalRot1Attr().Get(),
-            child_frame=child,
+            reference_frame=child,
         )
+        connection_T_child = child_T_connection.inverse()
 
         if connection_type is FixedConnection:
             return JointDescription(
@@ -561,7 +574,7 @@ class USDParser(WorldModelParser):
                 parent_T_connection_expression=description.parent_T_connection,
                 connection_T_child_expression=description.connection_T_child,
             )
-        return description.connection_type.create_with_dofs(
+        connection = description.connection_type.create_with_dofs(
             world=world,
             name=description.name,
             parent=description.parent,
@@ -571,6 +584,8 @@ class USDParser(WorldModelParser):
             axis=description.axis,
             dof_limits=description.limits,
         )
+        connection.dynamics = description.dynamics
+        return connection
 
     # %% links and shapes
 
@@ -584,7 +599,7 @@ class USDParser(WorldModelParser):
         :return: The created body, not yet added to a world.
         """
         body = Body(name=PrefixedName(link_prim.GetName(), self.prefix))
-        shapes = self._shapes_in_subtree(link_prim, link_prim, body)
+        shapes = self._shapes_in_subtree(link_prim, body)
         shape_collection = ShapeCollection(shapes, reference_frame=body)
         body.visual = shape_collection
         body.collision = shape_collection
@@ -593,15 +608,12 @@ class USDParser(WorldModelParser):
             body.inertial = inertial
         return body
 
-    def _shapes_in_subtree(
-        self, link_prim: "Usd.Prim", root_prim: "Usd.Prim", body: Body
-    ) -> list:
+    def _shapes_in_subtree(self, link_prim: "Usd.Prim", body: Body) -> List[Shape]:
         """
-        Creates the Shape for every mesh/primitive prim in a subtree.
+        Creates the Shape for every mesh/primitive prim in a link's subtree.
 
-        :param link_prim: The link the shapes are positioned relative to.
-        :param root_prim: The root of the subtree to search - the same as ``link_prim``
-            except when called for a joint-less stage's single root body.
+        :param link_prim: The link the shapes are positioned relative to, and the root
+            of the subtree to search for them.
         :param body: The link's body, used as each shape's reference frame.
         :return: The created shapes.
         """
@@ -609,7 +621,7 @@ class USDParser(WorldModelParser):
             Usd.TimeCode.Default()
         )
         shapes = []
-        for prim in Usd.PrimRange(root_prim):
+        for prim in Usd.PrimRange(link_prim):
             shape = self._create_shape(prim, link_to_world, body)
             if shape is not None:
                 shapes.append(shape)
@@ -710,18 +722,23 @@ class USDParser(WorldModelParser):
         origin.reference_frame = body
         usd_cylinder = UsdGeom.Cylinder(prim)
         axis = usd_cylinder.GetAxisAttr().Get()
+        # scale is in the prim's own local axes, unaffected by the alignment rotation
+        # below (which only reorients origin), so the axis also picks out which scale
+        # components are the cylinder's height vs. its two radial directions.
         if axis == UsdAxis.X:
             alignment = HomogeneousTransformationMatrix.from_xyz_rpy(pitch=math.pi / 2)
+            height_scale, radial_scale = scale[0], (scale[1] + scale[2]) / 2.0
         elif axis == UsdAxis.Y:
             alignment = HomogeneousTransformationMatrix.from_xyz_rpy(roll=-math.pi / 2)
+            height_scale, radial_scale = scale[1], (scale[0] + scale[2]) / 2.0
         else:
             alignment = HomogeneousTransformationMatrix()
+            height_scale, radial_scale = scale[2], (scale[0] + scale[1]) / 2.0
         origin = origin @ alignment
-        radial_scale = (scale[0] + scale[1]) / 2.0
         return Cylinder(
             origin=origin,
             width=usd_cylinder.GetRadiusAttr().Get() * 2 * radial_scale,
-            height=usd_cylinder.GetHeightAttr().Get() * scale[2],
+            height=usd_cylinder.GetHeightAttr().Get() * height_scale,
         )
 
     @staticmethod
