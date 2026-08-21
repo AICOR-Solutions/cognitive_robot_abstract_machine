@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from semantic_digital_twin.adapters.usd import USDParser, UsdMeshShapeBuilder
-from semantic_digital_twin.adapters.usd_exceptions import (
+from semantic_digital_twin.adapters.usd.exceptions import (
     UnsupportedUsdGeometryTypeError,
     UnsupportedUsdPhysicsJointTypeError,
     UsdPhysicsJointMissingChildBodyError,
 )
+from semantic_digital_twin.adapters.usd.parser import USDParser, UsdMeshShapeBuilder
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.usd_semantics import UsdSemanticLabels
 from semantic_digital_twin.world import World

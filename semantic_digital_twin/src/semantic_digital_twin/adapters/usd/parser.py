@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from types import NoneType
 
 import numpy as np
 import trimesh
@@ -16,7 +17,7 @@ from semantic_digital_twin.adapters.package_resolver import (
     CompositePathResolver,
     PathResolver,
 )
-from semantic_digital_twin.adapters.usd_exceptions import (
+from semantic_digital_twin.adapters.usd.exceptions import (
     UnsupportedUsdGeometryTypeError,
     UnsupportedUsdPhysicsJointTypeError,
     UsdPhysicsJointMissingChildBodyError,
@@ -77,7 +78,7 @@ try:
 except ImportError:
     # UsdSemantics (UsdSemantics.LabelsAPI) is only available from usd-core 24.11
     # onward; an older install simply never yields UsdSemanticLabels annotations.
-    UsdSemantics = None
+    UsdSemantics = NoneType
 
 
 def _usd_pose_to_transform(
@@ -554,9 +555,7 @@ class USDParser(WorldModelParser):
         """
         root_prim = self._root_prim()
         root_body_name = root_prim.GetName() if root_prim is not None else self.prefix
-        world = World.create_with_root_body(
-            root_body_name=root_body_name, prefix=self.prefix
-        )
+        world = World.create_with_root_body(PrefixedName(root_body_name, self.prefix))
         root_body = world.root
 
         # Every joint is described (and so validated) before the world is touched
@@ -598,7 +597,7 @@ class USDParser(WorldModelParser):
 
         if root_prim is not None:
             world = World.create_with_root_body(
-                root_body_name=root_prim.GetName(), prefix=self.prefix
+                PrefixedName(root_prim.GetName(), self.prefix)
             )
             root_body = world.root
             shapes = self._shapes_in_subtree(root_prim, root_body)
@@ -609,9 +608,7 @@ class USDParser(WorldModelParser):
                 self._attach_semantic_labels(world, root_prim, root_body)
             return world
 
-        world = World.create_with_root_body(
-            root_body_name=self.prefix, prefix=self.prefix
-        )
+        world = World.create_with_root_body(PrefixedName(self.prefix, self.prefix))
         root_body = world.root
         with world.modify_world():
             for prim in self._top_level_prims():
@@ -958,7 +955,7 @@ class USDParser(WorldModelParser):
         :return: A mapping of taxonomy to the labels authored under it, empty if
             ``usd-core`` predates ``UsdSemantics`` or the prim has none.
         """
-        if UsdSemantics is None:
+        if UsdSemantics is NoneType:
             return {}
         return {
             taxonomy: list(

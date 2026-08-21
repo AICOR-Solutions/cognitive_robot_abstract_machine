@@ -80,10 +80,17 @@ obj = loader.load(ArtVipCategory.IKEA_FURNITURE, "EKET_Cabinet_with_door_brown_w
 obj.world  # one Body per rigid link
 ```
 
-Objects are USD stages parsed by `semantic_digital_twin.adapters.usd.USDParser` (the USD counterpart to
+Objects are USD stages parsed by `semantic_digital_twin.adapters.usd.parser.USDParser` (the USD counterpart to
 `URDFParser`/`MJCFParser`): `RevoluteConnection`/`PrismaticConnection` per USD Physics joint of the
 matching type, `FixedConnection` otherwise. The catalog is 450 objects across the 9 `ArtVipCategory`
 values; `available_objects` returns each object's path relative to its category, occasionally nested a
 subcategory deeper (e.g. `major_appliances/refrigerator/fridge/fridge_01`).
+
+`ArtVipDatasetLoader.load` always loads exactly one named object - the ArtVIP catalog itself is
+structured as one USD file per object, not per scene. `USDParser` itself is not limited to that: a
+stage with several unconnected top-level prims and no physics joints between them parses into one World
+with a separate Body per prim, so a multi-object USD scene composed outside ArtVIP (e.g. authored by
+hand or exported from a DCC tool) loads the same way, just without `ArtVipDatasetLoader`'s
+category/name bookkeeping.
 
 The dataset is public (Apache 2.0), no gated access. Requires the `usd-core` library (`pxr`).

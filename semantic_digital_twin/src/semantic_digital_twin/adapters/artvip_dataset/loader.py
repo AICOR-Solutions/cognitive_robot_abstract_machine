@@ -16,7 +16,7 @@ from semantic_digital_twin.adapters.artvip_dataset.schema import (
     ArtVipCategory,
     ArtVipObject,
 )
-from semantic_digital_twin.adapters.usd import USDParser
+from semantic_digital_twin.adapters.usd.parser import USDParser
 from semantic_digital_twin.semantic_annotations.natural_language import (
     NaturalLanguageWithTypeDescription,
 )
@@ -44,7 +44,7 @@ class ArtVipDatasetLoader:
     (``UsdPhysics.FixedJoint``/``RevoluteJoint``/``PrismaticJoint``), each carrying an
     authored axis, position, and limits. This loader downloads one object's files from
     its Hugging Face repository and parses its main USD stage with
-    :class:`~semantic_digital_twin.adapters.usd.USDParser`.
+    :class:`~semantic_digital_twin.adapters.usd.parser.USDParser`.
 
     .. note::
         Requires the ``usd-core`` package (``pxr``) to read the object's USD stage.
