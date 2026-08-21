@@ -2024,13 +2024,6 @@ class MujocoBuilder(MultiSimBuilder):
             mesh = self.spec.add_mesh(name=mesh_name)
             mesh.file = mesh_file_path
             mesh.scale = mesh_scale
-            # MuJoCo's default ("legacy") inertia estimation assumes a solid volume and
-            # rejects thin, near-planar meshes ("mesh volume is too small") - common in
-            # real CAD furniture (door slabs, backing panels). Every Body already gets
-            # an explicit Inertial (see MujocoBodyConverter), so the mesh's own inertia
-            # estimate is unused in practice; "shell" estimates it from the mesh surface
-            # instead of its volume, which thin meshes actually have.
-            mesh.inertia = mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL
         geom_props["meshname"] = mesh_name
         texture_file_path = geom_props.pop("texture_file_path", None)
         if isinstance(texture_file_path, str):

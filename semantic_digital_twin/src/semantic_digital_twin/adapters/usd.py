@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -148,13 +149,13 @@ class UsdGeomPrimType(StrEnum):
         :param body: The link's body, used as the shape's reference frame.
         :return: The created shape.
         """
-        builders = {
-            UsdGeomPrimType.MESH: USDParser._create_mesh_shape,
-            UsdGeomPrimType.CUBE: USDParser._create_cube_shape,
-            UsdGeomPrimType.SPHERE: USDParser._create_sphere_shape,
-            UsdGeomPrimType.CYLINDER: USDParser._create_cylinder_shape,
+        builders: Dict[UsdGeomPrimType, Type[UsdShapeBuilder]] = {
+            UsdGeomPrimType.MESH: UsdMeshShapeBuilder,
+            UsdGeomPrimType.CUBE: UsdCubeShapeBuilder,
+            UsdGeomPrimType.SPHERE: UsdSphereShapeBuilder,
+            UsdGeomPrimType.CYLINDER: UsdCylinderShapeBuilder,
         }
-        return builders[self](prim, link_to_world, body)
+        return builders[self](prim, link_to_world, body).build()
 
 
 class UsdPhysicsJointType(StrEnum):
@@ -187,6 +188,231 @@ class UsdAxis(StrEnum):
     X = "X"
     Y = "Y"
     Z = "Z"
+
+
+@dataclass
+class UsdShapeBuilder(ABC):
+    """
+    Builds the :class:`~semantic_digital_twin.world_description.geometry.Shape` one USD
+    geometry prim describes, relative to its enclosing link.
+    """
+
+    prim: "Usd.Prim"
+    """
+    The prim to build a shape for.
+    """
+
+    link_to_world: "Gf.Matrix4d"
+    """
+    The enclosing link's local-to-world transform.
+    """
+
+    body: Body
+    """
+    The link's body, used as the shape's reference frame.
+    """
+
+    @abstractmethod
+    def build(self) -> Shape:
+        """
+        :return: The shape :attr:`prim` describes.
+        """
+
+
+@dataclass
+class UsdCubeShapeBuilder(UsdShapeBuilder):
+    """
+    Builds the Box shape a ``UsdGeom.Cube`` prim describes.
+    """
+
+    def build(self) -> Box:
+        origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
+        origin.reference_frame = self.body
+        side = UsdGeom.Cube(self.prim).GetSizeAttr().Get()
+        return Box(
+            origin=origin,
+            scale=Scale(side * scale[0], side * scale[1], side * scale[2]),
+        )
+
+
+@dataclass
+class UsdSphereShapeBuilder(UsdShapeBuilder):
+    """
+    Builds the Sphere shape a ``UsdGeom.Sphere`` prim describes.
+
+    A sphere has no per-axis size, so a non-uniform scale is approximated by its average
+    factor across the three axes.
+    """
+
+    def build(self) -> Sphere:
+        origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
+        origin.reference_frame = self.body
+        radius = UsdGeom.Sphere(self.prim).GetRadiusAttr().Get()
+        average_scale = (scale[0] + scale[1] + scale[2]) / 3.0
+        return Sphere(origin=origin, radius=radius * average_scale)
+
+
+@dataclass
+class UsdCylinderShapeBuilder(UsdShapeBuilder):
+    """
+    Builds the Cylinder shape a ``UsdGeom.Cylinder`` prim describes.
+
+    :class:`~semantic_digital_twin.world_description.geometry.Cylinder` is always
+    aligned with its local Z axis, so a cylinder authored along X or Y gets an extra
+    rotation folded into its origin to align it.
+    """
+
+    def build(self) -> Cylinder:
+        origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
+        origin.reference_frame = self.body
+        usd_cylinder = UsdGeom.Cylinder(self.prim)
+        axis = usd_cylinder.GetAxisAttr().Get()
+        # scale is in the prim's own local axes, unaffected by the alignment rotation
+        # below (which only reorients origin), so the axis also picks out which scale
+        # components are the cylinder's height vs. its two radial directions.
+        if axis == UsdAxis.X:
+            alignment = HomogeneousTransformationMatrix.from_xyz_rpy(pitch=math.pi / 2)
+            height_scale, radial_scale = scale[0], (scale[1] + scale[2]) / 2.0
+        elif axis == UsdAxis.Y:
+            alignment = HomogeneousTransformationMatrix.from_xyz_rpy(roll=-math.pi / 2)
+            height_scale, radial_scale = scale[1], (scale[0] + scale[2]) / 2.0
+        else:
+            alignment = HomogeneousTransformationMatrix()
+            height_scale, radial_scale = scale[2], (scale[0] + scale[1]) / 2.0
+        origin = origin @ alignment
+        return Cylinder(
+            origin=origin,
+            width=usd_cylinder.GetRadiusAttr().Get() * 2 * radial_scale,
+            height=usd_cylinder.GetHeightAttr().Get() * height_scale,
+        )
+
+
+@dataclass
+class UsdMeshShapeBuilder(UsdShapeBuilder):
+    """
+    Builds the Mesh shape one USD mesh prim describes, positioned relative to its link.
+
+    Applied directly to the raw vertex positions rather than split into a rotation,
+    translation, and :class:`~semantic_digital_twin.world_description.geometry.Scale`
+    for the shape's origin, since a mesh's local-to-link transform can carry a non-
+    uniform scale or shear: decomposing a general affine transform into
+    translation/rotation/scale is ill-posed in the presence of shear, while applying the
+    matrix to the points themselves is exact regardless.
+    """
+
+    def build(self) -> Mesh:
+        mesh_to_world = UsdGeom.Xformable(self.prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default()
+        )
+        mesh_to_link = mesh_to_world * self.link_to_world.GetInverse()
+
+        mesh_geometry = UsdGeom.Mesh(self.prim)
+        local_vertices = np.array(mesh_geometry.GetPointsAttr().Get())
+        vertices = self._transform_points(local_vertices, mesh_to_link)
+        faces = self._triangulate(
+            mesh_geometry.GetFaceVertexCountsAttr().Get(),
+            mesh_geometry.GetFaceVertexIndicesAttr().Get(),
+        )
+        trimesh_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+        texture_file_path = self._diffuse_texture_path(self.prim)
+        uv_per_point = self._uv_coordinates(self.prim)
+        if texture_file_path is None or uv_per_point is None:
+            uv = None
+        else:
+            uv = uv_per_point[faces.reshape(-1)]
+
+        return Mesh.from_trimesh(
+            mesh=trimesh_mesh,
+            origin=HomogeneousTransformationMatrix(reference_frame=self.body),
+            uv=uv,
+            texture_file_path=texture_file_path if uv is not None else None,
+        )
+
+    @staticmethod
+    def _transform_points(points: np.ndarray, matrix: "Gf.Matrix4d") -> np.ndarray:
+        """
+        Applies a USD transform to an array of points.
+
+        :param points: An ``(n, 3)`` array of points in the transform's source frame.
+        :param matrix: The transform to apply.
+        :return: An ``(n, 3)`` array of the transformed points.
+        """
+        points_homogeneous = np.concatenate([points, np.ones((len(points), 1))], axis=1)
+        return (points_homogeneous @ np.array(matrix))[:, :3]
+
+    @staticmethod
+    def _diffuse_texture_path(mesh_prim: "Usd.Prim") -> Optional[str]:
+        """
+        Resolves the file path of the diffuse texture bound to a mesh prim's material.
+
+        :param mesh_prim: The mesh prim to look up.
+        :return: The resolved path to the diffuse texture image, or ``None`` if the prim
+            has no bound material, its surface shader has no ``diffuseColor`` input, or
+            that input is not connected to a texture (e.g. a flat colour).
+        """
+        material, _ = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()
+        if not material:
+            return None
+
+        surface_source = material.GetSurfaceOutput().GetConnectedSource()
+        if surface_source is None:
+            return None
+        surface_shader = UsdShade.Shader(surface_source[0])
+
+        diffuse_input = surface_shader.GetInput("diffuseColor")
+        diffuse_source = diffuse_input.GetConnectedSource() if diffuse_input else None
+        if diffuse_source is None:
+            return None
+        texture_shader = UsdShade.Shader(diffuse_source[0])
+
+        file_input = texture_shader.GetInput("file")
+        asset_path = file_input.Get() if file_input else None
+        if asset_path is None or not asset_path.resolvedPath:
+            return None
+        return asset_path.resolvedPath
+
+    @staticmethod
+    def _uv_coordinates(mesh_prim: "Usd.Prim") -> Optional[np.ndarray]:
+        """
+        Reads a mesh prim's per-point UV coordinates from its ``st`` primvar.
+
+        :param mesh_prim: The mesh prim to look up.
+        :return: An ``(n_points, 2)`` array of UV coordinates, or ``None`` if the prim
+            has no ``st`` primvar, or its interpolation is not per-point
+            (``vertex``/``varying``).
+        """
+        primvar = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
+        if not primvar.IsDefined():
+            return None
+        if primvar.GetInterpolation() not in (
+            UsdGeom.Tokens.vertex,
+            UsdGeom.Tokens.varying,
+        ):
+            return None
+        values = primvar.Get()
+        if not values:
+            return None
+        return np.array(values, dtype=np.float64)
+
+    @staticmethod
+    def _triangulate(face_vertex_counts, face_vertex_indices) -> np.ndarray:
+        """
+        Fan-triangulates a USD mesh's polygonal faces.
+
+        :param face_vertex_counts: The number of vertices of each face.
+        :param face_vertex_indices: The faces' vertex indices, flattened in
+            ``face_vertex_counts`` order.
+        :return: An ``(n, 3)`` array of triangle vertex indices.
+        """
+        triangles = []
+        cursor = 0
+        for count in face_vertex_counts:
+            face = face_vertex_indices[cursor : cursor + count]
+            for i in range(1, count - 1):
+                triangles.append((face[0], face[i], face[i + 1]))
+            cursor += count
+        return np.array(triangles, dtype=np.int64)
 
 
 @dataclass
@@ -275,18 +501,6 @@ class USDParser(WorldModelParser):
         parser = cls(stage=Usd.Stage.Open(resolved_path), prefix=prefix)
         parser.path_resolver = path_resolver
         return parser
-
-    @classmethod
-    def from_stage(cls, stage: "Usd.Stage", prefix: Optional[str] = None) -> USDParser:
-        """
-        Creates a parser for an already-open stage, e.g. one composed in memory rather
-        than read from a file.
-
-        :param stage: The stage to parse.
-        :param prefix: The prefix for every name used in this world.
-        :return: The parser for the given stage.
-        """
-        return cls(stage=stage, prefix=prefix)
 
     # %% diagnostics
 
@@ -660,219 +874,6 @@ class USDParser(WorldModelParser):
                 ) from error
             return None
         return geom_type.create_shape(prim, link_to_world, body)
-
-    @staticmethod
-    def _create_cube_shape(
-        prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
-    ) -> Box:
-        """
-        Creates the Box shape a ``UsdGeom.Cube`` prim describes.
-
-        :param prim: The cube prim.
-        :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
-        :return: The created shape.
-        """
-        origin, scale = _decompose_local_transform(prim, link_to_world)
-        origin.reference_frame = body
-        side = UsdGeom.Cube(prim).GetSizeAttr().Get()
-        return Box(
-            origin=origin,
-            scale=Scale(side * scale[0], side * scale[1], side * scale[2]),
-        )
-
-    @staticmethod
-    def _create_sphere_shape(
-        prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
-    ) -> Sphere:
-        """
-        Creates the Sphere shape a ``UsdGeom.Sphere`` prim describes.
-
-        A sphere has no per-axis size, so a non-uniform scale is approximated by its
-        average factor across the three axes.
-
-        :param prim: The sphere prim.
-        :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
-        :return: The created shape.
-        """
-        origin, scale = _decompose_local_transform(prim, link_to_world)
-        origin.reference_frame = body
-        radius = UsdGeom.Sphere(prim).GetRadiusAttr().Get()
-        average_scale = (scale[0] + scale[1] + scale[2]) / 3.0
-        return Sphere(origin=origin, radius=radius * average_scale)
-
-    @staticmethod
-    def _create_cylinder_shape(
-        prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
-    ) -> Cylinder:
-        """
-        Creates the Cylinder shape a ``UsdGeom.Cylinder`` prim describes.
-
-        :class:`~semantic_digital_twin.world_description.geometry.Cylinder` is always
-        aligned with its local Z axis, so a cylinder authored along X or Y gets an extra
-        rotation folded into its origin to align it.
-
-        :param prim: The cylinder prim.
-        :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
-        :return: The created shape.
-        """
-        origin, scale = _decompose_local_transform(prim, link_to_world)
-        origin.reference_frame = body
-        usd_cylinder = UsdGeom.Cylinder(prim)
-        axis = usd_cylinder.GetAxisAttr().Get()
-        # scale is in the prim's own local axes, unaffected by the alignment rotation
-        # below (which only reorients origin), so the axis also picks out which scale
-        # components are the cylinder's height vs. its two radial directions.
-        if axis == UsdAxis.X:
-            alignment = HomogeneousTransformationMatrix.from_xyz_rpy(pitch=math.pi / 2)
-            height_scale, radial_scale = scale[0], (scale[1] + scale[2]) / 2.0
-        elif axis == UsdAxis.Y:
-            alignment = HomogeneousTransformationMatrix.from_xyz_rpy(roll=-math.pi / 2)
-            height_scale, radial_scale = scale[1], (scale[0] + scale[2]) / 2.0
-        else:
-            alignment = HomogeneousTransformationMatrix()
-            height_scale, radial_scale = scale[2], (scale[0] + scale[1]) / 2.0
-        origin = origin @ alignment
-        return Cylinder(
-            origin=origin,
-            width=usd_cylinder.GetRadiusAttr().Get() * 2 * radial_scale,
-            height=usd_cylinder.GetHeightAttr().Get() * height_scale,
-        )
-
-    @staticmethod
-    def _create_mesh_shape(
-        mesh_prim: "Usd.Prim", link_to_world: "Gf.Matrix4d", body: Body
-    ) -> Mesh:
-        """
-        Creates the Mesh shape one USD mesh prim describes, positioned relative to its
-        link.
-
-        Applied directly to the raw vertex positions rather than split into a rotation,
-        translation, and :class:`~semantic_digital_twin.world_description.geometry.Scale`
-        for the shape's origin, since a mesh's local-to-link transform can carry a non-
-        uniform scale or shear: decomposing a general affine transform into
-        translation/rotation/scale is ill-posed in the presence of shear, while applying
-        the matrix to the points themselves is exact regardless.
-
-        :param mesh_prim: The USD mesh prim.
-        :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
-        :return: The created shape.
-        """
-        mesh_to_world = UsdGeom.Xformable(mesh_prim).ComputeLocalToWorldTransform(
-            Usd.TimeCode.Default()
-        )
-        mesh_to_link = mesh_to_world * link_to_world.GetInverse()
-
-        mesh_geometry = UsdGeom.Mesh(mesh_prim)
-        local_vertices = np.array(mesh_geometry.GetPointsAttr().Get())
-        vertices = USDParser._transform_points(local_vertices, mesh_to_link)
-        faces = USDParser._triangulate(
-            mesh_geometry.GetFaceVertexCountsAttr().Get(),
-            mesh_geometry.GetFaceVertexIndicesAttr().Get(),
-        )
-        trimesh_mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
-
-        texture_file_path = USDParser._diffuse_texture_path(mesh_prim)
-        uv_per_point = USDParser._uv_coordinates(mesh_prim)
-        if texture_file_path is None or uv_per_point is None:
-            uv = None
-        else:
-            uv = uv_per_point[faces.reshape(-1)]
-
-        return Mesh.from_trimesh(
-            mesh=trimesh_mesh,
-            origin=HomogeneousTransformationMatrix(reference_frame=body),
-            uv=uv,
-            texture_file_path=texture_file_path if uv is not None else None,
-        )
-
-    @staticmethod
-    def _transform_points(points: np.ndarray, matrix: "Gf.Matrix4d") -> np.ndarray:
-        """
-        Applies a USD transform to an array of points.
-
-        :param points: An ``(n, 3)`` array of points in the transform's source frame.
-        :param matrix: The transform to apply.
-        :return: An ``(n, 3)`` array of the transformed points.
-        """
-        points_homogeneous = np.concatenate([points, np.ones((len(points), 1))], axis=1)
-        return (points_homogeneous @ np.array(matrix))[:, :3]
-
-    @staticmethod
-    def _diffuse_texture_path(mesh_prim: "Usd.Prim") -> Optional[str]:
-        """
-        Resolves the file path of the diffuse texture bound to a mesh prim's material.
-
-        :param mesh_prim: The mesh prim to look up.
-        :return: The resolved path to the diffuse texture image, or ``None`` if the prim
-            has no bound material, its surface shader has no ``diffuseColor`` input, or
-            that input is not connected to a texture (e.g. a flat colour).
-        """
-        material, _ = UsdShade.MaterialBindingAPI(mesh_prim).ComputeBoundMaterial()
-        if not material:
-            return None
-
-        surface_source = material.GetSurfaceOutput().GetConnectedSource()
-        if surface_source is None:
-            return None
-        surface_shader = UsdShade.Shader(surface_source[0])
-
-        diffuse_input = surface_shader.GetInput("diffuseColor")
-        diffuse_source = diffuse_input.GetConnectedSource() if diffuse_input else None
-        if diffuse_source is None:
-            return None
-        texture_shader = UsdShade.Shader(diffuse_source[0])
-
-        file_input = texture_shader.GetInput("file")
-        asset_path = file_input.Get() if file_input else None
-        if asset_path is None or not asset_path.resolvedPath:
-            return None
-        return asset_path.resolvedPath
-
-    @staticmethod
-    def _uv_coordinates(mesh_prim: "Usd.Prim") -> Optional[np.ndarray]:
-        """
-        Reads a mesh prim's per-point UV coordinates from its ``st`` primvar.
-
-        :param mesh_prim: The mesh prim to look up.
-        :return: An ``(n_points, 2)`` array of UV coordinates, or ``None`` if the prim
-            has no ``st`` primvar, or its interpolation is not per-point
-            (``vertex``/``varying``).
-        """
-        primvar = UsdGeom.PrimvarsAPI(mesh_prim).GetPrimvar("st")
-        if not primvar.IsDefined():
-            return None
-        if primvar.GetInterpolation() not in (
-            UsdGeom.Tokens.vertex,
-            UsdGeom.Tokens.varying,
-        ):
-            return None
-        values = primvar.Get()
-        if not values:
-            return None
-        return np.array(values, dtype=np.float64)
-
-    @staticmethod
-    def _triangulate(face_vertex_counts, face_vertex_indices) -> np.ndarray:
-        """
-        Fan-triangulates a USD mesh's polygonal faces.
-
-        :param face_vertex_counts: The number of vertices of each face.
-        :param face_vertex_indices: The faces' vertex indices, flattened in
-            ``face_vertex_counts`` order.
-        :return: An ``(n, 3)`` array of triangle vertex indices.
-        """
-        triangles = []
-        cursor = 0
-        for count in face_vertex_counts:
-            face = face_vertex_indices[cursor : cursor + count]
-            for i in range(1, count - 1):
-                triangles.append((face[0], face[i], face[i + 1]))
-            cursor += count
-        return np.array(triangles, dtype=np.int64)
 
     # %% inertials
 

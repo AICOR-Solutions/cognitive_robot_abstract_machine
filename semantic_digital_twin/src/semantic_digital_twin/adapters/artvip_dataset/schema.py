@@ -8,9 +8,8 @@ from semantic_digital_twin.world import World
 
 class ArtVipCategory(StrEnum):
     """
-    Top-level asset category of the ArtVIP dataset
-    (https://github.com/x-humanoid-artvip/x-humanoid-artvip.github.io), and the folder
-    name each category's objects are stored under.
+    Top-level asset category of the ArtVIP dataset :cite:t:`jin2026artvip`, and the
+    folder name each category's objects are stored under.
     """
 
     IKEA_FURNITURE = "Ikea_furniture"

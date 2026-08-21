@@ -319,9 +319,11 @@ def test_mesh_scale_and_equality(test_mjcf_2_world):
 def _write_textured_tetrahedron(directory, texture_color) -> str:
     """
     Writes a minimal textured OBJ+MTL+PNG mesh (a tetrahedron, so its convex hull is
-    non-degenerate) into ``directory``, textured with a solid ``texture_color``, and returns
-    the OBJ file's path. Always named "tetra.obj"/"tetra.mtl"/"wood.png", so callers writing
-    into different directories can reproduce a texture basename collision between them.
+    non-degenerate) into ``directory``, textured with a solid ``texture_color``, and
+    returns the OBJ file's path.
+
+    Always named "tetra.obj"/"tetra.mtl"/"wood.png", so callers writing into different
+    directories can reproduce a texture basename collision between them.
     """
     directory.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (4, 4), color=texture_color).save(directory / "wood.png")
@@ -685,11 +687,12 @@ def test_spawn_body_with_connections():
 
 
 def test_body_frame_excludes_joint_state_at_build_time():
-    """A body's static frame must be built at the reference (zero-joint) pose.
+    """
+    A body's static frame must be built at the reference (zero-joint) pose.
 
-    The joint is non-zero while the simulator is built and is evaluated at a
-    different angle, so a frame that baked in the build-time angle would have it
-    applied twice and drift away from the world forward kinematics.
+    The joint is non-zero while the simulator is built and is evaluated at a different
+    angle, so a frame that baked in the build-time angle would have it applied twice and
+    drift away from the world forward kinematics.
     """
     world = World()
     base_body = Body(name=PrefixedName("base"))
@@ -855,9 +858,10 @@ def test_world_sim_state_sync():
 def _write_thin_slab_mesh(directory) -> str:
     """
     Writes a minimal OBJ mesh for a closed box thin enough (1e-5 units) that MuJoCo's
-    default ("legacy") volume-based inertia estimator rejects it as "mesh volume is too
-    small" - the shape of real CAD furniture panels (a door slab, a backing panel),
-    reproduced with an actual ArtVIP dataset object.
+    default ("legacy") volume-based inertia estimator used to reject it as "mesh volume
+    is too small" (fixed upstream as of MuJoCo 3.11) - the shape of real CAD furniture
+    panels (a door slab, a backing panel), reproduced with an actual ArtVIP dataset
+    object.
     """
     directory.mkdir(parents=True, exist_ok=True)
     mesh_file = directory / "slab.obj"
@@ -883,7 +887,7 @@ def _write_thin_slab_mesh(directory) -> str:
 
 
 def test_builder_compiles_a_body_with_thin_panel_geometry(tmp_path):
-    # Before the fix, MuJoCo's default inertia estimator rejected a mesh this thin with
+    # Before MuJoCo 3.11, the default inertia estimator rejected a mesh this thin with
     # "ValueError: mesh volume is too small", so this raised instead of compiling.
     mesh_file = _write_thin_slab_mesh(tmp_path)
     world = World()
@@ -903,7 +907,7 @@ def test_builder_compiles_a_body_with_thin_panel_geometry(tmp_path):
     builder.build_world(world=world, file_path=str(tmp_path / "scene.xml"))
 
     [mesh_spec] = builder.spec.meshes
-    assert mesh_spec.inertia == mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL
+    assert mesh_spec.name.startswith("slab")
 
 
 def _write_flat_quad_mesh(directory) -> str:
