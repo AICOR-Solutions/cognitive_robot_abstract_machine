@@ -1,26 +1,20 @@
 """
 Stand-in for the ORM interface generator of a workspace package.
 
-Records what the checkout looked like when it ran and then fills its own package's
-interface, so a test can observe in which order and against which state the generators
-were driven.
+Records what the checkout and the interpreter looked like when it ran and then fills its
+own package's interface, so a test can observe in which order, in which process and
+against which state the generators were driven.
 """
 
 from __future__ import annotations
 
 import logging
-import sys
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from krrood.class_diagrams.progress_report import is_progress_wanted, report_progress
 from typing_extensions import List
-
-# The shared dependency sits next to this script, both in the dataset and in the
-# scripts folder of the package a checkout under test copies it into.
-sys.path.insert(0, str(Path(__file__).parent))
-
-import shared_dependency
 
 GENERATION_LOG_NAME = "generation_log.txt"
 """
@@ -64,9 +58,9 @@ class GenerationRecord:
     Names of the packages whose interface already held content, in alphabetical order.
     """
 
-    shared_dependency_users: int
+    process_id: int
     """
-    How many generators had imported the shared dependency, this one included.
+    The interpreter this generator ran in.
     """
 
     root_logger_handlers: int
@@ -82,11 +76,11 @@ class GenerationRecord:
         :param line: One line of the generation log.
         :return: The record the line holds.
         """
-        package_name, generated, users, handlers = line.split(":")
+        package_name, generated, process_id, handlers = line.split(":")
         return cls(
             package_name,
             generated.split(",") if generated else [],
-            int(users),
+            int(process_id),
             int(handlers),
         )
 
@@ -98,7 +92,7 @@ class GenerationRecord:
         """
         return (
             f"{self.package_name}:{','.join(self.generated_packages)}"
-            f":{self.shared_dependency_users}:{self.root_logger_handlers}\n"
+            f":{self.process_id}:{self.root_logger_handlers}\n"
         )
 
 
@@ -159,12 +153,11 @@ def main() -> None:
 
     # A real generator raises the verbosity of the code it drives for its own run.
     logging.getLogger().addHandler(logging.NullHandler())
-    shared_dependency.users.append(package_root.name)
 
     record = GenerationRecord(
         package_root.name,
         generated_packages(repository_root),
-        len(shared_dependency.users),
+        os.getpid(),
         len(logging.getLogger().handlers),
     )
     with (repository_root / GENERATION_LOG_NAME).open("a", encoding="utf-8") as log:

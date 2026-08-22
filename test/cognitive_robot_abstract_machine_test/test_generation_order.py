@@ -106,6 +106,11 @@ def alternative_mapping_class_names(interface: OrmInterface) -> Set[str]:
     Counts a class that reaches :data:`ALTERNATIVE_MAPPING` through another class of the
     same package, which is how a mapping that specializes another one is written.
 
+    ..note:: Read from the source rather than from
+        :func:`krrood.utils.recursive_subclasses`, which would need every workspace
+        package imported here, and every ORM interface built first, since some of their
+        modules import a generated interface at module level.
+
     :param interface: The interface whose package is inspected.
     :return: The names of its alternative mapping classes.
     """

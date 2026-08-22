@@ -4,6 +4,7 @@ Tests for building the ORM interfaces a checkout needs before it can persist obj
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -25,7 +26,7 @@ from cognitive_robot_abstract_machine.orm_interfaces import (
     WorkspaceOrmInterfaces,
 )
 
-from .dataset import failing_generate_orm, generate_orm, shared_dependency
+from .dataset import failing_generate_orm, generate_orm
 
 # %% a checkout of packages that generate an interface
 
@@ -52,7 +53,6 @@ def checkout(tmp_path: Path) -> Path:
             Path(generate_orm.__file__),
             package_root / "scripts" / "generate_orm.py",
         )
-        shutil.copy(Path(shared_dependency.__file__), package_root / "scripts")
         interface = generate_orm.interface_of(package_root)
         interface.parent.mkdir(parents=True)
         interface.write_text(STALE_INTERFACE_CONTENT, encoding="utf-8")
@@ -146,15 +146,26 @@ def test_the_generators_share_one_interpreter(
     workspace: WorkspaceOrmInterfaces, checkout: Path
 ):
     """
-    A module two generators import is imported once for the whole build, instead of
-    once per generator.
+    Every generator runs in the same interpreter, so what one of them imports is
+    already imported for the ones after it.
     """
     workspace.regenerate()
 
     records = generate_orm.read_generation_log(checkout)
-    assert [record.shared_dependency_users for record in records] == list(
-        range(1, len(PACKAGE_NAMES) + 1)
-    )
+    assert len({record.process_id for record in records}) == 1
+
+
+def test_the_build_stays_out_of_the_calling_interpreter(
+    workspace: WorkspaceOrmInterfaces, checkout: Path
+):
+    """
+    The interpreter the generators share is not the one that asked for the build, which
+    is what keeps the packages they import out of it.
+    """
+    workspace.regenerate()
+
+    records = generate_orm.read_generation_log(checkout)
+    assert records[0].process_id != os.getpid()
 
 
 def test_a_generator_starts_from_the_logging_the_build_was_launched_with(
