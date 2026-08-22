@@ -362,7 +362,7 @@ def test_writing_through_a_flattened_attribute_of_a_match_is_rejected():
     whose attribute is reached through one has no single place to write the value.
     """
     drawer = Drawer(handle=Handle(name="Handle1"), container=Container(name="Drawer1"))
-    match = an(Cabinet)(container=Container(name="Container1"), drawers=[drawer])
+    match = a(Cabinet)(container=Container(name="Container1"), drawers=[drawer])
     attribute_match = AttributeMatch(
         parent=match,
         attribute_name="handle",
