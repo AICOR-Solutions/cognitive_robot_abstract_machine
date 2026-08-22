@@ -404,13 +404,15 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 @dataclass(eq=False, repr=False)
 class SingleValueMapping(MappedVariable[T], ABC):
     """
-    A mapping fully determined by the expression it is applied to and its own arguments.
+    A mapping that reaches a single value, fully determined by the expression it is
+    applied to and its own arguments.
 
-    Two occurrences of one projection therefore denote the same values, and
-    :meth:`CanBehaveLikeAVariable._get_mapped_variable_` gives them one shared node. A
-    projection may still map a value to several - indexing by a symbolic key maps one
-    collection to one value per key - but the choice among them is made by an argument
-    the writer named, so both occurrences follow it together.
+    Two occurrences of one therefore denote the same value and share the node
+    :meth:`CanBehaveLikeAVariable._get_mapped_variable_` gives them.
+
+    ..note::
+        The guarantee is *at most* one: an attribute reaches nothing when the value does
+        not have it, and an index by a value nothing when the key is missing.
     """
 
 
