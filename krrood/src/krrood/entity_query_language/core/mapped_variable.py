@@ -246,26 +246,6 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         return super().__hash__()
 
 
-@dataclass(frozen=True, kw_only=True)
-class Rerooting:
-    """
-    One rebuild of a mapping chain onto another expression.
-
-    Expressions are identified rather than held, because comparing two of them builds a
-    symbolic comparison instead of answering whether they are the same.
-    """
-
-    replaced_id: uuid.UUID
-    """
-    The identifier of the expression the new root took the place of.
-    """
-
-    root_id: uuid.UUID
-    """
-    The identifier of the expression placed at the base of the rebuilt chain.
-    """
-
-
 @dataclass(eq=False, repr=False)
 class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
     """
@@ -277,11 +257,14 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
     The child expression to apply the mapping to.
     """
 
-    _rerooted_chains_: Dict[Rerooting, MappedVariable] = field(
+    _rerooted_chains_: Dict[uuid.UUID, MappedVariable] = field(
         init=False, default_factory=dict
     )
     """
-    This chain rebuilt on other roots, keyed by the re-rooting that produced each.
+    This chain rebuilt on other roots, keyed by the identifier of each new root.
+
+    Roots are identified rather than held, because comparing two symbolic expressions
+    builds a comparison instead of answering whether they are the same.
     """
 
     def __post_init__(self):
@@ -345,6 +328,10 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         Each mapping is rebuilt once per root, so chains that share a mapping still
         share it afterwards and keep ranging over the same values.
 
+        .. note::
+            The root alone identifies a rebuild: ``replaced`` is either this chain's
+            own base or a step within it, both fixed once the chain exists.
+
         :param root: The expression to place at the base of the rebuilt chain.
         :param replaced: The expression ``root`` takes the place of, which is this
             chain's own base unless a step within the chain names the new root.
@@ -353,17 +340,16 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         """
         if self._id_ == replaced._id_:
             return root
-        rerooting = Rerooting(replaced_id=replaced._id_, root_id=root._id_)
-        if rerooting in self._rerooted_chains_:
-            return self._rerooted_chains_[rerooting]
+        if root._id_ in self._rerooted_chains_:
+            return self._rerooted_chains_[root._id_]
         if isinstance(self._child_, MappedVariable):
             rebuilt_child = self._child_._reroot_on_(root, replaced)
         elif self._child_._id_ == replaced._id_:
             rebuilt_child = root
         else:
             rebuilt_child = self._child_
-        self._rerooted_chains_[rerooting] = self._rebuild_on_(rebuilt_child)
-        return self._rerooted_chains_[rerooting]
+        self._rerooted_chains_[root._id_] = self._rebuild_on_(rebuilt_child)
+        return self._rerooted_chains_[root._id_]
 
     @property
     def _access_path_(self) -> List[Self]:
