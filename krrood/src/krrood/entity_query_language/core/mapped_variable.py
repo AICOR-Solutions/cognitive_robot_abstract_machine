@@ -361,6 +361,12 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
         This modifies instance in-place.
 
+        Only the mappings that name where their value is kept override this - an
+        attribute and an index by a value. Whether a mapping names such a place is a
+        separate question from how many values it reaches: a call reaches exactly one
+        value and still has nowhere to write back to, because it computes that value
+        rather than reading it from somewhere.
+
         :param instance: The instance to be updated.
         :param value: The value to set.
         :raises ReadOnlyMapping: If this mapping does not name where its value is kept.
