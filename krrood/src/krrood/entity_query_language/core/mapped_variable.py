@@ -361,11 +361,17 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
         This modifies instance in-place.
 
-        Only the mappings that name where their value is kept override this - an
-        attribute and an index by a value. Whether a mapping names such a place is a
-        separate question from how many values it reaches: a call reaches exactly one
-        value and still has nowhere to write back to, because it computes that value
-        rather than reading it from somewhere.
+        Two mappings name where their value is kept and so override this: an
+        :class:`Attribute` names a field, and an :class:`IndexByValue` names the key an
+        element is stored under. The other three do not, and a value cannot be written
+        through any of them: a :class:`Call` computes its value, an
+        :class:`IndexByExpression` names which elements to reach rather than where one
+        of them lives, and a :class:`FlatVariable` reaches every element without naming
+        any.
+
+        Naming such a place is a separate question from how many values a mapping
+        reaches. A call reaches exactly one value and still cannot be written through,
+        because it computes that value rather than reading it from somewhere.
 
         :param instance: The instance to be updated.
         :param value: The value to set.
@@ -417,8 +423,9 @@ class SingleValueMapping(MappedVariable[T], ABC):
     :meth:`CanBehaveLikeAVariable._get_mapped_variable_` gives them.
 
     ..note::
-        The guarantee is *at most* one: an attribute reaches nothing when the value does
-        not have it, and an index by a value nothing when the key is missing.
+        The guarantee is *at most* one value. An attribute reaches no value when the
+        instance does not have that attribute, and an index by a value reaches no value
+        when nothing is stored under that key.
     """
 
 
