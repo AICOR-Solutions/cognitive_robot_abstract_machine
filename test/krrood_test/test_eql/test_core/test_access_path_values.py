@@ -97,3 +97,60 @@ def test_chain_through_a_flattened_attribute_is_rejected_whatever_the_collection
 
     with pytest.raises(MultipleValuesAlongAccessPath):
         chain.apply_mapping_on_external_root(cabinet)
+
+
+# %% writing through a chain
+
+
+def test_setting_through_an_index_by_a_value_writes_that_element(
+    handles_and_containers_world,
+):
+    """
+    Indexing by a plain value names where the element is stored, so a chain ending in
+    one can write it back.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    cabinet = next(cabinet for cabinet in cabinets if len(cabinet.drawers) > 1)
+    replacement = cabinet.drawers[1]
+    chain = variable(Cabinet, domain=cabinets).drawers[0]
+
+    chain._set_external_root_instance_value_(cabinet, replacement)
+
+    assert cabinet.drawers[0] is replacement
+
+
+def test_setting_through_an_index_by_an_expression_is_not_supported(
+    handles_and_containers_world,
+):
+    """
+    An expression names which elements the indexing reaches, not where one is stored, so
+    a chain ending in one has nowhere to write back to.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    cabinet = next(cabinet for cabinet in cabinets if len(cabinet.drawers) > 1)
+    position = variable(int, domain=[0, 1])
+    chain = variable(Cabinet, domain=cabinets).drawers[position]
+
+    with pytest.raises(NotImplementedError):
+        chain._set_external_root_instance_value_(cabinet, cabinet.drawers[1])
+
+
+def test_setting_through_a_flattened_attribute_has_no_single_value(
+    handles_and_containers_world,
+):
+    """
+    Writing follows the chain to the value it sets, so a step that reaches several
+    values leaves it without one to follow, just as reading does.
+    """
+    cabinets = [
+        view for view in handles_and_containers_world.views if isinstance(view, Cabinet)
+    ]
+    cabinet = next(cabinet for cabinet in cabinets if len(cabinet.drawers) > 1)
+    chain = flat_variable(variable(Cabinet, domain=cabinets).drawers).handle.name
+
+    with pytest.raises(MultipleValuesAlongAccessPath):
+        chain._set_external_root_instance_value_(cabinet, "Handle9")

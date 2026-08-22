@@ -348,6 +348,8 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         """
         current = instance
         for domain_mapping in self._access_path_[:-1]:
+            if not isinstance(domain_mapping, Projection):
+                raise MultipleValuesAlongAccessPath(self, domain_mapping)
             current = next(domain_mapping._apply_mapping_(current))
 
         self._set_child_instance_value_(current, value)
@@ -469,9 +471,6 @@ class Index(MappedVariable[T], ABC):
     def _name_(self):
         return f"{self._child_._var_._name_}[{repr(self._key_)}]"
 
-    def _set_child_instance_value_(self, instance: Any, value: Any):
-        instance[self._key_] = value
-
 
 @dataclass(eq=False, repr=False)
 class IndexByValue(Index[T], Projection[T]):
@@ -487,6 +486,9 @@ class IndexByValue(Index[T], Projection[T]):
             yield value[self._key_]
         except IndexError:  # break iterator if the key does not exist
             return
+
+    def _set_child_instance_value_(self, instance: Any, value: Any):
+        instance[self._key_] = value
 
 
 @dataclass(eq=False, repr=False)
