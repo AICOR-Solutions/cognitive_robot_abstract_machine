@@ -35,6 +35,7 @@ from krrood.entity_query_language.core.base_expressions import (
 )
 from krrood.entity_query_language.exceptions import (
     MultipleValuesAlongAccessPath,
+    ReadOnlyMapping,
     SymbolicDunderAccessError,
 )
 from krrood.entity_query_language.operators.comparator import Comparator
@@ -348,7 +349,7 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         """
         current = instance
         for domain_mapping in self._access_path_[:-1]:
-            if not isinstance(domain_mapping, Projection):
+            if not isinstance(domain_mapping, SingleValueMapping):
                 raise MultipleValuesAlongAccessPath(self, domain_mapping)
             current = next(domain_mapping._apply_mapping_(current))
 
@@ -362,8 +363,9 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
         :param instance: The instance to be updated.
         :param value: The value to set.
+        :raises ReadOnlyMapping: If this mapping does not name where its value is kept.
         """
-        raise NotImplementedError
+        raise ReadOnlyMapping(self)
 
     def apply_mapping_on_external_root(self, instance: Any) -> T:
         """
@@ -381,7 +383,7 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
         """
         current = instance
         for domain_mapping in self._access_path_:
-            if not isinstance(domain_mapping, Projection):
+            if not isinstance(domain_mapping, SingleValueMapping):
                 raise MultipleValuesAlongAccessPath(self, domain_mapping)
             current = next(domain_mapping._apply_mapping_(current))
         return current
@@ -400,7 +402,7 @@ class MappedVariable(UnaryExpression, CanBehaveLikeAVariable[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class Projection(MappedVariable[T], ABC):
+class SingleValueMapping(MappedVariable[T], ABC):
     """
     A mapping fully determined by the expression it is applied to and its own arguments.
 
@@ -413,7 +415,7 @@ class Projection(MappedVariable[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class Attribute(Projection[T]):
+class Attribute(SingleValueMapping[T]):
     """
     A symbolic attribute that can be used to access attributes of symbolic variables.
 
@@ -473,7 +475,7 @@ class Index(MappedVariable[T], ABC):
 
 
 @dataclass(eq=False, repr=False)
-class IndexByValue(Index[T], Projection[T]):
+class IndexByValue(Index[T], SingleValueMapping[T]):
     """
     Indexing by a key that is a plain value, which reaches the one element stored under
     it.
@@ -515,7 +517,7 @@ class IndexByExpression(Index[T]):
 
 
 @dataclass(eq=False, repr=False)
-class Call(Projection[T]):
+class Call(SingleValueMapping[T]):
     """
     A variable created through a function call operation on its child variable.
     """
@@ -559,7 +561,7 @@ class FlatVariable(MappedVariable[T]):
     one solution per inner element while preserving the original bindings (e.g., the View instance),
     similar to UNNEST in SQL.
 
-    Unlike a :class:`Projection`, it takes no argument naming which element it means, so
+    Unlike a :class:`SingleValueMapping`, it takes no argument naming which element it means, so
     the iteration belongs to the node itself: each flattening written is a variable of
     its own, and two of them range over the elements independently.
     """

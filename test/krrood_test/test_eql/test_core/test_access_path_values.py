@@ -7,7 +7,10 @@ These tests pin what it does when a step along the way maps one value to several
 
 import pytest
 
-from krrood.entity_query_language.exceptions import MultipleValuesAlongAccessPath
+from krrood.entity_query_language.exceptions import (
+    MultipleValuesAlongAccessPath,
+    ReadOnlyMapping,
+)
 from krrood.entity_query_language.factories import flat_variable, variable
 
 from ...dataset.semantic_world_like_classes import Cabinet
@@ -135,7 +138,7 @@ def test_setting_through_an_index_by_an_expression_is_not_supported(
     position = variable(int, domain=[0, 1])
     chain = variable(Cabinet, domain=cabinets).drawers[position]
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ReadOnlyMapping):
         chain._set_external_root_instance_value_(cabinet, cabinet.drawers[1])
 
 

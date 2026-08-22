@@ -277,6 +277,31 @@ class MultipleValuesAlongAccessPath(UsageError):
 
 
 @dataclass
+class ReadOnlyMapping(UsageError):
+    """
+    Raised when a value is written back through a chain whose step computes or picks its
+    value instead of naming where that value is kept.
+    """
+
+    mapping: MappedVariable
+    """
+    The step the value would have been written through.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.mapping._name_} does not name where its value is kept, so a value "
+            f"cannot be written through it."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Write through a step that names where the value is kept: an attribute, or "
+            "an index by the key it is stored under."
+        )
+
+
+@dataclass
 class NestedAggregationError(UsageError):
     """
     Raised when an aggregation is nested within another aggregation.
