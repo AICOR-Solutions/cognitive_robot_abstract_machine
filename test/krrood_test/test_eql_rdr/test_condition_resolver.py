@@ -2,7 +2,7 @@
 Self-contained tests for auto-condition resolution
 (:mod:`krrood.entity_query_language.rdr.condition_resolver`).
 
-``ConclusionSufficientConditionSets``/``SufficientConditionSet``/``GuardCondition`` are built by hand
+``ConclusionKnowledge``/``SufficientConditionSet``/``GuardCondition`` are built by hand
 here rather than through a real rule tree or :class:`EQLSingleClassRDR`, so this test
 module -- and the condition-resolution slice it covers -- stays testable independently
 of the rest of the RDR engine.
@@ -48,7 +48,9 @@ def _empty_knowledge(value):
     return ConclusionSufficientConditionSets(conclusion_value=value, sufficient_condition_sets=())
 
 
-# %% ResolutionMode / ResolvedCondition
+# ---------------------------------------------------------------------------
+# ResolutionMode / ResolvedCondition
+# ---------------------------------------------------------------------------
 
 
 def test_resolution_mode_has_automatic_and_hint_members():
@@ -64,7 +66,9 @@ def test_resolved_condition_carries_expression_and_resolver_type():
     assert resolved.resolver_type is TargetSufficientConditionsBasedResolver
 
 
-# %% GuardCondition.as_expression
+# ---------------------------------------------------------------------------
+# _materialize
+# ---------------------------------------------------------------------------
 
 
 def test_guard_expression_returns_the_bare_expression_when_not_negated():
@@ -83,19 +87,21 @@ def test_guard_expression_wraps_a_negated_guard_in_not():
     assert isinstance(guard_expression, Not)
     assert guard_expression._child_ is animal.has_fur
 
-    # The wrapped expression itself (not_(has_fur)) must be True exactly when has_fur
-    # is False, and False when has_fur is True -- the inverse of the bare condition.
-    negated_guard = GuardCondition(guard_expression, negated=False)
+    # materialized itself (not_(has_fur)) must be True exactly when has_fur is
+    # False, and False when has_fur is True -- the inverse of the bare condition.
+    materialized_guard = GuardCondition(guard_expression, negated=False)
     cat = Animal("cat", has_fur=True)
     snake = Animal("snake", has_fur=False)
-    assert negated_guard.holds_for(animal, cat) is False
-    assert negated_guard.holds_for(animal, snake) is True
+    assert materialized_guard.holds_for(animal, cat) is False
+    assert materialized_guard.holds_for(animal, snake) is True
 
 
-# %% TargetSufficientConditionsBasedResolver
+# ---------------------------------------------------------------------------
+# TargetKnowledgeResolver
+# ---------------------------------------------------------------------------
 
 
-def test_target_sufficient_conditions_resolver_finds_a_discriminating_guard():
+def test_target_knowledge_resolver_finds_a_discriminating_guard():
     animal = variable(Animal, domain=[])
     target_knowledge = ConclusionSufficientConditionSets(
         conclusion_value=Species.BIRD,
@@ -124,7 +130,7 @@ def test_target_sufficient_conditions_resolver_finds_a_discriminating_guard():
     assert resolved.expression is animal.can_fly
 
 
-def test_target_sufficient_conditions_resolver_returns_none_when_no_guard_discriminates():
+def test_target_knowledge_resolver_returns_none_when_no_guard_discriminates():
     animal = variable(Animal, domain=[])
     target_knowledge = ConclusionSufficientConditionSets(
         conclusion_value=Species.BIRD,
@@ -152,7 +158,7 @@ def test_target_sufficient_conditions_resolver_returns_none_when_no_guard_discri
     assert resolved is None
 
 
-def test_target_sufficient_conditions_resolver_returns_none_with_no_known_paths():
+def test_target_knowledge_resolver_returns_none_with_no_known_paths():
     animal = variable(Animal, domain=[])
 
     resolved = TargetSufficientConditionsBasedResolver().resolve(
@@ -168,7 +174,9 @@ def test_target_sufficient_conditions_resolver_returns_none_with_no_known_paths(
     assert resolved is None
 
 
-# %% CornerCaseKnowledgeResolver
+# ---------------------------------------------------------------------------
+# CornerCaseKnowledgeResolver
+# ---------------------------------------------------------------------------
 
 
 def _two_path_current_knowledge(animal):
@@ -284,7 +292,9 @@ def test_corner_case_resolver_returns_none_when_no_path_discriminates():
     assert resolved is None
 
 
-# %% ChainConditionResolver
+# ---------------------------------------------------------------------------
+# ChainConditionResolver
+# ---------------------------------------------------------------------------
 
 
 class _AlwaysFailsResolver(ConditionResolver):
