@@ -61,7 +61,7 @@ def imported_orm_packages(interface: OrmInterface) -> Set[str]:
     return imported - {interface.package_name}
 
 
-def base_name(base: ast.expr) -> str:
+def base_class_name(base: ast.expr) -> str:
     """
     The name a class states a base class under.
 
@@ -70,7 +70,7 @@ def base_name(base: ast.expr) -> str:
         with.
     """
     if isinstance(base, ast.Subscript):
-        return base_name(base.value)
+        return base_class_name(base.value)
     if isinstance(base, ast.Attribute):
         return base.attr
     if isinstance(base, ast.Name):
@@ -78,7 +78,7 @@ def base_name(base: ast.expr) -> str:
     return ast.unparse(base)
 
 
-def bases_by_class(interface: OrmInterface) -> Dict[str, Set[str]]:
+def base_class_names_by_class_name(interface: OrmInterface) -> Dict[str, Set[str]]:
     """
     The base classes of every class a package's own sources define.
 
@@ -86,18 +86,20 @@ def bases_by_class(interface: OrmInterface) -> Dict[str, Set[str]]:
     :return: The names of each class's base classes, by class name.
     """
     source_root = interface.repository_root / interface.package_name / "src"
-    defined = {}
+    bases_by_class_name = {}
     for source in source_root.rglob("*.py"):
         if source == interface.path:
             continue
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
-                defined[node.name] = {base_name(base) for base in node.bases}
-    return defined
+                bases_by_class_name[node.name] = {
+                    base_class_name(base) for base in node.bases
+                }
+    return bases_by_class_name
 
 
-def alternative_mappings(interface: OrmInterface) -> Set[str]:
+def alternative_mapping_class_names(interface: OrmInterface) -> Set[str]:
     """
     Names of the classes a package defines as ORMatic alternative mappings.
 
@@ -107,18 +109,20 @@ def alternative_mappings(interface: OrmInterface) -> Set[str]:
     :param interface: The interface whose package is inspected.
     :return: The names of its alternative mapping classes.
     """
-    defined = bases_by_class(interface)
-    mappings: Set[str] = set()
-    growing = True
-    while growing:
-        found = {
-            name
-            for name, bases in defined.items()
-            if name not in mappings and bases & (mappings | {ALTERNATIVE_MAPPING})
-        }
-        mappings |= found
-        growing = bool(found)
-    return mappings
+    bases_by_class_name = base_class_names_by_class_name(interface)
+    known_mapping_names = {ALTERNATIVE_MAPPING}
+    newly_found_mapping_names = set(known_mapping_names)
+
+    while newly_found_mapping_names:
+        newly_found_mapping_names = set()
+        for class_name, base_class_names in bases_by_class_name.items():
+            is_known_mapping = class_name in known_mapping_names
+            inherits_a_mapping = bool(base_class_names & known_mapping_names)
+            if inherits_a_mapping and not is_known_mapping:
+                newly_found_mapping_names.add(class_name)
+        known_mapping_names |= newly_found_mapping_names
+
+    return known_mapping_names - {ALTERNATIVE_MAPPING}
 
 
 def dependency_closure(interface: OrmInterface) -> Set[str]:
@@ -176,6 +180,7 @@ def test_alternative_mappings_only_reach_the_interfaces_that_build_on_them():
         leaking = {
             earlier.package_name
             for earlier in interfaces[:position]
-            if earlier.package_name not in allowed and alternative_mappings(earlier)
+            if earlier.package_name not in allowed
+            and alternative_mapping_class_names(earlier)
         }
         assert not leaking
