@@ -25,7 +25,7 @@ from cognitive_robot_abstract_machine.orm_interfaces import (
     WorkspaceOrmInterfaces,
 )
 
-from .dataset import failing_generate_orm, generate_orm
+from .dataset import failing_generate_orm, generate_orm, shared_dependency
 
 # %% a checkout of packages that generate an interface
 
@@ -55,6 +55,8 @@ def checkout(tmp_path: Path) -> Path:
         interface = generate_orm.interface_of(package_root)
         interface.parent.mkdir(parents=True)
         interface.write_text(STALE_INTERFACE_CONTENT, encoding="utf-8")
+
+    shutil.copy(Path(shared_dependency.__file__), tmp_path)
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
@@ -136,6 +138,39 @@ def test_regeneration_fills_every_interface(workspace: WorkspaceOrmInterfaces):
         assert interface.path.read_text(
             encoding="utf-8"
         ) == generate_orm.interface_content(interface.package_name)
+
+
+# %% one interpreter for every generator
+
+
+def test_the_generators_share_one_interpreter(
+    workspace: WorkspaceOrmInterfaces, checkout: Path
+):
+    """
+    A module two generators import is imported once for the whole build, instead of
+    once per generator.
+    """
+    workspace.regenerate()
+
+    records = generate_orm.read_generation_log(checkout)
+    assert [record.shared_dependency_users for record in records] == list(
+        range(1, len(PACKAGE_NAMES) + 1)
+    )
+
+
+def test_a_generator_starts_from_the_logging_the_build_was_launched_with(
+    workspace: WorkspaceOrmInterfaces, checkout: Path
+):
+    """
+    A generator configures logging for its own run, so what it leaves behind does not
+    reach the generators after it.
+    """
+    workspace.regenerate()
+
+    records = generate_orm.read_generation_log(checkout)
+    assert [record.root_logger_handlers for record in records] == [1] * len(
+        PACKAGE_NAMES
+    )
 
 
 # %% incomplete checkouts
@@ -230,6 +265,25 @@ def test_a_failing_generator_reports_what_it_wrote(
     assert failure.value.package_name == PACKAGE_NAMES[0]
 
 
+def test_a_failing_generator_is_named_when_it_had_the_terminal(checkout: Path):
+    """
+    A build writing to the terminal reports nothing back, so the package that failed is
+    read off the interface it left unwritten.
+    """
+    shutil.copy(
+        Path(failing_generate_orm.__file__),
+        checkout / PACKAGE_NAMES[-1] / "scripts" / "generate_orm.py",
+    )
+    workspace = WorkspaceOrmInterfaces(
+        tuple(OrmInterface(package_name, checkout) for package_name in PACKAGE_NAMES)
+    )
+
+    with pytest.raises(OrmGenerationFailedError) as failure:
+        workspace.regenerate(show_generator_output=True)
+
+    assert failure.value.package_name == PACKAGE_NAMES[-1]
+
+
 def test_the_bar_counts_every_class_of_every_interface(
     workspace: WorkspaceOrmInterfaces, monkeypatch
 ):
@@ -250,7 +304,7 @@ def test_the_bar_learns_how_many_classes_an_interface_holds(
 ):
     progress = orm_interfaces.BuildProgress(len(PACKAGE_NAMES), False)
     with progress:
-        workspace.interfaces[0].generate(progress)
+        workspace.run_reporting_to(progress)
 
         assert progress.bar.total == len(generate_orm.MAPPED_CLASS_NAMES)
         assert progress.bar.n == len(generate_orm.MAPPED_CLASS_NAMES)
@@ -261,8 +315,7 @@ def test_the_interfaces_done_are_counted_as_the_build_goes(
 ):
     progress = orm_interfaces.BuildProgress(len(PACKAGE_NAMES), False)
     with progress:
-        for interface in workspace.interfaces:
-            interface.generate(progress)
+        workspace.run_reporting_to(progress)
 
     assert progress.completed_interfaces == len(PACKAGE_NAMES)
 
