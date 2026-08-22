@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 
-from typing_extensions import List, Set
+from typing_extensions import Dict, List, Set
 
 from cognitive_robot_abstract_machine.orm_interfaces import (
     OrmInterface,
@@ -35,6 +35,7 @@ def imported_modules(node: ast.AST) -> List[str]:
     The modules an import statement reads from.
 
     :param node: The node to inspect; anything but an import yields nothing.
+    :return: The dotted names of the modules it imports.
     """
     if isinstance(node, ast.Import):
         return [alias.name for alias in node.names]
@@ -48,6 +49,7 @@ def imported_orm_packages(interface: OrmInterface) -> Set[str]:
     Names of the other packages whose ORM modules a generator imports.
 
     :param interface: The interface whose generator is inspected.
+    :return: The names of the packages it reads an ORM module of.
     """
     tree = ast.parse(interface.generator.read_text(encoding="utf-8"))
     imported = {
@@ -59,23 +61,64 @@ def imported_orm_packages(interface: OrmInterface) -> Set[str]:
     return imported - {interface.package_name}
 
 
-def defines_alternative_mappings(interface: OrmInterface) -> bool:
+def base_name(base: ast.expr) -> str:
     """
-    Whether a package's own sources define an alternative mapping.
+    The name a class states a base class under.
+
+    :param base: The base class as it is written.
+    :return: Its name, without the module it is read from or what it is subscripted
+        with.
+    """
+    if isinstance(base, ast.Subscript):
+        return base_name(base.value)
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    if isinstance(base, ast.Name):
+        return base.id
+    return ast.unparse(base)
+
+
+def bases_by_class(interface: OrmInterface) -> Dict[str, Set[str]]:
+    """
+    The base classes of every class a package's own sources define.
 
     :param interface: The interface whose package is inspected.
+    :return: The names of each class's base classes, by class name.
     """
     source_root = interface.repository_root / interface.package_name / "src"
+    defined = {}
     for source in source_root.rglob("*.py"):
         if source == interface.path:
             continue
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            if any(ALTERNATIVE_MAPPING in ast.unparse(base) for base in node.bases):
-                return True
-    return False
+            if isinstance(node, ast.ClassDef):
+                defined[node.name] = {base_name(base) for base in node.bases}
+    return defined
+
+
+def alternative_mappings(interface: OrmInterface) -> Set[str]:
+    """
+    Names of the classes a package defines as ORMatic alternative mappings.
+
+    Counts a class that reaches :data:`ALTERNATIVE_MAPPING` through another class of the
+    same package, which is how a mapping that specializes another one is written.
+
+    :param interface: The interface whose package is inspected.
+    :return: The names of its alternative mapping classes.
+    """
+    defined = bases_by_class(interface)
+    mappings: Set[str] = set()
+    growing = True
+    while growing:
+        found = {
+            name
+            for name, bases in defined.items()
+            if name not in mappings and bases & (mappings | {ALTERNATIVE_MAPPING})
+        }
+        mappings |= found
+        growing = bool(found)
+    return mappings
 
 
 def dependency_closure(interface: OrmInterface) -> Set[str]:
@@ -83,6 +126,7 @@ def dependency_closure(interface: OrmInterface) -> Set[str]:
     Names of the packages an interface builds on, directly or through another one.
 
     :param interface: The interface whose dependencies are collected.
+    :return: The names of the packages it builds on.
     """
     interfaces_by_name = {
         member.package_name: member for member in WORKSPACE_ORM_INTERFACES.interfaces
@@ -132,7 +176,6 @@ def test_alternative_mappings_only_reach_the_interfaces_that_build_on_them():
         leaking = {
             earlier.package_name
             for earlier in interfaces[:position]
-            if earlier.package_name not in allowed
-            and defines_alternative_mappings(earlier)
+            if earlier.package_name not in allowed and alternative_mappings(earlier)
         }
         assert not leaking

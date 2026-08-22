@@ -16,6 +16,12 @@ from pathlib import Path
 from krrood.class_diagrams.progress_report import is_progress_wanted, report_progress
 from typing_extensions import List
 
+# The shared dependency sits next to this script, both in the dataset and in the
+# scripts folder of the package a checkout under test copies it into.
+sys.path.insert(0, str(Path(__file__).parent))
+
+import shared_dependency
+
 GENERATION_LOG_NAME = "generation_log.txt"
 """
 Name of the file in the checkout root that every generator appends one record to.
@@ -153,11 +159,6 @@ def main() -> None:
 
     # A real generator raises the verbosity of the code it drives for its own run.
     logging.getLogger().addHandler(logging.NullHandler())
-    # Imported here rather than at the top: the checkout it lives in is only known
-    # once this generator can see where it runs from.
-    sys.path.insert(0, str(repository_root))
-    import shared_dependency
-
     shared_dependency.users.append(package_root.name)
 
     record = GenerationRecord(

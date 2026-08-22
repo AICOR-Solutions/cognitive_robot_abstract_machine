@@ -52,11 +52,10 @@ def checkout(tmp_path: Path) -> Path:
             Path(generate_orm.__file__),
             package_root / "scripts" / "generate_orm.py",
         )
+        shutil.copy(Path(shared_dependency.__file__), package_root / "scripts")
         interface = generate_orm.interface_of(package_root)
         interface.parent.mkdir(parents=True)
         interface.write_text(STALE_INTERFACE_CONTENT, encoding="utf-8")
-
-    shutil.copy(Path(shared_dependency.__file__), tmp_path)
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
     subprocess.run(
