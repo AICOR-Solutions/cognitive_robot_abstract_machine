@@ -32,6 +32,7 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
 )
+from krrood.entity_query_language.core.causal import Cause
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     Attribute,
@@ -269,10 +270,10 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         Update the match with new keyword arguments to constrain the type we are
         matching with.
 
-        Eagerly creates the match's subject variable so it can be referenced in ``where``
-        conditions immediately (lowering the pattern into conditions stays lazy, tracked by
-        ``resolved``). If this match is later nested under a parent, the parent overwrites
-        the subject with its own attribute during resolution.
+        Eagerly creates the match's subject variable so it can be referenced in
+        ``where`` conditions immediately (lowering the pattern into conditions stays
+        lazy, tracked by ``resolved``). If this match is later nested under a parent,
+        the parent overwrites the subject with its own attribute during resolution.
 
         :param kwargs: The keyword arguments to match against.
         :return: The current match instance after updating it with the new keyword
@@ -463,6 +464,18 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         return isinstance(value, type(Ellipsis))
 
     @property
+    def has_cause_attributes(self) -> bool:
+        """
+        :return: Whether any attribute anywhere in this match's pattern (including nested
+            matches) is marked with :func:`~krrood.entity_query_language.factories.cause` --
+            a ``do()``-intervention target only a causal backend can resolve.
+        """
+        return any(
+            isinstance(attribute_match.assigned_value, Cause)
+            for attribute_match in self.matches_with_variables
+        )
+
+    @property
     def name(self) -> str:
         type_name = self.type.__name__ if self.type is not None else "?"
         return f"Match({type_name})"
@@ -479,6 +492,25 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         self.expression.where(*conditions)
         self.expression.build()
         return self
+
+    def causes_effect(self, *conditions: ConditionType) -> Match[T]:
+        """
+        Mark condition(s) as the effect side of a causal query, e.g.
+        ``an(Pick)(arm=cause()).causes_effect(pick.variable.action.status == SUCCESS)``.
+
+        Sugar for ``self.where(CausesEffect(and_(*conditions)))``: semantically identical
+        to an ordinary ``.where()`` under every backend except
+        :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, which reads
+        the wrapped condition to find which variable(s) a
+        :func:`~krrood.entity_query_language.factories.cause` search should optimize for.
+
+        :param conditions: One literal comparator, or several combined with AND.
+        :return: This match, for chaining.
+        """
+        from krrood.entity_query_language.core.causal import CausesEffect
+        from krrood.entity_query_language.factories import and_
+
+        return self.where(CausesEffect(and_(*conditions)))
 
     def from_(self, domain: DomainType) -> Self:
         """
@@ -603,6 +635,18 @@ class AttributeMatch(AbstractMatchExpression[T]):
         """
         if isinstance(self.assigned_value, AbstractMatchExpression):
             return self.assigned_value.variable
+        if (
+            isinstance(self.assigned_value, Cause)
+            and self.assigned_value._type_ is None
+        ):
+            # A `Cause` is built by the user as a bare `cause()` marker before it is ever
+            # matched to an attribute, so unlike a plain literal (whose `Literal` wrapper is
+            # created right here, with `_type_=self.type`), it has no declared type of its own
+            # yet. Backfill it now that the attribute this `Cause` was assigned to is known, so
+            # code reading `assigned_variable._type_` (parametrization, generation) sees the
+            # attribute's declared type instead of `None`.
+            self.assigned_value._type_ = self.type
+            return self.assigned_value
         elif not isinstance(self.assigned_value, SymbolicExpression):
             return Literal(
                 _name__=self.variable._name_,

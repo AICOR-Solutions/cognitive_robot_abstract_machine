@@ -14,6 +14,7 @@ from typing_extensions import TYPE_CHECKING, Type, Any, List, Tuple, Optional
 from krrood.exceptions import DataclassException
 
 if TYPE_CHECKING:
+    from krrood.entity_query_language.backends import QueryBackend
     from krrood.entity_query_language.query.query import (
         Query,
     )
@@ -780,6 +781,36 @@ class SelectiveBackendCannotResolveEllipsisMatch(DataclassException):
 
 
 @dataclass
+class BackendCannotEvaluateCause(DataclassException):
+    """
+    Raised when a match with a :class:`~krrood.entity_query_language.core.causal.Cause`
+    (``cause()``) intervention is evaluated with a backend that has no notion of a
+    causal graph to search over, and that backend was configured (via
+    ``crash_on_unresolvable_cause=True``) to fail loudly instead of warning and treating
+    the intervention as an ordinary unspecified field.
+    """
+
+    match: Match
+    """
+    The match that has a ``Cause`` attribute.
+    """
+
+    backend_type: Type[QueryBackend]
+    """
+    The type of the backend that cannot evaluate the intervention causally.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.match} contains a cause() intervention, which {self.backend_type.__name__} "
+            f"cannot evaluate causally: it has no notion of a causal graph to intervene on."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Evaluate with a ProbabilisticBackend backed by a CausalCircuit-aware model registry."
+
+
+@dataclass
 class CalledMatchMultipleTimes(DataclassException):
     """
     Exception raised when a match expression is called multiple times.
@@ -816,6 +847,65 @@ class UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration(
     def suggest_correction(self) -> str:
         return (
             "if you're looking for more flexible generations, try ProbabilisticBackend."
+        )
+
+
+@dataclass
+class CausesEffectRequiresLiteralComparator(UsageError):
+    """
+    Raised when a :func:`~krrood.entity_query_language.query.match.Match.causes_effect`
+    condition is not a literal comparator (or a conjunction of literal comparators).
+
+    A causal effect must be expressed as ``attribute == value`` (or several such
+    comparisons ANDed together), the same restriction Pearl's atomic point-intervention
+    ``do(X=x)`` already implies: you can ask what causes an attribute to equal a value,
+    not what causes it to satisfy an arbitrary relation to another attribute.
+    """
+
+    condition: SymbolicExpression
+    """
+    The condition that is not a literal comparator or conjunction thereof.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"causes_effect(...) requires a literal comparator (attribute == value) or "
+            f"a conjunction of literal comparators, got {self.condition}."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Compare an attribute against a literal value, e.g. "
+            "`match.causes_effect(match.variable.status == SUCCESS)`, combining "
+            "several such comparisons with `and_` if needed."
+        )
+
+
+@dataclass
+class NoCausesEffectConditionForCause(DataclassException):
+    """
+    Raised when a :class:`~krrood.entity_query_language.core.causal.Cause` (``cause()``)
+    is present in a match but no
+    :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` condition
+    declares which variable it should optimize for.
+    """
+
+    expression: Query
+    """
+    The query that has a ``Cause`` but no declared effect.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.expression} has a cause() intervention but no causes_effect(...) "
+            f"condition, so there is nothing to search for the best intervention region "
+            f"against."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Add a causes_effect(...) condition declaring the effect, e.g. "
+            "`match.causes_effect(match.variable.status == SUCCESS)`."
         )
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import operator
 
 from krrood.entity_query_language.core.base_expressions import Filter
+from krrood.entity_query_language.core.causal import CausesEffect
 from krrood.entity_query_language.core.variable import InstantiatedVariable
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.core_logical_operators import (
@@ -671,3 +672,28 @@ class FilterRule(PhraseRule):
         'Find a Robot whose battery is greater than 50'
         """
         return context.child(node.condition)
+
+
+class CausesEffectRule(PhraseRule):
+    """Transparent wrapper (``causes_effect(...)``) → delegate to the wrapped condition.
+
+    ``causes_effect(...)`` evaluates identically to a plain condition under every
+    backend (see :class:`~krrood.entity_query_language.core.causal.CausesEffect`), so it
+    renders identically too -- the wrapper carries no surface text of its own, only
+    metadata :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` reads.
+
+    >>> robot = variable(Robot, [])
+    >>> verbalize_expression(CausesEffect(robot.battery > 50))
+    'the battery of a Robot is greater than 50'
+    """
+
+    construct = CausesEffect
+
+    def build(self, node: CausesEffect, context: RuleContext) -> VerbalizationFragment:
+        """
+        Delegate transparently to the wrapped condition -- no surface text of its own.
+
+        It adds nothing to the class example's rendering: the recursion into the wrapped
+        comparator produces the whole *battery ... is greater than 50* clause.
+        """
+        return context.child(node._child_)

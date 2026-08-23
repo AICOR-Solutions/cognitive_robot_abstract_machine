@@ -14,9 +14,12 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
 )
+from krrood.entity_query_language.core.causal import CausalRole, Cause
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.exceptions import (
+    BackendCannotEvaluateCause,
+    NoCausesEffectConditionForCause,
     NoSolutionFound,
     GenerativeBackendQueryIsNotUnderspecifiedVariable,
     SelectiveBackendCannotResolveEllipsisMatch,
@@ -26,7 +29,15 @@ from krrood.entity_query_language.factories import entity, set_of, variable
 from krrood.entity_query_language.query.match import Match, AttributeMatch
 from krrood.entity_query_language.query.query import Query
 from krrood.ormatic.eql_interface import eql_to_sql
+
 try:
+    from probabilistic_model.probabilistic_circuit.causal.causal_circuit import (
+        CausalCircuit,
+    )
+    from krrood.parametrization.exceptions import (
+        DoRequiresCausalCircuitModel,
+        MultipleCauseOrEffectVariablesNotSupported,
+    )
     from krrood.parametrization.model_registries import (
         ModelRegistry,
         FullyFactorizedRegistry,
@@ -36,6 +47,9 @@ try:
     )
 except ImportError as e:
     logger.debug(f"Couldn't import probabilistic model needed classes: {e}")
+    CausalCircuit = NoneType
+    DoRequiresCausalCircuitModel = NoneType
+    MultipleCauseOrEffectVariablesNotSupported = NoneType
     ModelRegistry = NoneType
     FullyFactorizedRegistry = NoneType
     UnderspecifiedParameters = NoneType
@@ -60,6 +74,19 @@ class QueryBackend(ABC):
     concrete backend types.
     """
 
+    crash_on_unresolvable_cause: bool = field(default=False, kw_only=True)
+    """
+    Whether to raise instead of warning when an expression contains a `Cause`
+    (`cause()`) intervention this backend cannot resolve causally.
+
+    Defaults to ``False``: the `Cause` is then treated as an ordinary unspecified field
+    (a warning is logged explaining why) rather than failing the query. Set ``True`` to
+    fail loudly instead -- for example in tests that want to catch accidental `cause()`
+    misuse against a non-causal backend. Read only by :class:`SelectiveBackend` and
+    :class:`EntityQueryLanguageGenerativeBackend`; :class:`ProbabilisticBackend` always
+    raises when it cannot resolve a causal model, regardless of this flag.
+    """
+
     @abstractmethod
     def evaluate(self, expression: Evaluable) -> Iterable[T]:
         """
@@ -68,6 +95,23 @@ class QueryBackend(ABC):
         :param expression: The expression to generate answers for.
         :return: An iterable of answers.
         """
+
+    def _warn_or_raise_on_unresolved_cause_(self, expression: Evaluable) -> None:
+        """
+        Warn (or, if :attr:`crash_on_unresolvable_cause` is set, raise) when
+        *expression* is a :class:`~krrood.entity_query_language.query.match.Match`
+        containing a `Cause` this backend has no causal graph to resolve.
+
+        :param expression: The expression about to be evaluated.
+        """
+        if not (isinstance(expression, Match) and expression.has_cause_attributes):
+            return
+        if self.crash_on_unresolvable_cause:
+            raise BackendCannotEvaluateCause(expression, backend_type=type(self))
+        logger.warning(
+            f"{expression} contains a cause() intervention, which {type(self).__name__} "
+            f"cannot evaluate causally; treating it as an ordinary unspecified field."
+        )
 
 
 @dataclass
@@ -86,6 +130,7 @@ class SelectiveBackend(QueryBackend, ABC):
     def evaluate(self, expression: Evaluable) -> Iterable[T]:
         if isinstance(expression, Match) and expression.has_ellipsis_attributes:
             raise SelectiveBackendCannotResolveEllipsisMatch(expression)
+        self._warn_or_raise_on_unresolved_cause_(expression)
         yield from self._evaluate(expression)
 
     @abstractmethod
@@ -155,6 +200,7 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
     """
 
     def _evaluate(self, expression: Match[T]) -> Iterable[T]:
+        self._warn_or_raise_on_unresolved_cause_(expression)
         variables: Dict[str, Variable] = {}
         for attribute_match in expression.matches_with_variables:
             self._check_attribute_match_is_suitable_for_generation(attribute_match)
@@ -182,11 +228,12 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
 
         :param attribute_match: The attribute match to check.
         :raises UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration: If a
-            non-enum leaf is left fully unspecified (``...``), which deterministic generation
-            cannot enumerate (use the :class:`ProbabilisticBackend` instead).
+            non-enum leaf is left fully unspecified (``...`` or ``cause()``), which
+            deterministic generation cannot enumerate (use the
+            :class:`ProbabilisticBackend` instead).
         """
         if isinstance(
-            attribute_match.assigned_value, type(Ellipsis)
+            attribute_match.assigned_value, (type(Ellipsis), Cause)
         ) and not issubclass(attribute_match.assigned_variable._type_, enum.Enum):
             raise UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration(
                 attribute_match
@@ -197,15 +244,15 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
         attribute_match: AttributeMatch,
     ) -> Selectable:
         """
-        Convert an attribute match into a variable to enumerate, handling ellipsis
-        assignments for enum fields and concrete values.
+        Convert an attribute match into a variable to enumerate, handling ellipsis (and,
+        identically, ``cause()``) assignments for enum fields and concrete values.
 
         :param attribute_match: The attribute match to convert.
         :return: A variable (or symbolic expression) representing the attribute match.
         """
-        if isinstance(attribute_match.assigned_value, type(Ellipsis)) and issubclass(
-            attribute_match.assigned_variable._type_, enum.Enum
-        ):
+        if isinstance(
+            attribute_match.assigned_value, (type(Ellipsis), Cause)
+        ) and issubclass(attribute_match.assigned_variable._type_, enum.Enum):
             return variable(
                 attribute_match.assigned_variable._type_,
                 list(attribute_match.assigned_variable._type_),
@@ -263,21 +310,42 @@ class ProbabilisticBackend(GenerativeBackend):
 
         model = self.model_registry.get_model(parameters)
 
-        # apply conditions from literal assignments to underspecified variables
-        conditioned, _ = model.conditional(
-            parameters.conditioning_assignments_from_literal_values
-        )
+        if parameters.search_cause_variables:
+            cause_variable, effect_variable = self._resolve_cause_and_effect_variables(
+                parameters, expression
+            )
+            if not isinstance(model, CausalCircuit):
+                raise DoRequiresCausalCircuitModel(model)
+            # compute the interventional joint P(cause, effect | do(cause)) instead of
+            # conditioning on the literal assignments (there are none to condition on: a
+            # search cause() variable is registered like a free field, not a value)
+            conditioned = model.backdoor_adjustment(cause_variable, effect_variable)
+        else:
+            # apply conditions from literal assignments to underspecified variables
+            conditioned, _ = model.conditional(
+                parameters.conditioning_assignments_from_literal_values
+            )
 
         if conditioned is None:
             raise NoSolutionFound(expression.expression)
 
-        # apply conditions from the where statements
+        # apply conditions from the where statements (this is also where the
+        # causes_effect(...) condition -- transparent to the translator -- narrows the
+        # interventional joint down to the declared effect)
         if parameters.truncation_assignments_from_where_conditions:
             truncated, _ = conditioned.truncated(
                 parameters.truncation_assignments_from_where_conditions
             )
         else:
             truncated = conditioned
+
+        if parameters.search_cause_variables:
+            # search over the cause variable's regions for the one with the highest
+            # remaining probability now that the joint is narrowed to the effect: the
+            # intervention that best explains it
+            truncated = self._narrow_to_best_intervention_region(
+                model, cause_variable, truncated, expression
+            )
 
         # apply conditions from variable assignments to underspecified variables
         if parameters.truncation_assignments_from_krrood_variables:
@@ -303,3 +371,73 @@ class ProbabilisticBackend(GenerativeBackend):
                 truncated.variables, sample
             )
             yield instance
+
+    @staticmethod
+    def _resolve_cause_and_effect_variables(
+        parameters: UnderspecifiedParameters, expression: Match[T]
+    ) -> tuple:
+        """
+        Resolve the single cause and single effect variable a ``cause()`` search
+        optimizes for, per this backend's v1 single-cause/single-effect scope.
+
+        :param parameters: The parameters extracted from *expression*.
+        :param expression: The match being evaluated.
+        :raises NoCausesEffectConditionForCause: If no ``causes_effect(...)`` condition
+            declared an effect.
+        :raises MultipleCauseOrEffectVariablesNotSupported: If more than one cause or
+            effect variable was found.
+        :return: The ``(cause_variable, effect_variable)`` pair.
+        """
+        if not parameters.effect_variables_from_causes_effect:
+            raise NoCausesEffectConditionForCause(expression.expression)
+        if len(parameters.search_cause_variables) > 1:
+            raise MultipleCauseOrEffectVariablesNotSupported(
+                CausalRole.CAUSE, parameters.search_cause_variables
+            )
+        if len(parameters.effect_variables_from_causes_effect) > 1:
+            raise MultipleCauseOrEffectVariablesNotSupported(
+                CausalRole.EFFECT, parameters.effect_variables_from_causes_effect
+            )
+        [cause_variable] = parameters.search_cause_variables
+        [effect_variable] = parameters.effect_variables_from_causes_effect
+        return cause_variable, effect_variable
+
+    @staticmethod
+    def _narrow_to_best_intervention_region(
+        model: CausalCircuit,
+        cause_variable,
+        truncated,
+        expression: Match[T],
+    ):
+        """
+        Further truncate *truncated* -- the interventional joint, already truncated to
+        the declared effect condition -- to the ``cause_variable`` region with the
+        highest remaining probability: the intervention that best explains the effect.
+
+        Ranking candidate regions on the effect-truncated circuit (rather than the raw
+        interventional joint) is what makes this a search *for the effect*, not merely
+        for the most likely intervention overall: truncation renormalizes by the
+        (region-independent) probability of the effect condition, so the relative
+        ranking of regions is exactly the ranking by joint intervention-and-effect mass.
+
+        :param model: The causal circuit `truncated` was computed from.
+        :param cause_variable: The cause variable to search regions of.
+        :param truncated: The interventional joint, truncated to the effect condition.
+        :param expression: The match being evaluated, for error reporting.
+        :raises NoSolutionFound: If no cause region remains, or the best region has zero
+            probability.
+        :return: `truncated`, further truncated to the best cause region.
+        """
+        # `_best_region` is private: `causal_circuit.py` is a stable dependency this glue
+        # code does not modify (see doc/eql/user/causality.md), and it is the same
+        # region-search `diagnose_failure` already uses internally for `recommended_region` --
+        # there is no public equivalent to call instead.
+        best_region = model._best_region(cause_variable, truncated)
+        if best_region is None:
+            raise NoSolutionFound(expression.expression)
+        narrowed, _ = truncated.truncated(
+            best_region.fill_missing_variables_pure(truncated.variables)
+        )
+        if narrowed is None:
+            raise NoSolutionFound(expression.expression)
+        return narrowed

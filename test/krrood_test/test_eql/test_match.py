@@ -14,7 +14,6 @@ from krrood.entity_query_language.exceptions import MatchTypeCannotBeDetermined
 from krrood.entity_query_language.predicate import HasType
 from krrood.entity_query_language.query.match import Match
 from krrood.entity_query_language.core.base_expressions import UnificationDict
-from krrood.parametrization.random_events_translator import is_literal_comparator
 from ..dataset.example_classes import KRROODPositions, KRROODPosition
 from ..dataset.semantic_world_like_classes import (
     FixedConnection,
@@ -214,9 +213,11 @@ def test_from_without_kwargs_selects_all(handles_and_containers_world):
 
 def test_match_without_domain_selects_from_symbol_graph():
     """
-    A domain-less match evaluated standalone (default selective backend) *selects* from the
-    SymbolGraph for ``Symbol`` types: it returns the existing registered instance rather than
-    constructing a new one. Generation requires an explicit generative backend.
+    A domain-less match evaluated standalone (default selective backend) *selects* from
+    the SymbolGraph for ``Symbol`` types: it returns the existing registered instance
+    rather than constructing a new one.
+
+    Generation requires an explicit generative backend.
     """
     existing = KRROODPosition(1.0, 2.0, 3.0)
     result = an(KRROODPosition)(x=1.0, y=2.0, z=3.0).tolist()

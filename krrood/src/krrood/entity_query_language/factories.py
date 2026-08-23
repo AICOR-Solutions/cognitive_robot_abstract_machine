@@ -27,6 +27,7 @@ from krrood.entity_query_language.core.base_expressions import (
     TruthValueOperator,
     OperationResult,
 )
+from krrood.entity_query_language.core.causal import Cause
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
@@ -166,6 +167,22 @@ def variable_from(
     :return: A variable that can be queried for.
     """
     return Variable(_domain_=domain)
+
+
+# %% Causal Constructs
+
+
+def cause() -> Cause:
+    """
+    Mark a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as
+    a ``do()``-intervention target to search for, e.g. ``an(Pick)(arm=cause())``.
+
+    Pair with :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` to
+    declare which condition is the effect the intervention should optimize for.
+
+    :return: A :class:`~krrood.entity_query_language.core.causal.Cause` marker.
+    """
+    return Cause()
 
 
 # %% Operators on Variables
