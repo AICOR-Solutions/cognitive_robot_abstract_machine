@@ -927,12 +927,12 @@ def test_pose_written_during_sim_to_world_pull_reaches_the_simulator():
     let_pull_finish = threading.Event()
     original_read = synchronizer._read_6dof_from_qpos
 
-    def blocking_read(connection, qpos_adr):
+    def blocking_read(connection, qpos_address):
         pull_is_inside.set()
         assert let_pull_finish.wait(
             timeout=10
         ), "test did not release the sim → world pull"
-        return original_read(connection, qpos_adr)
+        return original_read(connection, qpos_address)
 
     write_failed = []
 
@@ -969,10 +969,10 @@ def test_pose_written_during_sim_to_world_pull_reaches_the_simulator():
         assert not writer.is_alive(), "pose write did not finish"
         assert not write_failed, f"pose write raised: {write_failed[0]!r}"
 
-        qpos_adr = synchronizer._resolve_qpos_adr(box_connection)
-        assert qpos_adr is not None, "free joint is missing from the MuJoCo model"
+        qpos_address = synchronizer._resolve_qpos_address(box_connection)
+        assert qpos_address is not None, "free joint is missing from the MuJoCo model"
         written_xyz = numpy.asarray(
-            multi_sim.simulator._mj_data.qpos[qpos_adr : qpos_adr + 3], dtype=float
+            multi_sim.simulator._mj_data.qpos[qpos_address : qpos_address + 3], dtype=float
         )
         assert numpy.allclose(written_xyz, target_xyz, atol=1e-6), (
             "pose written during the sim → world pull never reached MuJoCo: "
@@ -1050,10 +1050,10 @@ def test_pose_write_waits_for_the_running_physics_step():
         assert write_returned.is_set(), "pose write never finished"
         assert not write_failed, f"pose write raised: {write_failed[0]!r}"
 
-        qpos_adr = synchronizer._resolve_qpos_adr(box_connection)
-        assert qpos_adr is not None, "free joint is missing from the MuJoCo model"
+        qpos_address = synchronizer._resolve_qpos_address(box_connection)
+        assert qpos_address is not None, "free joint is missing from the MuJoCo model"
         written_xyz = numpy.asarray(
-            multi_sim.simulator._mj_data.qpos[qpos_adr : qpos_adr + 3], dtype=float
+            multi_sim.simulator._mj_data.qpos[qpos_address : qpos_address + 3], dtype=float
         )
         assert numpy.allclose(written_xyz, target_xyz, atol=1e-6), (
             "pose never reached MuJoCo once the model lock was free: "

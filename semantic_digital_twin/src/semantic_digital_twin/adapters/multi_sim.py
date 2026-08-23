@@ -2855,7 +2855,7 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         super().__post_init__()
         self.simulator.read_data_from_simulator = self._sim_to_world
 
-    def _resolve_qpos_adr(self, connection: Connection) -> Optional[int]:
+    def _resolve_qpos_address(self, connection: Connection) -> Optional[int]:
         """
         Resolve the qpos address for the MuJoCo joint backing ``connection``,
         or ``None`` if the joint is not present in the model.
@@ -2904,10 +2904,10 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         for connection in self._world.connections:
             if isinstance(connection, FixedConnection):
                 continue
-            qpos_adr = self._resolve_qpos_adr(connection)
-            if qpos_adr is None:
+            qpos_address = self._resolve_qpos_address(connection)
+            if qpos_address is None:
                 continue
-            yield connection, qpos_adr
+            yield connection, qpos_address
 
     @staticmethod
     def _warn_unsupported_connection(direction: str, connection: Connection) -> None:
@@ -2934,11 +2934,11 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         changed = False
         with self.simulator._model_lock:
-            for connection, qpos_adr in self._joint_backed_connections():
+            for connection, qpos_address in self._joint_backed_connections():
                 if isinstance(connection, Connection6DoF):
-                    self._read_6dof_from_qpos(connection, qpos_adr)
+                    self._read_6dof_from_qpos(connection, qpos_address)
                 elif isinstance(connection, ActiveConnection1DOF):
-                    self._read_1dof_from_qpos(connection, qpos_adr)
+                    self._read_1dof_from_qpos(connection, qpos_address)
                 else:
                     self._warn_unsupported_connection("sim→world", connection)
                     continue
@@ -2967,11 +2967,11 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         state_index = self._world.state._index
         with self.simulator._model_lock:
-            for connection, qpos_adr in self._joint_backed_connections():
+            for connection, qpos_address in self._joint_backed_connections():
                 if isinstance(connection, Connection6DoF):
                     self._write_6dof_to_qpos(
                         connection,
-                        qpos_adr,
+                        qpos_address,
                         positions,
                         previous_positions,
                         state_index,
@@ -2979,7 +2979,7 @@ class MujocoSynchronizer(MultiSimSynchronizer):
                 elif isinstance(connection, ActiveConnection1DOF):
                     self._write_1dof_to_qpos(
                         connection,
-                        qpos_adr,
+                        qpos_address,
                         positions,
                         previous_positions,
                         state_index,
@@ -2987,7 +2987,7 @@ class MujocoSynchronizer(MultiSimSynchronizer):
                 else:
                     self._warn_unsupported_connection("world→sim", connection)
 
-    def _read_6dof_from_qpos(self, connection: Connection6DoF, qpos_adr: int) -> None:
+    def _read_6dof_from_qpos(self, connection: Connection6DoF, qpos_address: int) -> None:
         """
         Copy a 6DoF MuJoCo free-joint qpos block into ``world.state`` for
         ``connection``.
@@ -2995,8 +2995,8 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         mj_data = self.simulator._mj_data
         state = self._world.state
 
-        xyz = mj_data.qpos[qpos_adr : qpos_adr + 3]
-        qwxyz = mj_data.qpos[qpos_adr + 3 : qpos_adr + 7]
+        xyz = mj_data.qpos[qpos_address : qpos_address + 3]
+        qwxyz = mj_data.qpos[qpos_address + 3 : qpos_address + 7]
 
         mj_T_world = self._make_pose_matrix(
             xyz,
@@ -3015,13 +3015,13 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         state[connection.qz.id].position = float(dof_quat_xyzw[2])
 
     def _read_1dof_from_qpos(
-        self, connection: ActiveConnection1DOF, qpos_adr: int
+        self, connection: ActiveConnection1DOF, qpos_address: int
     ) -> None:
         """
         Copy a single MuJoCo qpos slot into ``world.state`` for ``connection``.
         """
         self._world.state[connection.raw_dof.id].position = float(
-            self.simulator._mj_data.qpos[qpos_adr]
+            self.simulator._mj_data.qpos[qpos_address]
         )
 
     def _sim_to_world(self) -> None:
@@ -3068,14 +3068,14 @@ class MujocoSynchronizer(MultiSimSynchronizer):
     def _write_6dof_to_qpos(
         self,
         connection: Connection6DoF,
-        qpos_adr: int,
+        qpos_address: int,
         positions: numpy.ndarray,
         previous_positions: numpy.ndarray,
         state_index: Dict[Any, int],
     ) -> None:
         """
         Push the 6DoF world state for ``connection`` into the MuJoCo qpos
-        block at ``qpos_adr``. No-op if the DoF values match the previous
+        block at ``qpos_address``. No-op if the DoF values match the previous
         snapshot within tolerance.
         """
         ix = state_index[connection.x.id]
@@ -3105,30 +3105,30 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         mj_xyz, mj_quat_xyzw = self._decompose_pose_matrix(parent_T_conn @ conn_T_child)
 
         mj_data = self.simulator._mj_data
-        mj_data.qpos[qpos_adr + 0] = mj_xyz[0]
-        mj_data.qpos[qpos_adr + 1] = mj_xyz[1]
-        mj_data.qpos[qpos_adr + 2] = mj_xyz[2]
-        mj_data.qpos[qpos_adr + 3] = mj_quat_xyzw[3]
-        mj_data.qpos[qpos_adr + 4] = mj_quat_xyzw[0]
-        mj_data.qpos[qpos_adr + 5] = mj_quat_xyzw[1]
-        mj_data.qpos[qpos_adr + 6] = mj_quat_xyzw[2]
+        mj_data.qpos[qpos_address + 0] = mj_xyz[0]
+        mj_data.qpos[qpos_address + 1] = mj_xyz[1]
+        mj_data.qpos[qpos_address + 2] = mj_xyz[2]
+        mj_data.qpos[qpos_address + 3] = mj_quat_xyzw[3]
+        mj_data.qpos[qpos_address + 4] = mj_quat_xyzw[0]
+        mj_data.qpos[qpos_address + 5] = mj_quat_xyzw[1]
+        mj_data.qpos[qpos_address + 6] = mj_quat_xyzw[2]
 
     def _write_1dof_to_qpos(
         self,
         connection: ActiveConnection1DOF,
-        qpos_adr: int,
+        qpos_address: int,
         positions: numpy.ndarray,
         previous_positions: numpy.ndarray,
         state_index: Dict[Any, int],
     ) -> None:
         """
         Push the 1DoF world state for ``connection`` into the MuJoCo qpos slot
-        at ``qpos_adr``. No-op if the DoF value is unchanged.
+        at ``qpos_address``. No-op if the DoF value is unchanged.
         """
         idx = state_index[connection.raw_dof.id]
         if positions[idx] == previous_positions[idx]:
             return
-        self.simulator._mj_data.qpos[qpos_adr] = positions[idx]
+        self.simulator._mj_data.qpos[qpos_address] = positions[idx]
 
     def _on_state_change(self) -> None:
         """
