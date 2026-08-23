@@ -13,7 +13,16 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
 from types import NoneType
-from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union
+from typing_extensions import (
+    Dict,
+    List,
+    Any,
+    ClassVar,
+    Iterator,
+    Type,
+    Optional,
+    Union,
+)
 
 import numpy
 import mujoco
@@ -2883,6 +2892,101 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         quat_xyzw = Rotation.from_matrix(pose[:3, :3]).as_quat()
         return xyz, quat_xyzw
 
+    def _joint_backed_connections(self) -> Iterator[Tuple[Connection, int]]:
+        """
+        Yield every connection that a MuJoCo joint can be synced with, paired
+        with the qpos address of that joint.
+
+        Fixed connections carry no DoFs, and a connection that does not resolve
+        to a joint is not in the compiled model, so neither has anything to
+        sync. Both sync directions walk the same set, so they share this.
+        """
+        for connection in self._world.connections:
+            if isinstance(connection, FixedConnection):
+                continue
+            qpos_adr = self._resolve_qpos_adr(connection)
+            if qpos_adr is None:
+                continue
+            yield connection, qpos_adr
+
+    @staticmethod
+    def _warn_unsupported_connection(direction: str, connection: Connection) -> None:
+        """
+        Report a connection that has a MuJoCo joint but no sync implementation.
+        """
+        logger.warning(
+            "%s sync: unsupported connection type %s for joint %s; skipping",
+            direction,
+            type(connection).__name__,
+            connection.name.name,
+        )
+
+    def _read_connections_from_qpos(self) -> bool:
+        """
+        Copy ``_mj_data.qpos`` into ``world.state`` for every joint-backed
+        connection.
+
+        Held under ``_model_lock`` so the whole pull sees one coherent
+        post-step state rather than a mixture of poses from either side of an
+        ``mj_step`` running on the physics thread.
+
+        :return: Whether any connection was read.
+        """
+        changed = False
+        with self.simulator._model_lock:
+            for connection, qpos_adr in self._joint_backed_connections():
+                if isinstance(connection, Connection6DoF):
+                    self._read_6dof_from_qpos(connection, qpos_adr)
+                elif isinstance(connection, ActiveConnection1DOF):
+                    self._read_1dof_from_qpos(connection, qpos_adr)
+                else:
+                    self._warn_unsupported_connection("sim→world", connection)
+                    continue
+                changed = True
+        return changed
+
+    def _write_connections_to_qpos(
+        self, positions: numpy.ndarray, previous_positions: numpy.ndarray
+    ) -> None:
+        """
+        Push ``world.state`` into ``_mj_data.qpos`` for every joint-backed
+        connection whose DoF values differ from ``previous_positions``.
+
+        ``_model_lock`` is what serialises access to ``_mj_data`` against the
+        physics thread, and holding it here is not just about torn reads: the
+        model integrates with RK4, and ``mj_step`` writes the integrated qpos
+        back from state it saved at the top of the step, so a write that lands
+        mid-step is overwritten and vanishes. The body then simply carries on
+        from its old pose, with nothing raised anywhere. Acquired inside
+        ``_world_lock`` to match the order ``modify_world`` already
+        establishes.
+
+        :param positions: The current ``world.state`` positions.
+        :param previous_positions: The positions as of the last notification,
+            used to find what changed. Must be the same length as ``positions``.
+        """
+        state_index = self._world.state._index
+        with self.simulator._model_lock:
+            for connection, qpos_adr in self._joint_backed_connections():
+                if isinstance(connection, Connection6DoF):
+                    self._write_6dof_to_qpos(
+                        connection,
+                        qpos_adr,
+                        positions,
+                        previous_positions,
+                        state_index,
+                    )
+                elif isinstance(connection, ActiveConnection1DOF):
+                    self._write_1dof_to_qpos(
+                        connection,
+                        qpos_adr,
+                        positions,
+                        previous_positions,
+                        state_index,
+                    )
+                else:
+                    self._warn_unsupported_connection("world→sim", connection)
+
     def _read_6dof_from_qpos(self, connection: Connection6DoF, qpos_adr: int) -> None:
         """
         Copy a 6DoF MuJoCo free-joint qpos block into ``world.state`` for
@@ -2950,35 +3054,9 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         self._last_sync_time = now
 
         with self._world._world_lock:
-            changed = False
             self._state_callback.pause()
             try:
-                # Read qpos under the model lock so the whole pull sees one
-                # coherent post-step state rather than a mixture of poses from
-                # either side of an ``mj_step`` running on another thread.
-                with self.simulator._model_lock:
-                    for connection in self._world.connections:
-                        if isinstance(connection, FixedConnection):
-                            continue
-                        qpos_adr = self._resolve_qpos_adr(connection)
-                        if qpos_adr is None:
-                            continue
-
-                        if isinstance(connection, Connection6DoF):
-                            self._read_6dof_from_qpos(connection, qpos_adr)
-                            changed = True
-                        elif isinstance(connection, ActiveConnection1DOF):
-                            self._read_1dof_from_qpos(connection, qpos_adr)
-                            changed = True
-                        else:
-                            logger.warning(
-                                "sim→world sync: unsupported connection type %s "
-                                "for joint %s; skipping",
-                                type(connection).__name__,
-                                connection.name.name,
-                            )
-
-                if changed:
+                if self._read_connections_from_qpos():
                     self._world.notify_state_change()
                     self._state_callback.update_previous_world_state()
             finally:
@@ -3075,48 +3153,7 @@ class MujocoSynchronizer(MultiSimSynchronizer):
                 self._state_callback.update_previous_world_state()
                 return
 
-            state_index = self._world.state._index
-
-            # ``_model_lock`` is what serialises access to ``_mj_data`` against
-            # the physics thread. Writing qpos without it is not just a torn
-            # read: the model integrates with RK4, and ``mj_step`` writes the
-            # integrated qpos back from state it saved at the top of the step,
-            # so a write that lands mid-step is overwritten and vanishes. The
-            # body then simply carries on from its old pose, with nothing
-            # raised anywhere. Acquired inside ``_world_lock`` to match the
-            # order ``modify_world`` already establishes.
-            with self.simulator._model_lock:
-                for connection in self._world.connections:
-                    if isinstance(connection, FixedConnection):
-                        continue
-                    qpos_adr = self._resolve_qpos_adr(connection)
-                    if qpos_adr is None:
-                        continue
-
-                    if isinstance(connection, Connection6DoF):
-                        self._write_6dof_to_qpos(
-                            connection,
-                            qpos_adr,
-                            positions,
-                            previous_positions,
-                            state_index,
-                        )
-                    elif isinstance(connection, ActiveConnection1DOF):
-                        self._write_1dof_to_qpos(
-                            connection,
-                            qpos_adr,
-                            positions,
-                            previous_positions,
-                            state_index,
-                        )
-                    else:
-                        logger.warning(
-                            "world→sim sync: unsupported connection type %s for "
-                            "joint %s; skipping",
-                            type(connection).__name__,
-                            connection.name.name,
-                        )
-
+            self._write_connections_to_qpos(positions, previous_positions)
             self._state_callback.update_previous_world_state()
 
     def stop(self):
