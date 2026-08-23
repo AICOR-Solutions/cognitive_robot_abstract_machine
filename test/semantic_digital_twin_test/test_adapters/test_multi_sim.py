@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass
 
 import mujoco
 import pytest
@@ -852,10 +853,35 @@ def test_world_sim_state_sync():
         stop_multisim_if_running(multi_sim)
 
 
-def _build_box_on_plane_world() -> tuple[World, Body, Connection6DoF]:
+@dataclass
+class BoxOnPlaneWorld:
     """
-    A ground plane plus a single free-floating box, authored directly into a
-    :class:`World` so a simulator can be built from it without spawning.
+    A world holding a ground plane and one free-floating box, together with the
+    pieces of it a test needs to address afterwards.
+    """
+
+    world: World
+    """
+    The world itself, ready for a simulator to be built from it.
+    """
+
+    box: Body
+    """
+    The free-floating box, used as the reference frame for poses written to it.
+    """
+
+    box_connection: Connection6DoF
+    """
+    The box's 6DoF connection to the world root, whose origin the tests set.
+    """
+
+
+def _build_box_on_plane_world() -> BoxOnPlaneWorld:
+    """
+    Build a ground plane plus a single free-floating box, authored directly
+    into a :class:`World` so a simulator can be built from it without spawning.
+
+    :return: The world and the box handles the caller needs.
     """
     world = World()
     root = Body(name=PrefixedName("world"))
@@ -894,7 +920,7 @@ def _build_box_on_plane_world() -> tuple[World, Body, Connection6DoF]:
             world=world, parent=root, child=box
         )
         world.add_connection(box_connection)
-    return world, box, box_connection
+    return BoxOnPlaneWorld(world=world, box=box, box_connection=box_connection)
 
 
 def test_pose_written_during_sim_to_world_pull_reaches_the_simulator():
@@ -916,8 +942,9 @@ def test_pose_written_during_sim_to_world_pull_reaches_the_simulator():
     """
     target_xyz = numpy.array([0.4, -0.3, 1.25])
 
-    world, box, box_connection = _build_box_on_plane_world()
-    multi_sim = MujocoSim(world=world, headless=headless, step_size=STEP_SIZE)
+    scene = _build_box_on_plane_world()
+    box, box_connection = scene.box, scene.box_connection
+    multi_sim = MujocoSim(world=scene.world, headless=headless, step_size=STEP_SIZE)
     synchronizer = multi_sim.synchronizer
     # The pull is wall-clock throttled; this test calls it explicitly and must
     # not have the call skipped.
@@ -1003,8 +1030,9 @@ def test_pose_write_waits_for_the_running_physics_step():
     """
     target_xyz = numpy.array([-0.25, 0.45, 1.75])
 
-    world, box, box_connection = _build_box_on_plane_world()
-    multi_sim = MujocoSim(world=world, headless=headless, step_size=STEP_SIZE)
+    scene = _build_box_on_plane_world()
+    box, box_connection = scene.box, scene.box_connection
+    multi_sim = MujocoSim(world=scene.world, headless=headless, step_size=STEP_SIZE)
     synchronizer = multi_sim.synchronizer
 
     model_lock_held = threading.Event()

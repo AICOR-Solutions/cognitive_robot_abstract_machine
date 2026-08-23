@@ -2818,6 +2818,27 @@ class MultiSimSynchronizer(ModelChangeCallback, ABC):
         raise NotImplementedError
 
 
+@dataclass
+class JointBackedConnection:
+    """
+    A connection paired with the MuJoCo joint that backs it.
+
+    Resolving a connection to its joint costs a name lookup, so the two sync
+    directions carry the resolved address alongside the connection rather than
+    each looking it up again.
+    """
+
+    connection: Connection
+    """
+    The connection in the world.
+    """
+
+    qpos_address: int
+    """
+    Index at which this joint's values start in ``_mj_data.qpos``.
+    """
+
+
 @dataclass(eq=False)
 class MujocoSynchronizer(MultiSimSynchronizer):
     simulator: MujocoSimulator
@@ -2892,7 +2913,7 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         quat_xyzw = Rotation.from_matrix(pose[:3, :3]).as_quat()
         return xyz, quat_xyzw
 
-    def _joint_backed_connections(self) -> Iterator[Tuple[Connection, int]]:
+    def _joint_backed_connections(self) -> Iterator[JointBackedConnection]:
         """
         Yield every connection that a MuJoCo joint can be synced with, paired
         with the qpos address of that joint.
@@ -2907,12 +2928,17 @@ class MujocoSynchronizer(MultiSimSynchronizer):
             qpos_address = self._resolve_qpos_address(connection)
             if qpos_address is None:
                 continue
-            yield connection, qpos_address
+            yield JointBackedConnection(
+                connection=connection, qpos_address=qpos_address
+            )
 
     @staticmethod
     def _warn_unsupported_connection(direction: str, connection: Connection) -> None:
         """
         Report a connection that has a MuJoCo joint but no sync implementation.
+
+        :param direction: Which way the sync was going, for the message.
+        :param connection: The connection that could not be synced.
         """
         logger.warning(
             "%s sync: unsupported connection type %s for joint %s; skipping",
@@ -2934,15 +2960,21 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         changed = False
         with self.simulator._model_lock:
-            for connection, qpos_address in self._joint_backed_connections():
-                if isinstance(connection, Connection6DoF):
-                    self._read_6dof_from_qpos(connection, qpos_address)
-                elif isinstance(connection, ActiveConnection1DOF):
-                    self._read_1dof_from_qpos(connection, qpos_address)
-                else:
-                    self._warn_unsupported_connection("sim→world", connection)
-                    continue
-                changed = True
+            for joint_backed in self._joint_backed_connections():
+                connection = joint_backed.connection
+                match connection:
+                    case Connection6DoF():
+                        self._read_6dof_from_qpos(
+                            connection, joint_backed.qpos_address
+                        )
+                        changed = True
+                    case ActiveConnection1DOF():
+                        self._read_1dof_from_qpos(
+                            connection, joint_backed.qpos_address
+                        )
+                        changed = True
+                    case _:
+                        self._warn_unsupported_connection("sim→world", connection)
         return changed
 
     def _write_connections_to_qpos(
@@ -2967,30 +2999,35 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         state_index = self._world.state._index
         with self.simulator._model_lock:
-            for connection, qpos_address in self._joint_backed_connections():
-                if isinstance(connection, Connection6DoF):
-                    self._write_6dof_to_qpos(
-                        connection,
-                        qpos_address,
-                        positions,
-                        previous_positions,
-                        state_index,
-                    )
-                elif isinstance(connection, ActiveConnection1DOF):
-                    self._write_1dof_to_qpos(
-                        connection,
-                        qpos_address,
-                        positions,
-                        previous_positions,
-                        state_index,
-                    )
-                else:
-                    self._warn_unsupported_connection("world→sim", connection)
+            for joint_backed in self._joint_backed_connections():
+                connection = joint_backed.connection
+                match connection:
+                    case Connection6DoF():
+                        self._write_6dof_to_qpos(
+                            connection,
+                            joint_backed.qpos_address,
+                            positions,
+                            previous_positions,
+                            state_index,
+                        )
+                    case ActiveConnection1DOF():
+                        self._write_1dof_to_qpos(
+                            connection,
+                            joint_backed.qpos_address,
+                            positions,
+                            previous_positions,
+                            state_index,
+                        )
+                    case _:
+                        self._warn_unsupported_connection("world→sim", connection)
 
     def _read_6dof_from_qpos(self, connection: Connection6DoF, qpos_address: int) -> None:
         """
         Copy a 6DoF MuJoCo free-joint qpos block into ``world.state`` for
         ``connection``.
+
+        :param connection: The 6DoF connection whose DoFs are written.
+        :param qpos_address: Index of the free joint's 7-value qpos block.
         """
         mj_data = self.simulator._mj_data
         state = self._world.state
@@ -3019,6 +3056,9 @@ class MujocoSynchronizer(MultiSimSynchronizer):
     ) -> None:
         """
         Copy a single MuJoCo qpos slot into ``world.state`` for ``connection``.
+
+        :param connection: The 1DoF connection whose DoF is written.
+        :param qpos_address: Index of the joint's single qpos slot.
         """
         self._world.state[connection.raw_dof.id].position = float(
             self.simulator._mj_data.qpos[qpos_address]
@@ -3077,6 +3117,13 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         Push the 6DoF world state for ``connection`` into the MuJoCo qpos
         block at ``qpos_address``. No-op if the DoF values match the previous
         snapshot within tolerance.
+
+        :param connection: The 6DoF connection whose pose is pushed.
+        :param qpos_address: Index of the free joint's 7-value qpos block.
+        :param positions: The current ``world.state`` positions.
+        :param previous_positions: The positions as of the last notification,
+            compared against ``positions`` to decide whether to write.
+        :param state_index: Maps a DoF id to its column in those two arrays.
         """
         ix = state_index[connection.x.id]
         iy = state_index[connection.y.id]
@@ -3124,6 +3171,13 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         """
         Push the 1DoF world state for ``connection`` into the MuJoCo qpos slot
         at ``qpos_address``. No-op if the DoF value is unchanged.
+
+        :param connection: The 1DoF connection whose value is pushed.
+        :param qpos_address: Index of the joint's single qpos slot.
+        :param positions: The current ``world.state`` positions.
+        :param previous_positions: The positions as of the last notification,
+            compared against ``positions`` to decide whether to write.
+        :param state_index: Maps a DoF id to its column in those two arrays.
         """
         idx = state_index[connection.raw_dof.id]
         if positions[idx] == previous_positions[idx]:
