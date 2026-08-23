@@ -847,6 +847,108 @@ class ExtractLeafRegionsTestCase(unittest.TestCase):
             self.assertTrue(hasattr(event, "simple_sets"))
 
 
+class ExtractDisjointRegionsTestCase(unittest.TestCase):
+    """
+    _extract_disjoint_regions_for_variable is the disjoint counterpart of
+    _extract_leaf_regions_for_variable: it separates support regions coming from
+    different SumUnit branches instead of collapsing them into the variable's whole
+    marginal support.
+    """
+
+    def setUp(self):
+        self.circuit, self.x, self.w, self.y = _build_correlated_circuit()
+        self.cc = CausalCircuit.from_probabilistic_circuit(
+            self.circuit,
+            MarginalDeterminismTreeNode.from_causal_graph([self.x, self.w], [self.y]),
+            [self.x, self.w],
+            [self.y],
+        )
+
+    def test_finds_both_branches_separately_unlike_the_marginalized_version(self):
+        disjoint_regions = self.cc._extract_disjoint_regions_for_variable(self.x)
+        coarsened_regions = self.cc._extract_leaf_regions_for_variable(self.x)
+        self.assertEqual(len(disjoint_regions), 2)
+        self.assertEqual(len(coarsened_regions), 1)
+
+    def test_region_probabilities_sum_to_one(self):
+        regions = self.cc._extract_disjoint_regions_for_variable(self.x)
+        self.assertAlmostEqual(
+            sum(probability for _, probability in regions), 1.0, delta=0.01
+        )
+
+    def test_all_region_probabilities_are_positive(self):
+        for _, probability in self.cc._extract_disjoint_regions_for_variable(self.x):
+            self.assertGreater(probability, 0.0)
+
+    def test_regions_are_returned_as_event_probability_pairs(self):
+        for event, probability in self.cc._extract_disjoint_regions_for_variable(
+            self.x
+        ):
+            self.assertIsInstance(probability, float)
+            self.assertTrue(hasattr(event, "simple_sets"))
+
+    def test_regions_are_each_roughly_equal_weight(self):
+        # x's two branches are equal-weight (0.5 each) and non-overlapping.
+        probabilities = sorted(
+            probability
+            for _, probability in self.cc._extract_disjoint_regions_for_variable(self.x)
+        )
+        self.assertAlmostEqual(probabilities[0], 0.5, delta=0.05)
+        self.assertAlmostEqual(probabilities[1], 0.5, delta=0.05)
+
+    def test_matches_the_marginalized_version_on_a_circuit_with_one_true_region(self):
+        # on a circuit whose cause variable genuinely has one contiguous support
+        # region (no branches to keep separate), both methods must agree.
+        circuit, x, y = _build_independent_circuit()
+        cc = CausalCircuit.from_probabilistic_circuit(
+            circuit, MarginalDeterminismTreeNode.from_causal_graph([x], [y]), [x], [y]
+        )
+        disjoint_regions = cc._extract_disjoint_regions_for_variable(y)
+        coarsened_regions = cc._extract_leaf_regions_for_variable(y)
+        self.assertEqual(len(disjoint_regions), len(coarsened_regions))
+
+
+class BestDisjointRegionTestCase(unittest.TestCase):
+    """
+    _best_disjoint_region can distinguish which SumUnit branch's region best explains an
+    interventional distribution -- unlike _best_region, whose regions always collapse to
+    the variable's whole domain (see ExtractDisjointRegionsTestCase).
+    """
+
+    def setUp(self):
+        self.circuit, self.x, self.w, self.y = _build_correlated_circuit()
+        self.cc = CausalCircuit.from_probabilistic_circuit(
+            self.circuit,
+            MarginalDeterminismTreeNode.from_causal_graph([self.x, self.w], [self.y]),
+            [self.x, self.w],
+            [self.y],
+        )
+        self.interventional = self.cc.backdoor_adjustment(self.x, self.y, [])
+
+    def _truncated_to_y(self, lower: float, upper: float):
+        event = SimpleEvent.from_data({self.y: closed(lower, upper)}).as_composite_set()
+        truncated, _ = self.interventional.truncated(
+            event.fill_missing_variables_pure(self.interventional.variables)
+        )
+        return truncated
+
+    def test_best_region_is_near_certain_once_truncated_to_one_branchs_effect(self):
+        truncated = self._truncated_to_y(9.6, 10)
+        best_region = self.cc._best_disjoint_region(self.x, truncated)
+        self.assertAlmostEqual(
+            truncated.probability(
+                best_region.fill_missing_variables_pure(truncated.variables)
+            ),
+            1.0,
+            delta=0.01,
+        )
+
+    def test_best_region_differs_for_different_effect_conditions(self):
+        low_best = self.cc._best_disjoint_region(self.x, self._truncated_to_y(0, 0.4))
+        high_best = self.cc._best_disjoint_region(self.x, self._truncated_to_y(9.6, 10))
+        self.assertNotEqual(low_best, high_best)
+
+
 class DiagnoseFailureStructuralTestCase(unittest.TestCase):
 
     def setUp(self):

@@ -663,7 +663,7 @@ class CausalCircuit:
                 output_circuit=output_circuit,
                 root_sum_unit=root_sum_unit,
             )
-            for region_event, region_weight in self._extract_leaf_regions_for_variable(
+            for region_event, region_weight in self._extract_disjoint_regions_for_variable(
                 cause_variable
             )
             if region_weight > 0.0
@@ -713,7 +713,7 @@ class CausalCircuit:
             return 0
 
         regions_added = 0
-        for cause_event, cause_weight in self._extract_leaf_regions_for_variable(
+        for cause_event, cause_weight in self._extract_disjoint_regions_for_variable(
             cause_variable, base_circuit=adjustment_conditioned_circuit
         ):
             if cause_weight <= 0.0:
@@ -816,6 +816,93 @@ class CausalCircuit:
             if probability > 0.0:
                 regions.append((region_event, float(probability)))
         return regions
+
+    def _extract_disjoint_regions_for_variable(
+        self,
+        variable: Variable,
+        base_circuit: ProbabilisticCircuit = None,
+    ) -> List[Tuple[Any, float]]:
+        """
+        Return (region_event, probability) pairs for each structurally disjoint support
+        region of variable, read from the circuit's unmarginalized joint support.
+
+        `_extract_leaf_regions_for_variable` marginalizes the joint support down to
+        variable alone first, which coalesces every disjoint per-branch range into one
+        Interval/Set-valued region -- correct as a description of variable's own
+        support, but unable to tell one SumUnit branch's region apart from another's.
+        This matters beyond region-search cosmetics: `backdoor_adjustment` builds its
+        output as one ProductUnit per region returned here, pairing each region's own
+        cause branch with its own effect branch: with the coalesced regions, a
+        multi-branch cause variable collapsed to a single ProductUnit spanning its
+        whole domain, silently discarding the cause-effect correlation each branch
+        encodes (marginal probabilities stayed correct either way, which is why this
+        went unnoticed by tests that only checked marginals). This method instead reads
+        variable's value directly off each of the joint support's own disjoint simple
+        sets, before marginalization discards which branch it came from, merging
+        branches that happen to share the same value by keeping a single entry
+        (`circuit.probability` already aggregates every contributing branch for that
+        value in one call, so no separate summation is needed). Query-set variables are
+        exactly where this separation is meaningful: support determinism (see
+        `verify_support_determinism`) guarantees SumUnit children have disjoint support
+        on them, so the regions returned here correspond to actual circuit branches
+        rather than an arbitrary decomposition.
+
+        :param variable: The Variable whose disjoint support regions to extract.
+        :param base_circuit: Circuit to query. Defaults to self.probabilistic_circuit.
+        :returns: List of (composite_set_event, probability) pairs, one per disjoint
+            region, each with positive probability.
+        """
+        circuit = (
+            base_circuit if base_circuit is not None else self.probabilistic_circuit
+        )
+        regions_by_value: Dict[Any, Tuple[Any, float]] = {}
+        for simple_region in circuit.support.simple_sets:
+            value = simple_region[variable]
+            if value in regions_by_value:
+                continue
+            region_event = SimpleEvent.from_data({variable: value}).as_composite_set()
+            probability = circuit.probability(
+                region_event.fill_missing_variables_pure(circuit.variables)
+            )
+            if probability > 0.0:
+                regions_by_value[value] = (region_event, float(probability))
+        return list(regions_by_value.values())
+
+    def _best_disjoint_region(
+        self,
+        variable: Variable,
+        interventional_circuit: ProbabilisticCircuit,
+    ) -> Optional[Event]:
+        """
+        Return the structurally disjoint support region of variable (see
+        `_extract_disjoint_regions_for_variable`) with the highest interventional
+        probability, or None if no regions are found.
+
+        The disjoint counterpart of `_best_region`: use this when telling one SumUnit
+        branch's region apart from another's matters (for example, ranking several
+        candidate cause Variables against each other), since `_best_region` cannot --
+        its regions come from `_extract_leaf_regions_for_variable`, which always
+        collapses to variable's whole support as a single region.
+
+        :param variable: The Variable whose disjoint support regions to search.
+        :param interventional_circuit: Joint circuit used to score each region.
+        :returns: Composite set event of the highest-probability disjoint region, or
+            None.
+        """
+        best_probability = -1.0
+        best_region: Optional[Event] = None
+        for region_event, _ in self._extract_disjoint_regions_for_variable(variable):
+            region_probability = float(
+                interventional_circuit.probability(
+                    region_event.fill_missing_variables_pure(
+                        interventional_circuit.variables
+                    )
+                )
+            )
+            if region_probability > best_probability:
+                best_probability = region_probability
+                best_region = region_event
+        return best_region
 
     def _extract_leaf_regions_for_variables(
         self,

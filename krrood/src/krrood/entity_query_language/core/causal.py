@@ -12,39 +12,23 @@ causal code under a ``causal`` subpackage.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
-from typing_extensions import Any, Iterable
+from typing_extensions import Any, Iterable, List
 
+import random_events.variable
 from krrood.entity_query_language.core.base_expressions import (
     OperationResult,
     UnaryExpression,
 )
 from krrood.entity_query_language.core.helpers import (
-    is_literal_comparator_or_conjunction,
+    is_equality_literal_comparator_or_conjunction,
 )
 from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.exceptions import (
-    CausesEffectRequiresLiteralComparator,
+    CausesEffectRequiresEqualityComparator,
 )
 from krrood.entity_query_language.operators.core_logical_operators import (
     LogicalOperator,
 )
-
-
-class CausalRole(StrEnum):
-    """
-    The role a variable plays in a causal query.
-    """
-
-    CAUSE = "cause"
-    """
-    An intervention target, declared with ``cause()``.
-    """
-
-    EFFECT = "effect"
-    """
-    A declared effect, declared with ``causes_effect(...)``.
-    """
 
 
 @dataclass(eq=False, repr=False)
@@ -61,7 +45,7 @@ class Cause(Literal):
     (``arm=0.3``) instead.
     """
 
-    _value_: Any = field(default=Ellipsis, init=False, kw_only=True)
+    _value_: Any = field(default=Ellipsis, init=False)
 
 
 @dataclass(eq=False, repr=False)
@@ -79,8 +63,8 @@ class CausesEffect(LogicalOperator, UnaryExpression):
 
     def __post_init__(self):
         super().__post_init__()
-        if not is_literal_comparator_or_conjunction(self._child_):
-            raise CausesEffectRequiresLiteralComparator(self._child_)
+        if not is_equality_literal_comparator_or_conjunction(self._child_):
+            raise CausesEffectRequiresEqualityComparator(self._child_)
 
     def _evaluate__(
         self,
@@ -90,3 +74,54 @@ class CausesEffect(LogicalOperator, UnaryExpression):
             yield self._build_operation_result_with_truth_(
                 child_result.is_true, child_result.bindings, child_result
             )
+
+
+@dataclass
+class CauseEffectVariables:
+    """
+    The cause candidates and effect variable a ``cause()`` search resolves to.
+    """
+
+    cause_variables: List[random_events.variable.Variable]
+    """
+    The variable(s) a ``cause()`` intervention is searched over.
+
+    When there is more than one, each is tried independently and the one whose
+    intervention best explains the effect becomes the primary cause -- there is no
+    joint, multi-variable intervention.
+    """
+
+    effect_variable: random_events.variable.Variable
+    """
+    The variable a ``causes_effect(...)`` condition declares as the effect.
+    """
+
+
+@dataclass
+class ScoredIntervention:
+    """
+    One cause candidate's best-region search result, scored for comparison against the
+    other candidates when a query has more than one ``cause()`` field.
+    """
+
+    cause_variable: random_events.variable.Variable
+    """
+    The candidate cause variable this result is for.
+    """
+
+    effect_probability_given_region: float
+    """
+    The interventional probability that the effect holds, given this variable is
+    restricted to its best region -- how *reliably* this candidate's best value produces
+    the effect.
+
+    Comparable across candidates regardless of how much of each candidate's own domain
+    that region happens to cover: the higher one is the better explanation.
+    """
+
+    narrowed_circuit: Any
+    """
+    The interventional joint, truncated to the effect condition and this candidate's
+    best region -- what the query samples from if this candidate turns out to be the
+    primary cause.
+    """

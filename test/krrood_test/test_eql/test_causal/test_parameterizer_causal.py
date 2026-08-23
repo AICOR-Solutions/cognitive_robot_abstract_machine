@@ -52,7 +52,7 @@ def test_without_causes_effect_no_effect_variables_are_registered():
 def test_causes_effect_conjunction_registers_every_effect_variable():
     match = an(Pick)(arm=cause(), status=...)
     match.causes_effect(
-        match.variable.status == Status.SUCCESS, match.variable.arm > 0.0
+        match.variable.status == Status.SUCCESS, match.variable.arm == 0.3
     )
     parameters = UnderspecifiedParameters(match)
     names = {v.name for v in parameters.effect_variables_from_causes_effect}

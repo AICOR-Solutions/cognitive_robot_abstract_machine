@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing_extensions import Any, List, Type
 
 import random_events.variable
-from krrood.entity_query_language.core.causal import CausalRole
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import ConditionType
 from krrood.exceptions import DataclassException, InputError
@@ -108,41 +107,29 @@ class DoRequiresCausalCircuitModel(DataclassException):
 
 
 @dataclass
-class MultipleCauseOrEffectVariablesNotSupported(DataclassException):
+class MultipleEffectVariablesNotSupported(DataclassException):
     """
-    Raised when a query has more than one ``cause()`` intervention target, or more than
-    one effect variable declared via ``causes_effect(...)``.
+    Raised when a query declares more than one effect variable via
+    ``causes_effect(...)``.
 
-    v1 causal search supports exactly one cause variable and one effect variable per
-    query -- joint interventions and multi-effect causal queries are not yet supported,
-    matching :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.backdoor_adjustment`'s
-    single-cause-variable, single-effect-variable signature.
-    """
-
-    role: CausalRole
-    """
-    Which role -- cause or effect -- has too many variables.
+    :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.backdoor_adjustment`
+    takes exactly one effect variable -- there is no multi-effect form of the
+    interventional computation to route a query with several through. Multiple
+    ``cause()`` fields are fine: each candidate is searched independently and the one
+    that best explains the effect becomes the primary cause.
     """
 
     variables: List[random_events.variable.Variable]
     """
-    The variables found in that role.
-    """
-
-    _construct_by_role = {
-        CausalRole.CAUSE: "cause()",
-        CausalRole.EFFECT: "causes_effect(...)",
-    }
-    """
-    The EQL construct that declares each role, for :meth:`suggest_correction`.
+    The declared effect variables.
     """
 
     def error_message(self) -> str:
         return (
-            f"Found {len(self.variables)} {self.role.value} variables "
+            f"Found {len(self.variables)} effect variables "
             f"({[v.name for v in self.variables]}), but a causal search supports "
             f"exactly one."
         )
 
     def suggest_correction(self) -> str:
-        return f"Use exactly one {self._construct_by_role[self.role]} per query."
+        return "Declare exactly one effect per query."

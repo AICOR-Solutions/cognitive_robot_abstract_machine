@@ -13,63 +13,67 @@ kernelspec:
 
 # Causal (`do()`) Queries
 
-Ordinary underspecified fields (see {doc}`underspecified`) either *condition* the
-probabilistic model on a value or leave it *free*, sampling from whatever the model's
-own correlations imply. Neither answers Pearl's causal question: "if we *set* this
-field to some value, what happens to another field?" ("do(X)") is a different query
-from "given that we *observed* this field at some value, what else do we know?"
-("X="), whenever the two fields share a hidden common cause -- conditioning picks up
-that confounding correlation, an intervention cuts it.
+Ice cream sales and drowning incidents both rise in summer. Looking at the data alone,
+more ice cream sold comes with more drownings, but banning ice cream would not save
+anyone; warm weather drives both. *Observing* a value tells you what tends to come with
+it; *setting* a value tells you what actually follows from it. Pearl calls the first
+"conditioning" (`X=`) and the second "intervention" (`do(X)`) -- whenever two fields
+share a hidden common cause, the two questions have different answers, because
+conditioning picks up the confounding correlation and intervention cuts it.
 
 {py:func}`~krrood.entity_query_language.factories.cause` and
 {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect` route a query
-through {py:class}`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`'s
+through
+{py:class}`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`'s
 backdoor-adjustment machinery instead of plain conditioning, when evaluated with
 {py:class}`~krrood.entity_query_language.backends.ProbabilisticBackend`.
 
 ---
 
-## `cause()` — search for an intervention
+## Declaring a causal query
+
+`cause()` and `causes_effect()` are always used together: `cause()` marks the field to
+search an intervention over, `causes_effect()` declares the condition that intervention
+should explain.
 
 ```python
 from krrood.entity_query_language.factories import an, cause
 
-query = an(Pick)(arm=cause(), success=...)
+pick = (match := an(Pick)(arm=cause(), success=...)).causes_effect(
+    match.variable.success == Status.SUCCESS
+)
 ```
 
-`cause()` takes no arguments. It always means: *find the value of this field whose
-intervention (`do(arm=value)`) best explains the declared effect* -- there is no
-pinned-value form (`cause(0.3)` is a `TypeError`); pin a value with a plain literal
-kwarg instead (`arm=0.3`), which is an ordinary conditioning assignment, not a causal
-one.
+reads as: *"find the arm value whose intervention best causes success"*.
+
+### `cause()`
+
+`cause()` takes no arguments: it always means *find the value of this field whose
+intervention (`do(arm=value)`) best explains the declared effect*. To pin a known value
+instead -- an ordinary conditioning assignment, not a causal one -- use a plain literal
+kwarg (`arm=0.3`).
 
 ```{important}
 `cause()` needs a declared effect to search *for* -- see `causes_effect()` below.
 Using `cause()` with no `causes_effect(...)` condition anywhere in the query raises
 {py:class}`~krrood.entity_query_language.exceptions.NoCausesEffectConditionForCause`.
+Declare exactly one effect per query;
+{py:class}`~krrood.parametrization.exceptions.MultipleEffectVariablesNotSupported`
+raises otherwise -- there is no multi-effect form of the underlying interventional
+computation to route several through. Multiple `cause()` fields are fine: each candidate
+is searched independently and the one that best explains the effect becomes the primary
+cause.
 ```
 
-## `causes_effect()` — declare the effect
-
-```python
-query.causes_effect(query.variable.success == Status.SUCCESS)
-```
+### `causes_effect()`
 
 {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect` is sugar for
-`.where(...)`: it accepts one literal comparator (`attribute == value`, or `>`, `<`,
-...) or several combined with `and_`. It marks the wrapped condition as the causal
-effect a `cause()` search should optimize -- but it filters results **identically** to
-an ordinary `.where()` under every backend, including selective ones, so
-`causes_effect(...)` never changes what a query would otherwise select. Only
-`ProbabilisticBackend` additionally reads it, to know which variable to compute
-`P(effect | do(cause))` over.
-
-```python
-pick = an(Pick)(arm=cause(), success=...)
-pick.causes_effect(pick.variable.success == Status.SUCCESS)
-```
-
-reads as: *"find the arm value whose intervention best causes success"*.
+`.where(...)`: it accepts one equality comparator (`attribute == value`) or several
+combined with `and_`, declaring exactly one effect variable per query. It filters
+results **identically** to an ordinary `.where()` under every backend, including
+selective ones, so `causes_effect(...)` never changes what a query would otherwise
+select -- only `ProbabilisticBackend` additionally reads it, to know which variable to
+compute `P(effect | do(cause))` over.
 
 ---
 
@@ -97,7 +101,8 @@ If the registry resolves anything other than a `CausalCircuit` for a query conta
 `cause()`, the backend raises
 {py:class}`~krrood.parametrization.exceptions.DoRequiresCausalCircuitModel` --
 `cause()` needs a registered causal graph to know what to cut when intervening; there
-is no fallback to plain conditioning.
+is no fallback to plain conditioning. Confounder adjustment is configured on however
+the registered `CausalCircuit` itself was built, not from the query.
 
 ### Selective backends and `EntityQueryLanguageGenerativeBackend`
 
@@ -107,26 +112,10 @@ unspecified field (`...`) -- a selective backend naturally selects nothing (noth
 equals `cause()`'s wrapped `Ellipsis`), and the generative backend enumerates it if the
 field is an enum, or raises the same
 {py:class}`~krrood.entity_query_language.exceptions.UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration`
-a bare `...` on a non-enum field already raises. Pass `crash_on_unresolvable_cause=True`
-to a backend's constructor to fail loudly instead -- useful in tests that want to catch
-accidental `cause()` misuse against a non-causal backend.
-
----
-
-## v1 scope
-
-- **One cause variable, one effect variable per query.** Two `cause()` fields, or a
-  `causes_effect(...)` conjunction spanning more than one distinct effect variable,
-  raise {py:class}`~krrood.parametrization.exceptions.MultipleCauseOrEffectVariablesNotSupported`
-  (joint interventions need a multi-cause-variable `backdoor_adjustment` overload that
-  does not exist yet).
-- **No query-side adjustment-set specification.** `cause()` always calls
-  `backdoor_adjustment` with an empty adjustment set, matching
-  `CausalCircuit`'s own documented "use empty adjustment sets for independent
-  randomised training data" case. Confounder adjustment is configured on however the
-  registered `CausalCircuit` was built, not from the query.
-- **No pinned-value intervention** (`do(X=x)` for a specific `x`) -- only the search
-  form. Pin a value with an ordinary literal kwarg for plain conditioning instead.
+a bare `...` on a non-enum field already raises. Pass
+`raise_on_unresolvable_cause=True` to a backend's constructor to fail loudly instead --
+useful in tests that want to catch accidental `cause()` misuse against a non-causal
+backend.
 
 ---
 
@@ -139,5 +128,5 @@ accidental `cause()` misuse against a non-causal backend.
 - {py:class}`~krrood.parametrization.model_registries.CausalCircuitRegistry`
 - {py:class}`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`
 - {py:class}`~krrood.parametrization.exceptions.DoRequiresCausalCircuitModel`
-- {py:class}`~krrood.parametrization.exceptions.MultipleCauseOrEffectVariablesNotSupported`
+- {py:class}`~krrood.parametrization.exceptions.MultipleEffectVariablesNotSupported`
 - {py:class}`~krrood.entity_query_language.exceptions.NoCausesEffectConditionForCause`

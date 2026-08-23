@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from types import NoneType
 from typing import Iterable, TypeVar
 
+import random_events.variable
+from random_events.product_algebra import Event
 from sqlalchemy.orm import sessionmaker
-from typing_extensions import ClassVar, Dict, Optional
+from typing_extensions import ClassVar, Dict, List, Optional
 
 from krrood import logger
 from krrood.entity_query_language.verbalization.vocabulary.english import Directive
@@ -14,7 +16,11 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
 )
-from krrood.entity_query_language.core.causal import CausalRole, Cause
+from krrood.entity_query_language.core.causal import (
+    Cause,
+    CauseEffectVariables,
+    ScoredIntervention,
+)
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.exceptions import (
@@ -36,7 +42,7 @@ try:
     )
     from krrood.parametrization.exceptions import (
         DoRequiresCausalCircuitModel,
-        MultipleCauseOrEffectVariablesNotSupported,
+        MultipleEffectVariablesNotSupported,
     )
     from krrood.parametrization.model_registries import (
         ModelRegistry,
@@ -49,7 +55,7 @@ except ImportError as e:
     logger.debug(f"Couldn't import probabilistic model needed classes: {e}")
     CausalCircuit = NoneType
     DoRequiresCausalCircuitModel = NoneType
-    MultipleCauseOrEffectVariablesNotSupported = NoneType
+    MultipleEffectVariablesNotSupported = NoneType
     ModelRegistry = NoneType
     FullyFactorizedRegistry = NoneType
     UnderspecifiedParameters = NoneType
@@ -74,7 +80,7 @@ class QueryBackend(ABC):
     concrete backend types.
     """
 
-    crash_on_unresolvable_cause: bool = field(default=False, kw_only=True)
+    raise_on_unresolvable_cause: bool = field(default=False, kw_only=True)
     """
     Whether to raise instead of warning when an expression contains a `Cause`
     (`cause()`) intervention this backend cannot resolve causally.
@@ -98,7 +104,7 @@ class QueryBackend(ABC):
 
     def _warn_or_raise_on_unresolved_cause_(self, expression: Evaluable) -> None:
         """
-        Warn (or, if :attr:`crash_on_unresolvable_cause` is set, raise) when
+        Warn (or, if :attr:`raise_on_unresolvable_cause` is set, raise) when
         *expression* is a :class:`~krrood.entity_query_language.query.match.Match`
         containing a `Cause` this backend has no causal graph to resolve.
 
@@ -106,7 +112,7 @@ class QueryBackend(ABC):
         """
         if not (isinstance(expression, Match) and expression.has_cause_attributes):
             return
-        if self.crash_on_unresolvable_cause:
+        if self.raise_on_unresolvable_cause:
             raise BackendCannotEvaluateCause(expression, backend_type=type(self))
         logger.warning(
             f"{expression} contains a cause() intervention, which {type(self).__name__} "
@@ -311,41 +317,37 @@ class ProbabilisticBackend(GenerativeBackend):
         model = self.model_registry.get_model(parameters)
 
         if parameters.search_cause_variables:
-            cause_variable, effect_variable = self._resolve_cause_and_effect_variables(
+            cause_effect = self._resolve_cause_and_effect_variables(
                 parameters, expression
             )
             if not isinstance(model, CausalCircuit):
                 raise DoRequiresCausalCircuitModel(model)
-            # compute the interventional joint P(cause, effect | do(cause)) instead of
-            # conditioning on the literal assignments (there are none to condition on: a
-            # search cause() variable is registered like a free field, not a value)
-            conditioned = model.backdoor_adjustment(cause_variable, effect_variable)
+            # search every candidate cause independently and keep the primary one's
+            # already effect-truncated, already region-narrowed circuit -- see
+            # _resolve_primary_intervention for why this needs no joint intervention
+            primary = self._resolve_primary_intervention(
+                model,
+                cause_effect.cause_variables,
+                cause_effect.effect_variable,
+                parameters.truncation_assignments_from_where_conditions,
+                expression,
+            )
+            truncated = primary.narrowed_circuit
         else:
             # apply conditions from literal assignments to underspecified variables
             conditioned, _ = model.conditional(
                 parameters.conditioning_assignments_from_literal_values
             )
+            if conditioned is None:
+                raise NoSolutionFound(expression.expression)
 
-        if conditioned is None:
-            raise NoSolutionFound(expression.expression)
-
-        # apply conditions from the where statements (this is also where the
-        # causes_effect(...) condition -- transparent to the translator -- narrows the
-        # interventional joint down to the declared effect)
-        if parameters.truncation_assignments_from_where_conditions:
-            truncated, _ = conditioned.truncated(
-                parameters.truncation_assignments_from_where_conditions
-            )
-        else:
-            truncated = conditioned
-
-        if parameters.search_cause_variables:
-            # search over the cause variable's regions for the one with the highest
-            # remaining probability now that the joint is narrowed to the effect: the
-            # intervention that best explains it
-            truncated = self._narrow_to_best_intervention_region(
-                model, cause_variable, truncated, expression
-            )
+            # apply conditions from the where statements
+            if parameters.truncation_assignments_from_where_conditions:
+                truncated, _ = conditioned.truncated(
+                    parameters.truncation_assignments_from_where_conditions
+                )
+            else:
+                truncated = conditioned
 
         # apply conditions from variable assignments to underspecified variables
         if parameters.truncation_assignments_from_krrood_variables:
@@ -353,7 +355,7 @@ class ProbabilisticBackend(GenerativeBackend):
             complete_event.fill_missing_variables(parameters.variables.values())
             for event in parameters.truncation_assignments_from_krrood_variables[1:]:
                 complete_event = complete_event.intersection_with(event)
-            truncated, _ = conditioned.truncated(complete_event, singleton_allowed=True)
+            truncated, _ = truncated.truncated(complete_event, singleton_allowed=True)
 
             if truncated is None:
                 raise NoSolutionFound(expression.expression)
@@ -375,69 +377,156 @@ class ProbabilisticBackend(GenerativeBackend):
     @staticmethod
     def _resolve_cause_and_effect_variables(
         parameters: UnderspecifiedParameters, expression: Match[T]
-    ) -> tuple:
+    ) -> CauseEffectVariables:
         """
-        Resolve the single cause and single effect variable a ``cause()`` search
-        optimizes for, per this backend's v1 single-cause/single-effect scope.
+        Resolve the cause candidates and the single effect variable a ``cause()`` search
+        optimizes for.
+
+        Any number of cause candidates is fine -- each is searched independently (see
+        :meth:`_resolve_primary_intervention`). Exactly one effect variable is required:
+        :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.backdoor_adjustment`
+        has no multi-effect form to route several through.
 
         :param parameters: The parameters extracted from *expression*.
         :param expression: The match being evaluated.
         :raises NoCausesEffectConditionForCause: If no ``causes_effect(...)`` condition
             declared an effect.
-        :raises MultipleCauseOrEffectVariablesNotSupported: If more than one cause or
-            effect variable was found.
-        :return: The ``(cause_variable, effect_variable)`` pair.
+        :raises MultipleEffectVariablesNotSupported: If more than one effect variable
+            was found.
+        :return: The resolved cause candidates and effect variable.
         """
         if not parameters.effect_variables_from_causes_effect:
             raise NoCausesEffectConditionForCause(expression.expression)
-        if len(parameters.search_cause_variables) > 1:
-            raise MultipleCauseOrEffectVariablesNotSupported(
-                CausalRole.CAUSE, parameters.search_cause_variables
-            )
         if len(parameters.effect_variables_from_causes_effect) > 1:
-            raise MultipleCauseOrEffectVariablesNotSupported(
-                CausalRole.EFFECT, parameters.effect_variables_from_causes_effect
+            raise MultipleEffectVariablesNotSupported(
+                parameters.effect_variables_from_causes_effect
             )
-        [cause_variable] = parameters.search_cause_variables
         [effect_variable] = parameters.effect_variables_from_causes_effect
-        return cause_variable, effect_variable
+        return CauseEffectVariables(parameters.search_cause_variables, effect_variable)
+
+    @classmethod
+    def _resolve_primary_intervention(
+        cls,
+        model: CausalCircuit,
+        cause_variables: List[random_events.variable.Variable],
+        effect_variable: random_events.variable.Variable,
+        effect_truncation_event: Optional[Event],
+        expression: Match[T],
+    ) -> ScoredIntervention:
+        """
+        Search every candidate cause variable independently for the region whose
+        intervention best explains the effect, and return the highest-scoring candidate
+        as the primary cause.
+
+        This is the same per-candidate approach
+        :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.diagnose_failure`
+        already uses to identify a ``primary_cause_variable`` -- trying one candidate at
+        a time needs no joint, multi-variable intervention, which
+        ``backdoor_adjustment`` does not support.
+
+        :param model: The causal circuit to search.
+        :param cause_variables: The candidate cause variables, one or more.
+        :param effect_variable: The declared effect variable.
+        :param effect_truncation_event: The event the declared effect condition
+            translates to, used to narrow each candidate's interventional joint to the
+            effect before ranking its regions.
+        :param expression: The match being evaluated, for error reporting.
+        :raises NoSolutionFound: If no candidate has a region with positive probability.
+        :return: The highest-scoring candidate.
+        """
+        scored_interventions = [
+            scored_intervention
+            for cause_variable in cause_variables
+            if (
+                scored_intervention := cls._score_intervention(
+                    model, cause_variable, effect_variable, effect_truncation_event
+                )
+            )
+            is not None
+        ]
+        if not scored_interventions:
+            raise NoSolutionFound(expression.expression)
+        return max(
+            scored_interventions,
+            key=lambda candidate: candidate.effect_probability_given_region,
+        )
 
     @staticmethod
-    def _narrow_to_best_intervention_region(
+    def _score_intervention(
         model: CausalCircuit,
-        cause_variable,
-        truncated,
-        expression: Match[T],
-    ):
+        cause_variable: random_events.variable.Variable,
+        effect_variable: random_events.variable.Variable,
+        effect_truncation_event: Optional[Event],
+    ) -> Optional[ScoredIntervention]:
         """
-        Further truncate *truncated* -- the interventional joint, already truncated to
-        the declared effect condition -- to the ``cause_variable`` region with the
-        highest remaining probability: the intervention that best explains the effect.
+        Compute ``cause_variable``'s best-region search result and score it by how
+        *reliably* that region produces the effect: ``P(effect | do(cause_variable in
+        best_region))``. Comparable across candidates because it is a conditional
+        probability under each candidate's own interventional distribution, not scaled
+        by how much of that candidate's domain the region happens to cover.
 
-        Ranking candidate regions on the effect-truncated circuit (rather than the raw
-        interventional joint) is what makes this a search *for the effect*, not merely
-        for the most likely intervention overall: truncation renormalizes by the
-        (region-independent) probability of the effect condition, so the relative
-        ranking of regions is exactly the ranking by joint intervention-and-effect mass.
+        This must be scored on the interventional joint restricted to *only* the region,
+        before conditioning on the effect: scoring on the already effect-truncated
+        circuit instead would read close to 100% for *any* region, including a
+        candidate's entire, unrestricted domain (an uninformative candidate's only
+        "region"), since conditioning on the effect first makes whatever region is
+        examined trivially compatible with it by construction. The region itself is
+        still chosen by searching the effect-truncated circuit -- that search still
+        needs to know which values are compatible with the effect; only the *score* is
+        measured against the region-only, effect-free distribution.
 
-        :param model: The causal circuit `truncated` was computed from.
-        :param cause_variable: The cause variable to search regions of.
-        :param truncated: The interventional joint, truncated to the effect condition.
-        :param expression: The match being evaluated, for error reporting.
-        :raises NoSolutionFound: If no cause region remains, or the best region has zero
-            probability.
-        :return: `truncated`, further truncated to the best cause region.
+        # `_best_disjoint_region` is private: `causal_circuit.py` is a stable #
+        dependency this glue code does not modify beyond what #
+        doc/eql/user/causality.md documents. It is the disjoint counterpart of #
+        `_best_region` (which `diagnose_failure` uses for `recommended_region`): #
+        `_best_region`'s regions always collapse to the variable's whole domain, which #
+        cannot discriminate between candidates -- `_best_disjoint_region` keeps #
+        separate SumUnit branches separate, which this ranking needs.
+
+        :param model: The causal circuit to search.
+        :param cause_variable: The candidate cause variable.
+        :param effect_variable: The declared effect variable.
+        :param effect_truncation_event: The event the declared effect condition
+            translates to.
+        :return: The scored candidate, or ``None`` if it has no region with positive
+            probability, or the effect has zero probability within that region.
         """
-        # `_best_region` is private: `causal_circuit.py` is a stable dependency this glue
-        # code does not modify (see doc/eql/user/causality.md), and it is the same
-        # region-search `diagnose_failure` already uses internally for `recommended_region` --
-        # there is no public equivalent to call instead.
-        best_region = model._best_region(cause_variable, truncated)
+        interventional = model.backdoor_adjustment(cause_variable, effect_variable)
+
+        # `.truncated()` fills in missing variables *in place* on the event it is
+        # given, so reusing the same event object across several `.truncated()` calls
+        # (each on a differently-shaped circuit) would leak one call's variables into
+        # the next -- pass a fresh copy each time. `Event` defines its own
+        # no-argument `__deepcopy__`, incompatible with the `copy` module's
+        # memo-passing convention, so it is called directly rather than through
+        # `copy.deepcopy`.
+        if effect_truncation_event:
+            effect_truncated, _ = interventional.truncated(
+                effect_truncation_event.__deepcopy__()
+            )
+        else:
+            effect_truncated = interventional
+        if effect_truncated is None:
+            return None
+
+        best_region = model._best_disjoint_region(cause_variable, effect_truncated)
         if best_region is None:
-            raise NoSolutionFound(expression.expression)
-        narrowed, _ = truncated.truncated(
-            best_region.fill_missing_variables_pure(truncated.variables)
+            return None
+
+        region_only, region_prior_probability = interventional.truncated(
+            best_region.fill_missing_variables_pure(interventional.variables)
         )
-        if narrowed is None:
-            raise NoSolutionFound(expression.expression)
-        return narrowed
+        if region_only is None or region_prior_probability <= 0.0:
+            return None
+
+        if effect_truncation_event:
+            narrowed, effect_given_region_probability = region_only.truncated(
+                effect_truncation_event.__deepcopy__()
+            )
+        else:
+            narrowed, effect_given_region_probability = region_only, 1.0
+        if narrowed is None or effect_given_region_probability <= 0.0:
+            return None
+        return ScoredIntervention(
+            cause_variable, float(effect_given_region_probability), narrowed
+        )

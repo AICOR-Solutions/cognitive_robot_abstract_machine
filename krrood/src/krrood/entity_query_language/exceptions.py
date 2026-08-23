@@ -786,7 +786,7 @@ class BackendCannotEvaluateCause(DataclassException):
     Raised when a match with a :class:`~krrood.entity_query_language.core.causal.Cause`
     (``cause()``) intervention is evaluated with a backend that has no notion of a
     causal graph to search over, and that backend was configured (via
-    ``crash_on_unresolvable_cause=True``) to fail loudly instead of warning and treating
+    ``raise_on_unresolvable_cause=True``) to fail loudly instead of warning and treating
     the intervention as an ordinary unspecified field.
     """
 
@@ -851,31 +851,32 @@ class UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration(
 
 
 @dataclass
-class CausesEffectRequiresLiteralComparator(UsageError):
+class CausesEffectRequiresEqualityComparator(UsageError):
     """
     Raised when a :func:`~krrood.entity_query_language.query.match.Match.causes_effect`
-    condition is not a literal comparator (or a conjunction of literal comparators).
+    condition is not an equality comparator (or a conjunction of equality comparators).
 
     A causal effect must be expressed as ``attribute == value`` (or several such
     comparisons ANDed together), the same restriction Pearl's atomic point-intervention
     ``do(X=x)`` already implies: you can ask what causes an attribute to equal a value,
-    not what causes it to satisfy an arbitrary relation to another attribute.
+    not what causes it to satisfy an inequality or an arbitrary relation to another
+    attribute.
     """
 
     condition: SymbolicExpression
     """
-    The condition that is not a literal comparator or conjunction thereof.
+    The condition that is not an equality comparator or conjunction thereof.
     """
 
     def error_message(self) -> str:
         return (
-            f"causes_effect(...) requires a literal comparator (attribute == value) or "
-            f"a conjunction of literal comparators, got {self.condition}."
+            f"causes_effect(...) requires an equality comparator (attribute == value) "
+            f"or a conjunction of equality comparators, got {self.condition}."
         )
 
     def suggest_correction(self) -> str:
         return (
-            "Compare an attribute against a literal value, e.g. "
+            "Compare an attribute against a literal value with `==`, e.g. "
             "`match.causes_effect(match.variable.status == SUCCESS)`, combining "
             "several such comparisons with `and_` if needed."
         )

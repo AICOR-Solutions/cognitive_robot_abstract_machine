@@ -683,8 +683,8 @@ class CausesEffectRule(PhraseRule):
     metadata :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` reads.
 
     >>> robot = variable(Robot, [])
-    >>> verbalize_expression(CausesEffect(robot.battery > 50))
-    'the battery of a Robot is greater than 50'
+    >>> verbalize_expression(CausesEffect(robot.name == 'x'))
+    "the name of a Robot is 'x'"
     """
 
     construct = CausesEffect
@@ -694,6 +694,6 @@ class CausesEffectRule(PhraseRule):
         Delegate transparently to the wrapped condition -- no surface text of its own.
 
         It adds nothing to the class example's rendering: the recursion into the wrapped
-        comparator produces the whole *battery ... is greater than 50* clause.
+        comparator produces the whole *the name of a Robot is 'x'* clause.
         """
         return context.child(node._child_)

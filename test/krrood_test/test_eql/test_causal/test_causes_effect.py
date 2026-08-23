@@ -5,7 +5,7 @@ import pytest
 from krrood.entity_query_language.backends import EntityQueryLanguageBackend
 from krrood.entity_query_language.core.causal import CausesEffect
 from krrood.entity_query_language.exceptions import (
-    CausesEffectRequiresLiteralComparator,
+    CausesEffectRequiresEqualityComparator,
 )
 from krrood.entity_query_language.factories import an, and_, not_
 from krrood.entity_query_language.operators.core_logical_operators import AND
@@ -27,14 +27,26 @@ def test_causes_effect_accepts_a_literal_comparator():
 
 def test_causes_effect_accepts_a_conjunction_of_literal_comparators():
     arm = an(Pick)(arm=..., status="idle").variable
-    CausesEffect(and_(arm.status == "SUCCESS", arm.arm > 0.0))  # does not raise
+    CausesEffect(and_(arm.status == "SUCCESS", arm.arm == 0.3))  # does not raise
 
 
 def test_causes_effect_rejects_a_comparison_between_two_attributes():
     a = an(Pick)(arm=..., status="idle").variable
     b = an(Pick)(arm=..., status="idle").variable
-    with pytest.raises(CausesEffectRequiresLiteralComparator):
-        CausesEffect(a.arm > b.arm)
+    with pytest.raises(CausesEffectRequiresEqualityComparator):
+        CausesEffect(a.arm == b.arm)
+
+
+def test_causes_effect_rejects_an_inequality_comparator():
+    arm = an(Pick)(arm=..., status="idle").variable
+    with pytest.raises(CausesEffectRequiresEqualityComparator):
+        CausesEffect(arm.arm > 0.3)
+
+
+def test_causes_effect_rejects_an_ellipsis_valued_comparator():
+    arm = an(Pick)(arm=..., status="idle").variable
+    with pytest.raises(CausesEffectRequiresEqualityComparator):
+        CausesEffect(arm.status == ...)
 
 
 # %% transparent evaluation
@@ -79,7 +91,7 @@ def test_match_causes_effect_is_sugar_for_where_with_causes_effect():
 
 def test_match_causes_effect_ands_multiple_conditions():
     match = an(Pick)(arm=..., status=...)
-    match.causes_effect(match.variable.status == "SUCCESS", match.variable.arm > 0.0)
+    match.causes_effect(match.variable.status == "SUCCESS", match.variable.arm == 0.3)
     [condition] = match._where_conditions_
     assert isinstance(condition, CausesEffect)
     assert isinstance(condition._child_, AND)

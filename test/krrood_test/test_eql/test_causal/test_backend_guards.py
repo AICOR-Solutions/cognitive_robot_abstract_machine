@@ -36,11 +36,11 @@ def test_selective_backend_warns_and_finds_nothing_by_default():
     assert "cause()" in warning.call_args.args[0]
 
 
-def test_selective_backend_raises_when_configured_to_crash():
+def test_selective_backend_raises_when_configured_to_raise():
     apple = Pick(0.3, True)
     match = an(Pick)(arm=cause(), grasped=True).from_([apple])
 
-    backend = EntityQueryLanguageBackend(crash_on_unresolvable_cause=True)
+    backend = EntityQueryLanguageBackend(raise_on_unresolvable_cause=True)
     with pytest.raises(BackendCannotEvaluateCause):
         list(match.evaluate(backend=backend))
 
@@ -69,8 +69,8 @@ def test_generative_backend_warns_and_raises_the_existing_infeasibility_error():
     assert "cause()" in warning.call_args.args[0]
 
 
-def test_generative_backend_raises_when_configured_to_crash():
+def test_generative_backend_raises_when_configured_to_raise():
     match = an(Pick)(arm=cause(), grasped=True)
-    backend = EntityQueryLanguageGenerativeBackend(crash_on_unresolvable_cause=True)
+    backend = EntityQueryLanguageGenerativeBackend(raise_on_unresolvable_cause=True)
     with pytest.raises(BackendCannotEvaluateCause):
         list(match.evaluate(backend=backend))

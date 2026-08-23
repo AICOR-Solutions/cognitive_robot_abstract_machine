@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import operator
+from types import EllipsisType
 from typing_extensions import Any, Type, Optional, TYPE_CHECKING
 
 from krrood.entity_query_language.cache_data import InstanceFilteredDomain
@@ -66,15 +68,32 @@ def is_literal_comparator(expression: SymbolicExpression) -> bool:
     return True
 
 
-def is_literal_comparator_or_conjunction(expression: SymbolicExpression) -> bool:
+def is_equality_literal_comparator(expression: SymbolicExpression) -> bool:
     """
     :param expression: The expression to check.
-    :return: Whether *expression* is a literal comparator (see
-        :func:`is_literal_comparator`), or several literal comparators combined with
-        :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
+    :return: Whether *expression* is exactly ``attribute == value`` for a concrete
+        (non-``Ellipsis``) value -- the shape a causal effect condition requires: you
+        can ask what causes an attribute to equal a value, not what causes it to satisfy
+        an inequality, or to be left unconstrained.
+    """
+    if not is_literal_comparator(expression):
+        return False
+    if expression.operation is not operator.eq:
+        return False
+    return not isinstance(expression.right._value_, EllipsisType)
+
+
+def is_equality_literal_comparator_or_conjunction(
+    expression: SymbolicExpression,
+) -> bool:
+    """
+    :param expression: The expression to check.
+    :return: Whether *expression* is an equality literal comparator (see
+        :func:`is_equality_literal_comparator`), or several such comparators combined
+        with :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
     """
     if isinstance(expression, AND):
-        return is_literal_comparator_or_conjunction(
+        return is_equality_literal_comparator_or_conjunction(
             expression.left
-        ) and is_literal_comparator_or_conjunction(expression.right)
-    return is_literal_comparator(expression)
+        ) and is_equality_literal_comparator_or_conjunction(expression.right)
+    return is_equality_literal_comparator(expression)
