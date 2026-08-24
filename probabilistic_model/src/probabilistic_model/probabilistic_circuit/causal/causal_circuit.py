@@ -18,6 +18,7 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
     ProductUnit,
     SumUnit,
+    leaf,
 )
 
 
@@ -692,50 +693,81 @@ class CausalCircuit:
             )
         return output_circuit
 
-    def _add_regions_for_adjustment_stratum(
+    @staticmethod
+    def _attach_weighted_marginal(
+        sum_unit: SumUnit,
+        marginal_circuit: ProbabilisticCircuit,
+        log_weight: float,
+        target_circuit: ProbabilisticCircuit,
+    ) -> None:
+        """
+        Attach marginal_circuit's root as a weighted child of sum_unit, constructing
+        fresh nodes owned by target_circuit.
+
+        The :class:`ProductUnit` counterpart of this,
+        ``ProductUnit.attach_marginal_circuit``, attaches its child unweighted (a
+        product's factors carry no individual weight); this instead gives the new child
+        *log_weight*, since a SumUnit's children each need one.
+
+        marginal() and log_truncated_in_place() return flat circuits (SumUnit -> leaves,
+        or a single leaf), so one level of recursion suffices to copy all nodes into
+        target_circuit.
+
+        :param sum_unit: The SumUnit to attach the new weighted child to.
+        :param marginal_circuit: The marginal or truncated circuit whose root to attach.
+        :param log_weight: The log-weight the new child is attached with.
+        :param target_circuit: The owning circuit for all newly created nodes.
+        """
+        root = marginal_circuit.root
+        if isinstance(root, SumUnit):
+            new_sum_unit = SumUnit(probabilistic_circuit=target_circuit)
+            for child_log_weight, child_subcircuit in root.log_weighted_subcircuits:
+                new_sum_unit.add_subcircuit(
+                    leaf(copy.deepcopy(child_subcircuit.distribution), target_circuit),
+                    child_log_weight,
+                )
+            sum_unit.add_subcircuit(new_sum_unit, log_weight)
+        else:
+            sum_unit.add_subcircuit(
+                leaf(copy.deepcopy(root.distribution), target_circuit), log_weight
+            )
+
+    def _add_region_for_cause_value(
         self,
-        adjustment_event: Any,
-        adjustment_weight: float,
-        cause_variable: Variable,
+        cause_region: SupportRegion,
+        adjustment_strata: List[SupportRegion],
         effect_variable: Variable,
         cause_marginal_circuit: ProbabilisticCircuit,
         output_circuit: ProbabilisticCircuit,
         root_sum_unit: SumUnit,
-    ) -> int:
+    ) -> bool:
         """
-        Add ProductUnit components to root_sum_unit for one adjustment stratum.
+        Build one ProductUnit for cause_region and attach it to root_sum_unit, weighted
+        by cause_region's own marginal probability.
 
-        Truncates the circuit to the adjustment stratum, then for each cause region
-        within that stratum builds a joint (cause, effect) ProductUnit weighted by
-        P(adjustment) * P(cause | adjustment).
+        The ProductUnit's effect side is ``sum_z P(effect | cause=v, Z=z) * P(Z=z)``:
+        a SumUnit over each adjustment stratum's own conditional effect distribution,
+        weighted by that stratum's probability and renormalized (some strata may have
+        zero joint probability with this cause region and be skipped, so the weights
+        that remain do not already sum to 1). Weighting the ProductUnit itself by
+        P(cause=v) -- not by any per-stratum weight -- is what keeps the circuit a
+        valid joint distribution overall (weights across every cause region still sum
+        to 1) while truncating to this one region recovers exactly the deconfounded
+        mixture, regardless of that region's own absolute weight.
 
-        :param adjustment_event: Composite event defining the adjustment stratum.
-        :param adjustment_weight: Probability mass of this adjustment stratum.
-        :param cause_variable: The cause Variable to intervene on.
+        :param cause_region: The cause value/region to build this ProductUnit for.
+        :param adjustment_strata: The adjustment set's own disjoint regions, one per
+            value combination of the adjustment variables.
         :param effect_variable: The effect Variable to marginalise onto.
         :param cause_marginal_circuit: Marginal circuit over the cause Variable.
-        :param output_circuit: Circuit to attach new ProductUnits to.
-        :param root_sum_unit: SumUnit to attach the weighted ProductUnits to.
-        :returns: Number of ProductUnit components successfully added.
+        :param output_circuit: Circuit to attach the new ProductUnit to.
+        :param root_sum_unit: SumUnit to attach the weighted ProductUnit to.
+        :returns: True if the ProductUnit was successfully added, False if every
+            stratum's joint truncation with this cause region was empty.
         """
-        adjustment_conditioned_circuit, _ = copy.deepcopy(
-            self.probabilistic_circuit
-        ).log_truncated_in_place(
-            adjustment_event.fill_missing_variables_pure(
-                self.probabilistic_circuit.variables
-            )
-        )
-        if adjustment_conditioned_circuit is None:
-            return 0
-
-        regions_added = 0
-        for region in self._extract_disjoint_regions_for_variable(
-            cause_variable, base_circuit=adjustment_conditioned_circuit
-        ):
-            if region.probability <= 0.0:
-                continue
-
-            joint_event = adjustment_event.intersection_with(region.event)
+        effect_mixture = SumUnit(probabilistic_circuit=output_circuit)
+        for stratum in adjustment_strata:
+            joint_event = stratum.event.intersection_with(cause_region.event)
             joint_conditioned_circuit, _ = copy.deepcopy(
                 self.probabilistic_circuit
             ).log_truncated_in_place(
@@ -745,18 +777,35 @@ class CausalCircuit:
             )
             if joint_conditioned_circuit is None:
                 continue
-
-            regions_added += self._build_product_unit_for_region(
-                cause_event=region.event,
-                cause_weight=adjustment_weight * region.probability,
-                effect_variable=effect_variable,
-                cause_marginal_circuit=cause_marginal_circuit,
-                conditioned_circuit=joint_conditioned_circuit,
-                output_circuit=output_circuit,
-                root_sum_unit=root_sum_unit,
+            self._attach_weighted_marginal(
+                effect_mixture,
+                joint_conditioned_circuit.marginal([effect_variable]),
+                math.log(stratum.probability),
+                output_circuit,
             )
 
-        return regions_added
+        if len(effect_mixture.log_weights) == 0:
+            return False
+        effect_mixture.normalize()
+
+        cause_region_circuit, _ = copy.deepcopy(
+            cause_marginal_circuit
+        ).log_truncated_in_place(
+            cause_region.event.fill_missing_variables_pure(
+                cause_marginal_circuit.variables
+            )
+        )
+        if cause_region_circuit is None:
+            return False
+
+        product_unit = ProductUnit(probabilistic_circuit=output_circuit)
+        product_unit.attach_marginal_circuit(cause_region_circuit, output_circuit)
+        # effect_mixture is already a node of output_circuit (built directly above,
+        # not copied in from an external circuit), so it attaches as a plain child
+        # rather than through attach_marginal_circuit.
+        product_unit.add_subcircuit(effect_mixture)
+        root_sum_unit.add_subcircuit(product_unit, math.log(cause_region.probability))
+        return True
 
     def _compute_interventional_circuit_with_adjustment(
         self,
@@ -780,22 +829,28 @@ class CausalCircuit:
         cause_marginal_circuit = copy.deepcopy(self.probabilistic_circuit).marginal(
             [cause_variable]
         )
+        adjustment_strata = [
+            stratum
+            for stratum in self._extract_leaf_regions_for_variables(
+                adjustment_variables
+            )
+            if stratum.probability > 0.0
+        ]
         output_circuit = ProbabilisticCircuit()
         root_sum_unit = SumUnit(probabilistic_circuit=output_circuit)
         regions_added = sum(
-            self._add_regions_for_adjustment_stratum(
-                adjustment_event=stratum.event,
-                adjustment_weight=stratum.probability,
-                cause_variable=cause_variable,
+            self._add_region_for_cause_value(
+                cause_region=cause_region,
+                adjustment_strata=adjustment_strata,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 output_circuit=output_circuit,
                 root_sum_unit=root_sum_unit,
             )
-            for stratum in self._extract_leaf_regions_for_variables(
-                adjustment_variables
+            for cause_region in self._extract_disjoint_regions_for_variable(
+                cause_variable
             )
-            if stratum.probability > 0.0
+            if cause_region.probability > 0.0
         )
 
         if regions_added == 0:
@@ -863,6 +918,17 @@ class CausalCircuit:
         on them, so the regions returned here correspond to actual circuit branches
         rather than an arbitrary decomposition.
 
+        Query variables with a discrete (:class:`~random_events.set.Set`) domain need
+        one further step: a single SumUnit branch can itself be a mixture over several
+        of the variable's values (unlike a continuous branch, whose own support is
+        already the atomic range a leaf distribution occupies), so
+        ``simple_region[variable]`` there is the *union* of every value with positive
+        probability in that branch, not one value. `_split_into_atomic_values` breaks
+        that union apart before grouping, so e.g. a branch giving 80% probability to
+        ``HIGH`` and 20% to ``LOW`` contributes two regions, not one spanning both --
+        the same distinction this method already makes between branches applies within
+        one branch's own mixture.
+
         :param variable: The Variable whose disjoint support regions to extract.
         :param base_circuit: Circuit to query. Defaults to self.probabilistic_circuit.
         :returns: List of regions, one per disjoint region, each with positive
@@ -873,18 +939,36 @@ class CausalCircuit:
         )
         regions_by_value: Dict[Any, SupportRegion] = {}
         for simple_region in circuit.support.simple_sets:
-            value = simple_region[variable]
-            if value in regions_by_value:
-                continue
-            region_event = SimpleEvent.from_data({variable: value}).as_composite_set()
-            probability = circuit.probability(
-                region_event.fill_missing_variables_pure(circuit.variables)
-            )
-            if probability > 0.0:
-                regions_by_value[value] = SupportRegion(
-                    region_event, float(probability)
+            for value in self._split_into_atomic_values(simple_region[variable]):
+                if value in regions_by_value:
+                    continue
+                region_event = SimpleEvent.from_data(
+                    {variable: value}
+                ).as_composite_set()
+                probability = circuit.probability(
+                    region_event.fill_missing_variables_pure(circuit.variables)
                 )
+                if probability > 0.0:
+                    regions_by_value[value] = SupportRegion(
+                        region_event, float(probability)
+                    )
         return list(regions_by_value.values())
+
+    @staticmethod
+    def _split_into_atomic_values(value: Any) -> List[Any]:
+        """
+        Split *value* into its individual elements if it is a union of more than one (a
+        discrete :class:`~random_events.set.Set` mixing several values), otherwise
+        return it unchanged.
+
+        :param value: A single support value read off a joint support's simple set.
+        :returns: The union's elements, or ``[value]`` if *value* is not a multi-element
+            union.
+        """
+        elements = getattr(value, "simple_sets", None)
+        if elements is not None and len(elements) > 1:
+            return list(elements)
+        return [value]
 
     def _best_disjoint_region(
         self,
@@ -929,23 +1013,40 @@ class CausalCircuit:
         """
         Return a :class:`SupportRegion` for the joint support of variables.
 
+        Decomposes each variable's value the same way
+        :meth:`_extract_disjoint_regions_for_variable` does (see
+        `_split_into_atomic_values`) before combining them, and takes the Cartesian
+        product across *variables* to enumerate every joint combination -- needed
+        because a discrete adjustment variable's own marginal support already unions
+        every value it takes with positive probability into one entry, the same
+        coalescing that method exists to undo for a single variable.
+
         :param variables: Variables whose joint support regions to extract.
-        :returns: List of regions, one per joint region.
+        :returns: List of regions, one per joint region, each with positive probability.
         """
-        regions: List[SupportRegion] = []
+        regions_by_values: Dict[Any, SupportRegion] = {}
         joint_support = self.probabilistic_circuit.support.marginal(variables)
         for simple_region in joint_support.simple_sets:
-            region_event = SimpleEvent.from_data(
-                {variable: simple_region[variable] for variable in variables}
-            ).as_composite_set()
-            probability = self.probabilistic_circuit.probability(
-                region_event.fill_missing_variables_pure(
-                    self.probabilistic_circuit.variables
+            atomic_values_per_variable = [
+                self._split_into_atomic_values(simple_region[variable])
+                for variable in variables
+            ]
+            for combination in itertools.product(*atomic_values_per_variable):
+                if combination in regions_by_values:
+                    continue
+                region_event = SimpleEvent.from_data(
+                    dict(zip(variables, combination))
+                ).as_composite_set()
+                probability = self.probabilistic_circuit.probability(
+                    region_event.fill_missing_variables_pure(
+                        self.probabilistic_circuit.variables
+                    )
                 )
-            )
-            if probability > 0.0:
-                regions.append(SupportRegion(region_event, float(probability)))
-        return regions
+                if probability > 0.0:
+                    regions_by_values[combination] = SupportRegion(
+                        region_event, float(probability)
+                    )
+        return list(regions_by_values.values())
 
     def _query_probability_at_value(
         self,

@@ -25,7 +25,7 @@ from krrood.entity_query_language.exceptions import (
     NoCauseVariablesForRanking,
     NoCausesEffectConditionForCause,
 )
-from krrood.entity_query_language.factories import a, cause
+from krrood.entity_query_language.factories import a, cause, CONFOUNDER
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from krrood.parametrization.exceptions import (
     DoRequiresCausalCircuitModel,
@@ -500,3 +500,142 @@ def test_a_causal_query_verbalizes_the_causes_effect_clause_in_context():
         "Generate a Pick and predict its arm and success values where what causes "
         "its success to be SUCCESS"
     )
+
+
+# %% CONFOUNDER
+
+
+class Season(Enum):
+    WARM = auto()
+    COLD = auto()
+
+
+class Treatment(Enum):
+    LOW = auto()
+    HIGH = auto()
+
+
+@dataclass
+class Trial:
+    treatment: Treatment
+    season: Season
+    outcome: Outcome
+
+
+def _build_confounded_trial_circuit() -> CausalCircuit:
+    """
+    Season confounds both treatment and outcome; treatment has no causal effect of
+    its own. Mirrors `probabilistic_model_test`'s
+    `DiscreteConfounderAdjustmentTestCase` fixture, through EQL's own domain classes.
+
+        Warm stratum (p=0.6): P(treatment=HIGH)=0.8, outcome=SUCCESS (deterministic)
+        Cold stratum (p=0.4): P(treatment=HIGH)=0.3, outcome=FAILURE (deterministic)
+
+    Ground truth:
+        P(outcome=SUCCESS | treatment=HIGH) = 0.8 -- spurious, driven by season.
+        P(outcome=SUCCESS | do(treatment=HIGH)) = 0.6 -- causal truth after adjusting
+            for season; equal for treatment=LOW too, since treatment has no real
+            effect on outcome.
+    """
+    season = Symbolic("Trial.season", domain=Set.from_iterable(Season))
+    treatment = Symbolic("Trial.treatment", domain=Set.from_iterable(Treatment))
+    outcome = Symbolic("Trial.outcome", domain=Set.from_iterable(Outcome))
+
+    circuit = ProbabilisticCircuit()
+    root = SumUnit(probabilistic_circuit=circuit)
+    for season_value, treatment_high_probability, stratum_weight, outcome_value in [
+        (Season.WARM, 0.8, 0.6, Outcome.SUCCESS),
+        (Season.COLD, 0.3, 0.4, Outcome.FAILURE),
+    ]:
+        component = ProductUnit(probabilistic_circuit=circuit)
+        component.add_subcircuit(
+            leaf(
+                SymbolicDistribution(
+                    variable=season,
+                    probabilities=MissingDict(float, {hash(season_value): 1.0}),
+                ),
+                circuit,
+            )
+        )
+        treatment_distribution = SumUnit(probabilistic_circuit=circuit)
+        treatment_distribution.add_subcircuit(
+            leaf(
+                SymbolicDistribution(
+                    variable=treatment,
+                    probabilities=MissingDict(float, {hash(Treatment.HIGH): 1.0}),
+                ),
+                circuit,
+            ),
+            math.log(treatment_high_probability),
+        )
+        treatment_distribution.add_subcircuit(
+            leaf(
+                SymbolicDistribution(
+                    variable=treatment,
+                    probabilities=MissingDict(float, {hash(Treatment.LOW): 1.0}),
+                ),
+                circuit,
+            ),
+            math.log(1 - treatment_high_probability),
+        )
+        component.add_subcircuit(treatment_distribution)
+        component.add_subcircuit(
+            leaf(
+                SymbolicDistribution(
+                    variable=outcome,
+                    probabilities=MissingDict(float, {hash(outcome_value): 1.0}),
+                ),
+                circuit,
+            )
+        )
+        root.add_subcircuit(component, math.log(stratum_weight))
+
+    return CausalCircuit.from_probabilistic_circuit(
+        circuit,
+        MarginalDeterminismTreeNode.from_causal_graph([treatment, season], [outcome]),
+        [treatment, season],
+        [outcome],
+    )
+
+
+def test_rank_causes_without_confounder_matches_conditioning():
+    causal_circuit = _build_confounded_trial_circuit()
+    match = a(Trial)(treatment=cause(), season=..., outcome=...)
+    match.causes_effect(match.variable.outcome == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({Trial: causal_circuit})
+    )
+
+    [scored] = backend.rank_causes(match)
+
+    # No confounder declared: this is the same confounded 0.8 conditioning would
+    # give, not the causal 0.6 -- see test_rank_causes_with_confounder below.
+    assert scored.effect_probability_given_region == pytest.approx(0.8, abs=0.02)
+
+
+def test_rank_causes_with_confounder_recovers_causal_probability():
+    causal_circuit = _build_confounded_trial_circuit()
+    match = a(Trial)(treatment=cause(), season=CONFOUNDER, outcome=...)
+    match.causes_effect(match.variable.outcome == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({Trial: causal_circuit})
+    )
+
+    [scored] = backend.rank_causes(match)
+
+    assert scored.effect_probability_given_region == pytest.approx(0.6, abs=0.02)
+
+
+def test_evaluate_with_confounder_samples_from_the_deconfounded_region():
+    causal_circuit = _build_confounded_trial_circuit()
+    match = a(Trial)(treatment=cause(), season=CONFOUNDER, outcome=...)
+    match.causes_effect(match.variable.outcome == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({Trial: causal_circuit}),
+        number_of_samples=10,
+    )
+
+    results = list(match.evaluate(backend=backend))
+
+    assert len(results) == 10
+    assert all(result.treatment == Treatment.HIGH for result in results)

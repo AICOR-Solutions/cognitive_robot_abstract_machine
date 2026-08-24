@@ -27,7 +27,12 @@ from krrood.entity_query_language.core.base_expressions import (
     TruthValueOperator,
     OperationResult,
 )
-from krrood.entity_query_language.operators.causal import CAUSE, CauseSentinel
+from krrood.entity_query_language.operators.causal import (
+    CAUSE,
+    CauseSentinel,
+    CONFOUNDER,
+    ConfounderSentinel,
+)
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
@@ -187,6 +192,20 @@ def cause() -> CauseSentinel:
     :return: The :data:`~krrood.entity_query_language.operators.causal.CAUSE` sentinel.
     """
     return CAUSE
+
+
+def confounder() -> ConfounderSentinel:
+    """
+    Mark a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as
+    a variable to adjust for when searching a ``cause()`` intervention, e.g.
+    ``a(Trial)(treatment=cause(), season=confounder())``. Equivalent to writing the
+    :data:`~krrood.entity_query_language.operators.causal.CONFOUNDER` constant directly
+    (``season=CONFOUNDER``) -- see :func:`cause` for why both spellings exist.
+
+    :return: The :data:`~krrood.entity_query_language.operators.causal.CONFOUNDER`
+        sentinel.
+    """
+    return CONFOUNDER
 
 
 # %% Operators on Variables

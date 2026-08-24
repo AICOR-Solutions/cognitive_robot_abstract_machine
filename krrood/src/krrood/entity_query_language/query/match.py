@@ -36,6 +36,8 @@ from krrood.entity_query_language.operators.causal import (
     Cause,
     CauseSentinel,
     CausesEffect,
+    Confounder,
+    ConfounderSentinel,
 )
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
@@ -330,6 +332,8 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
                 # Give this field its own Cause() rather than sharing the CAUSE
                 # sentinel itself -- see CauseSentinel's docstring for why.
                 attr_assigned_value = Cause()
+            elif isinstance(attr_assigned_value, ConfounderSentinel):
+                attr_assigned_value = Confounder()
             if isinstance(attr_assigned_value, (list, tuple)) and any(
                 isinstance(element, AbstractMatchExpression)
                 for element in attr_assigned_value
@@ -646,14 +650,15 @@ class AttributeMatch(AbstractMatchExpression[T]):
         if isinstance(self.assigned_value, AbstractMatchExpression):
             return self.assigned_value.variable
         if (
-            isinstance(self.assigned_value, Cause)
+            isinstance(self.assigned_value, (Cause, Confounder))
             and self.assigned_value._type_ is None
         ):
-            # A `Cause` is built by the user as a bare `cause()` marker before it is ever
-            # matched to an attribute, so unlike a plain literal (whose `Literal` wrapper is
-            # created right here, with `_type_=self.type`), it has no declared type of its own
-            # yet. Backfill it now that the attribute this `Cause` was assigned to is known, so
-            # code reading `assigned_variable._type_` (parametrization, generation) sees the
+            # A `Cause`/`Confounder` is built by the user as a bare `cause()`/
+            # `CONFOUNDER` marker before it is ever matched to an attribute, so unlike
+            # a plain literal (whose `Literal` wrapper is created right here, with
+            # `_type_=self.type`), it has no declared type of its own yet. Backfill it
+            # now that the attribute this marker was assigned to is known, so code
+            # reading `assigned_variable._type_` (parametrization, generation) sees the
             # attribute's declared type instead of `None`.
             self.assigned_value._type_ = self.type
             return self.assigned_value

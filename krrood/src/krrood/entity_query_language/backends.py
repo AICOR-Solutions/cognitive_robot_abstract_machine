@@ -329,6 +329,7 @@ class ProbabilisticBackend(GenerativeBackend):
                 cause_effect.effect_variable,
                 parameters.truncation_assignments_from_where_conditions,
                 expression,
+                cause_effect.confounder_variables,
             )
             truncated = primary.narrowed_circuit
         else:
@@ -400,7 +401,11 @@ class ProbabilisticBackend(GenerativeBackend):
                 parameters.effect_variables_from_causes_effect
             )
         [effect_variable] = parameters.effect_variables_from_causes_effect
-        return CauseEffectVariables(parameters.search_cause_variables, effect_variable)
+        return CauseEffectVariables(
+            parameters.search_cause_variables,
+            effect_variable,
+            parameters.search_confounder_variables,
+        )
 
     @classmethod
     def _resolve_primary_intervention(
@@ -410,6 +415,7 @@ class ProbabilisticBackend(GenerativeBackend):
         effect_variable: random_events.variable.Variable,
         effect_truncation_event: Optional[Event],
         expression: Match[T],
+        confounder_variables: Iterable[random_events.variable.Variable] = (),
     ) -> ScoredIntervention:
         """
         Search every candidate cause variable independently for the region whose
@@ -430,11 +436,17 @@ class ProbabilisticBackend(GenerativeBackend):
             translates to, used to narrow each candidate's interventional joint to the
             effect before ranking its regions.
         :param expression: The match being evaluated, for error reporting.
+        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+            passed through to ``backdoor_adjustment`` as its adjustment set.
         :raises NoSolutionFound: If no candidate has a region with positive probability.
         :return: The highest-scoring candidate.
         """
         scored_interventions = cls._score_all_interventions(
-            model, cause_variables, effect_variable, effect_truncation_event
+            model,
+            cause_variables,
+            effect_variable,
+            effect_truncation_event,
+            confounder_variables,
         )
         if not scored_interventions:
             raise NoSolutionFound(expression.expression)
@@ -447,6 +459,7 @@ class ProbabilisticBackend(GenerativeBackend):
         cause_variables: List[random_events.variable.Variable],
         effect_variable: random_events.variable.Variable,
         effect_truncation_event: Optional[Event],
+        confounder_variables: Iterable[random_events.variable.Variable] = (),
     ) -> List[ScoredIntervention]:
         """
         Score every candidate cause variable independently for the region whose
@@ -463,6 +476,9 @@ class ProbabilisticBackend(GenerativeBackend):
         :param effect_truncation_event: The event the declared effect condition
             translates to, used to narrow each candidate's interventional joint to the
             effect before ranking its regions.
+        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+            passed through to ``backdoor_adjustment`` as its adjustment set for every
+            candidate.
         :return: Every candidate with a region of positive probability and a positive
             effect probability within it, highest-scoring first.
         """
@@ -471,7 +487,11 @@ class ProbabilisticBackend(GenerativeBackend):
             for cause_variable in cause_variables
             if (
                 scored_intervention := cls._score_intervention(
-                    model, cause_variable, effect_variable, effect_truncation_event
+                    model,
+                    cause_variable,
+                    effect_variable,
+                    effect_truncation_event,
+                    confounder_variables,
                 )
             )
             is not None
@@ -494,6 +514,11 @@ class ProbabilisticBackend(GenerativeBackend):
         ``arm`` and ``force`` scoring high for a pick failure). Leaves
         :meth:`_evaluate` and the primary-cause search it uses entirely unchanged; this
         is an additional, independent read of the same candidates.
+
+        Any field marked ``CONFOUNDER`` is passed to every candidate's search as
+        ``backdoor_adjustment``'s adjustment set, so a variable that drives both a
+        candidate and the effect does not inflate that candidate's score with mere
+        correlation.
 
         :param expression: A match with one or more ``cause()`` fields and a
             ``causes_effect(...)`` condition.
@@ -518,6 +543,7 @@ class ProbabilisticBackend(GenerativeBackend):
             cause_effect.cause_variables,
             cause_effect.effect_variable,
             parameters.truncation_assignments_from_where_conditions,
+            cause_effect.confounder_variables,
         )
 
     @staticmethod
@@ -526,6 +552,7 @@ class ProbabilisticBackend(GenerativeBackend):
         cause_variable: random_events.variable.Variable,
         effect_variable: random_events.variable.Variable,
         effect_truncation_event: Optional[Event],
+        confounder_variables: Iterable[random_events.variable.Variable] = (),
     ) -> Optional[ScoredIntervention]:
         """
         Compute ``cause_variable``'s best-region search result and score it by how
@@ -557,10 +584,14 @@ class ProbabilisticBackend(GenerativeBackend):
         :param effect_variable: The declared effect variable.
         :param effect_truncation_event: The event the declared effect condition
             translates to.
+        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+            passed through to ``backdoor_adjustment`` as its adjustment set.
         :return: The scored candidate, or ``None`` if it has no region with positive
             probability, or the effect has zero probability within that region.
         """
-        interventional = model.backdoor_adjustment(cause_variable, effect_variable)
+        interventional = model.backdoor_adjustment(
+            cause_variable, effect_variable, list(confounder_variables)
+        )
 
         # `.truncated()` fills in missing variables *in place* on the event it is
         # given, so reusing the same event object across several `.truncated()` calls

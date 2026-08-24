@@ -102,11 +102,9 @@ happen to drowning"* -- narrowing `interventional` to a specific value of
 back out rather than left baked into the correlation. Without an explicit adjustment
 variable -- as here, where the season is not even a queryable field -- a *narrowed*
 intervention query cannot be told apart from conditioning; only the *unnarrowed* one
-(shown above) is meaningful. `cause()`/`causes_effect()` currently always call
-`backdoor_adjustment` with an empty adjustment set (see below), so the same caveat
-applies to EQL causal queries: they answer *"does this candidate explain the effect
-well on its own"*, not *"correcting for known confounders, what does forcing it to a
-value do"*.
+(shown above) is meaningful. See [Adjusting for a confounder](#adjusting-for-a-confounder)
+below for a model where the confounder *is* queryable, and `CONFOUNDER` does exactly
+this through `cause()`/`causes_effect()`.
 ```
 
 ### Doing this with EQL queries
@@ -142,10 +140,74 @@ The intervention half is where the note above matters: `cause()`/`causes_effect(
 would search for the `ice_cream_sales` region that best explains high drowning on this
 same, unadjusted model -- and, for exactly the reason given above, would find the same
 confounded answer conditioning already gives, since neither has a `season` variable to
-adjust for. Building a query that correctly separates the two needs the confounder
-modelled and passed to `backdoor_adjustment` explicitly, which the raw `CausalCircuit`
-API above supports (`adjustment_variables=[season]`) but `cause()`/`causes_effect()` do
-not expose yet.
+adjust for. See the next section for a model where `season` *is* queryable, and marking
+it `CONFOUNDER` correctly separates the two through EQL.
+
+(adjusting-for-a-confounder)=
+
+### Adjusting for a confounder
+
+`cause()` fields are searched with an empty adjustment set by default -- fine when
+nothing confounds the candidate and the effect, wrong otherwise. Mark a known
+confounder with `CONFOUNDER` (or the equivalent `confounder()` call) and it is passed
+to `backdoor_adjustment` as its adjustment set, the same `Z` from the formula above:
+
+```python
+from dataclasses import dataclass
+from enum import Enum, auto
+
+from krrood.entity_query_language.factories import a, cause, CONFOUNDER
+
+class Season(Enum):
+    WARM = auto()
+    COLD = auto()
+
+class Treatment(Enum):
+    LOW = auto()
+    HIGH = auto()
+
+class Outcome(Enum):
+    SUCCESS = auto()
+    FAILURE = auto()
+
+@dataclass
+class Trial:
+    treatment: Treatment
+    season: Season
+    outcome: Outcome
+```
+
+`season` confounds both `treatment` and `outcome` here; `treatment` has no causal
+effect of its own -- warm trials are both more likely to use `treatment=HIGH` *and*
+more likely to succeed, purely because of the season, not because of the treatment:
+
+```python
+backend = ProbabilisticBackend(
+    model_registry=CausalCircuitRegistry({Trial: trial_causal_circuit})
+)
+
+# Without CONFOUNDER: the search can't separate the confound from the effect.
+naive = a(Trial)(treatment=cause(), season=..., outcome=...)
+naive.causes_effect(naive.variable.outcome == Outcome.SUCCESS)
+backend.rank_causes(naive)[0].effect_probability_given_region
+# 0.8 -- spurious, the same number plain conditioning on treatment=HIGH would give.
+
+# With CONFOUNDER: season is summed back out, recovering the causal truth.
+adjusted = a(Trial)(treatment=cause(), season=CONFOUNDER, outcome=...)
+adjusted.causes_effect(adjusted.variable.outcome == Outcome.SUCCESS)
+backend.rank_causes(adjusted)[0].effect_probability_given_region
+# 0.6 -- treatment=LOW scores the same 0.6, correctly showing treatment has no real
+# effect once season is accounted for.
+```
+
+```{important}
+`CONFOUNDER` only reliably deconfounds when the marked variable's own distribution
+*overlaps* across the confounder's states -- as `treatment` does here (both
+`treatment=HIGH` and `treatment=LOW` occur, with different probabilities, in both
+seasons). A cause variable whose value is deterministically tied to which branch it
+came from (no overlap) has nothing for an adjustment set to correct, the same as an
+empty one.
+```
 
 ---
 
@@ -188,7 +250,9 @@ computation to route several through. Multiple `cause()` fields are fine: each c
 is searched independently and the one that best explains the effect becomes the primary
 cause -- see
 {py:meth}`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes`
-below to see every candidate's score, not just the primary one.
+below to see every candidate's score, not just the primary one. Mark a known
+confounder with `CONFOUNDER` to have it summed out of every candidate's score --
+see [Adjusting for a confounder](#adjusting-for-a-confounder) above.
 ```
 
 ### `causes_effect()`
@@ -285,3 +349,6 @@ backend.
 - {py:class}`~krrood.entity_query_language.exceptions.NoCausesEffectConditionForCause`
 - {py:meth}`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes`
 - {py:class}`~krrood.entity_query_language.exceptions.NoCauseVariablesForRanking`
+- {py:func}`~krrood.entity_query_language.factories.confounder`
+- {py:data}`~krrood.entity_query_language.operators.causal.CONFOUNDER`
+- {py:class}`~krrood.entity_query_language.operators.causal.Confounder`

@@ -76,6 +76,42 @@ Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argumen
 
 
 @dataclass(eq=False, repr=False)
+class Confounder(Literal):
+    """
+    Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument
+    as a variable to adjust for when searching a :class:`Cause` intervention -- Pearl's
+    backdoor-criterion adjustment set Z in
+    ``P(effect | do(cause=v)) = sum_z P(effect | cause=v, Z=z) * P(Z=z)``.
+
+    ``season=CONFOUNDER`` means: season is a common cause of the searched
+    :class:`Cause` and the declared effect, and must be summed back out rather than
+    left baked into the correlation between them. Always wraps ``Ellipsis``, the same
+    as :class:`Cause`.
+    """
+
+    _value_: Any = field(default=Ellipsis, init=False)
+
+
+class ConfounderSentinel:
+    """
+    Type of :data:`CONFOUNDER` -- the :class:`Confounder` counterpart of
+    :class:`CauseSentinel`, for the same reason: each field it marks needs its own fresh
+    :class:`Confounder` rather than sharing one instance.
+    """
+
+    def __repr__(self) -> str:
+        return "CONFOUNDER"
+
+
+CONFOUNDER = ConfounderSentinel()
+"""
+Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
+variable to adjust for when searching a :class:`Cause` intervention -- see
+:class:`Confounder`.
+"""
+
+
+@dataclass(eq=False, repr=False)
 class CausesEffect(LogicalOperator, UnaryExpression):
     """
     Tags a condition as the effect side of a causal query.
@@ -124,6 +160,16 @@ class CauseEffectVariables:
     effect_variable: random_events.variable.Variable
     """
     The variable a ``causes_effect(...)`` condition declares as the effect.
+    """
+
+    confounder_variables: List[random_events.variable.Variable]
+    """
+    Variables assigned a ``CONFOUNDER`` marker: Pearl's backdoor-criterion adjustment
+    set, summed back out of each cause candidate's interventional probability so it is
+    not left baked into the correlation between cause and effect.
+
+    Empty for a query with no confounders declared -- the interventional search then
+    falls back to an empty adjustment set, exactly as before ``CONFOUNDER`` existed.
     """
 
 
