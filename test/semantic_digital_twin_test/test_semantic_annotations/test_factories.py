@@ -1499,8 +1499,8 @@ def test_mechanical_joint_mount_reuses_existing_direct_active_connection():
 def test_door_create_default_mechanical_joint_inserts_hinge_for_bare_revolute_connection():
     """
     A door hinged straight to its parent (no hinge body in between, as with a URDF
-    door) gets a Hinge inserted by ``create_default_mechanical_joint(Hinge)``,
-    carrying over the original connection's axis, multiplier, offset and limits.
+    door) gets a Hinge inserted by ``create_default_mechanical_joint()``, carrying
+    over the original connection's axis, multiplier, offset and limits.
     """
     world = _world_with_root()
     lower = DerivativeMap[float]()
@@ -1527,7 +1527,7 @@ def test_door_create_default_mechanical_joint_inserts_hinge_for_bare_revolute_co
     # kinematics are settled) by the time create_default_mechanical_joint inspects
     # its global pose.
     with world.modify_world():
-        door.create_default_mechanical_joint(Hinge)
+        door.create_default_mechanical_joint()
 
     hinge = door.mechanical_joint
     assert isinstance(hinge, Hinge)
@@ -1550,7 +1550,7 @@ def test_door_create_default_mechanical_joint_inserts_hinge_for_bare_revolute_co
 def test_drawer_create_default_mechanical_joint_inserts_slider_for_bare_prismatic_connection():
     """
     A drawer slid straight onto its cabinet (no slider body in between, as with a
-    URDF drawer) gets a Slider inserted by ``create_default_mechanical_joint(Slider)``,
+    URDF drawer) gets a Slider inserted by ``create_default_mechanical_joint()``,
     carrying over the original connection's axis, multiplier, offset and limits.
     """
     world = _world_with_root()
@@ -1575,7 +1575,7 @@ def test_drawer_create_default_mechanical_joint_inserts_slider_for_bare_prismati
         ).spawn(world, parent=fridge.root)
 
     with world.modify_world():
-        drawer.create_default_mechanical_joint(Slider)
+        drawer.create_default_mechanical_joint()
 
     slider = drawer.mechanical_joint
     assert isinstance(slider, Slider)
@@ -1608,7 +1608,7 @@ def test_create_default_mechanical_joint_is_a_noop_when_a_joint_already_exists()
             ),
         )
         door.add(hinge)
-        door.create_default_mechanical_joint(Hinge)
+        door.create_default_mechanical_joint()
 
     assert door.mechanical_joint == hinge
 
@@ -1624,7 +1624,7 @@ def test_create_default_mechanical_joint_is_a_noop_for_a_fixed_parent_connection
         door = Door.create_with_new_body_in_world(
             name="door", scale=Scale(0.03, 1, 2), world=world
         )
-        door.create_default_mechanical_joint(Hinge)
+        door.create_default_mechanical_joint()
 
     assert door.mechanical_joint is None
 

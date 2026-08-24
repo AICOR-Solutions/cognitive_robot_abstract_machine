@@ -10,6 +10,7 @@ from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.entity_query_language.factories import variable_from, entity, variable, an
 from krrood.ormatic.utils import classproperty
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
+from krrood.utils import recursive_subclasses
 from probabilistic_model.distributions.gaussian import GaussianDistribution
 from probabilistic_model.distributions.helper import make_dirac
 from probabilistic_model.probabilistic_circuit.rx.helper import (
@@ -607,30 +608,41 @@ class HasMechanicalJoint(HasRootBody, PartWholeRelationship):
             kinematic_structure_entities.append(self.mechanical_joint.root)
         return kinematic_structure_entities
 
-    def create_default_mechanical_joint(
-        self, mechanical_joint_type: Type[MechanicalJoint]
-    ) -> None:
+    def create_default_mechanical_joint(self) -> None:
         """
-        Give this annotation a mechanical joint of ``mechanical_joint_type`` when its
-        root is wired straight to its parent with a connection of the same kind that
-        joint type provides, and no mechanical joint carries it yet.
+        Give this annotation a mechanical joint matching how its root is already wired
+        to its parent, when no mechanical joint carries it yet.
 
         Formats like URDF often attach a door or drawer to its cabinet with a bare
         active connection (e.g. revolute for a door, prismatic for a drawer) and no
-        dedicated joint body. This inserts one, carrying over the axis, multiplier,
-        offset and limits of the existing connection, so :attr:`mechanical_joint`
-        reflects the joint that already moves it.
-
-        :param mechanical_joint_type: The mechanical joint type to create, e.g.
-            ``Hinge`` for a door or ``Slider`` for a drawer.
+        dedicated joint body. This looks up the :class:`MechanicalJoint` subclass whose
+        :meth:`~MechanicalJoint.parent_connection_specification` connection type matches
+        :attr:`~KinematicStructureEntity.parent_connection` and inserts one of that kind,
+        carrying over the axis, multiplier, offset and limits of the existing
+        connection, so :attr:`mechanical_joint` reflects the joint that already moves
+        it. Does nothing when the connection matches no known joint type (e.g. a fixed
+        connection).
         """
         if self.mechanical_joint is not None:
             return
-        connection = self.root.parent_connection
-        connection_type = (
-            mechanical_joint_type.parent_connection_specification().connection_type
+        # Deferred import: MechanicalJoint's module imports this one.
+        from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+            MechanicalJoint,
         )
-        if not isinstance(connection, connection_type):
+
+        connection = self.root.parent_connection
+        mechanical_joint_type = next(
+            (
+                candidate
+                for candidate in recursive_subclasses(MechanicalJoint)
+                if isinstance(
+                    connection,
+                    candidate.parent_connection_specification().connection_type,
+                )
+            ),
+            None,
+        )
+        if mechanical_joint_type is None:
             return
         joint = mechanical_joint_type.create_with_new_body_in_world(
             name=f"{self.root.name.name}_{mechanical_joint_type.__name__.lower()}",
