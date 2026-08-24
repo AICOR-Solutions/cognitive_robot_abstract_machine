@@ -247,6 +247,40 @@ class NoConditionsProvided(UsageError):
 
 
 @dataclass
+class AmbiguousQueryAttribute(UsageError):
+    """
+    Raised when a condition takes an attribute from a query that selects several
+    variables, leaving the attribute without a single subject.
+
+    For further details, see the section on writing queries and `where` clauses in
+    :doc:`/krrood/doc/eql/writing_queries`.
+    """
+
+    query: Query
+    """
+    The query the attribute was taken from.
+    """
+
+    attribute: SymbolicExpression
+    """
+    The attribute chain rooted at that query.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.attribute._name_} takes an attribute from the query {self.query}, which "
+            f"selects {len(self.query._selected_variables_)} variables, so the attribute has no "
+            f"single subject."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Take the attribute from the variable it belongs to, e.g. `body.name` instead of "
+            "`query.name`, or index the query by that variable, e.g. `query[body].name`."
+        )
+
+
+@dataclass
 class MultipleValuesAlongAccessPath(UsageError):
     """
     Raised when a chain is followed from a value outside query evaluation and a step maps
@@ -275,6 +309,39 @@ class MultipleValuesAlongAccessPath(UsageError):
             "Follow a chain whose every step maps one value to one value, or aggregate "
             "the collection instead of flattening it."
         )
+
+
+@dataclass
+class UnselectedQueryVariable(UsageError):
+    """
+    Raised when a query over several variables is indexed by a variable it does not
+    select, so the index names nothing in the rows the query yields.
+
+    For further details, see the section on writing queries and `where` clauses in
+    :doc:`/krrood/doc/eql/writing_queries`.
+    """
+
+    query: Query
+    """
+    The query that was indexed.
+    """
+
+    key: Any
+    """
+    What the query was indexed by.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The query {self.query} was indexed by {self.key}, which is not one of the "
+            f"variables it selects, so its rows hold nothing under that key."
+        )
+
+    def suggest_correction(self) -> str:
+        selected = ", ".join(
+            variable._name_ for variable in self.query._selected_variables_
+        )
+        return f"Index the query by one of the variables it selects: {selected}."
 
 
 @dataclass
