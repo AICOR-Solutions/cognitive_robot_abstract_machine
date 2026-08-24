@@ -911,6 +911,27 @@ class NoCausesEffectConditionForCause(DataclassException):
 
 
 @dataclass
+class NoCauseVariablesForRanking(DataclassException):
+    """
+    Raised when
+    :meth:`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes` is
+    called on a match with no :class:`~krrood.entity_query_language.core.causal.Cause`
+    (``cause()``) fields to rank.
+    """
+
+    expression: Query
+    """
+    The query that has no ``Cause`` fields.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.expression} has no cause() fields, so there is nothing to rank."
+
+    def suggest_correction(self) -> str:
+        return "Mark at least one field with cause() before calling rank_causes()."
+
+
+@dataclass
 class MatchTypeCannotBeDetermined(DataclassException):
     """
     Raised when a match fails at inferring its type.

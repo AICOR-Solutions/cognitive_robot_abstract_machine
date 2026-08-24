@@ -12,7 +12,6 @@ import random_events
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.causal import CausesEffect
-from krrood.entity_query_language.core.helpers import is_literal_comparator
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.factories import ConditionType
@@ -56,7 +55,7 @@ class WhereExpressionToRandomEventTranslator:
         for comparator in itertools.chain(
             [self.conditions_root], self.conditions_root._descendants_
         ):
-            if not is_literal_comparator(comparator):
+            if not comparator._is_literal_comparator_():
                 continue
             result[comparator.left] = (
                 random_events.variable.variable_from_name_and_type(
@@ -120,7 +119,7 @@ class WhereExpressionToRandomEventTranslator:
                 else self.impossible_event()
             )
 
-        if not is_literal_comparator(expression):
+        if not expression._is_literal_comparator_():
             raise WhereExpressionHasNoRandomEventRepresentation(expression)
 
         return self._translate_comparator(expression)

@@ -268,6 +268,24 @@ class FailureDiagnosisResult:
 
 
 @dataclass
+class SupportRegion:
+    """
+    One support region of a variable (or several jointly), with its probability under
+    the circuit it was extracted from.
+    """
+
+    event: Event
+    """
+    The region, as a composite-set event over the variable(s) it was extracted for.
+    """
+
+    probability: float
+    """
+    The region's probability under the circuit it was extracted from.
+    """
+
+
+@dataclass
 class CausalCircuit:
     """
     A ProbabilisticCircuit extended with exact, tractable causal inference using the
@@ -655,18 +673,16 @@ class CausalCircuit:
         root_sum_unit = SumUnit(probabilistic_circuit=output_circuit)
         regions_added = sum(
             self._build_product_unit_for_region(
-                cause_event=region_event,
-                cause_weight=region_weight,
+                cause_event=region.event,
+                cause_weight=region.probability,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 conditioned_circuit=copy.deepcopy(self.probabilistic_circuit),
                 output_circuit=output_circuit,
                 root_sum_unit=root_sum_unit,
             )
-            for region_event, region_weight in self._extract_disjoint_regions_for_variable(
-                cause_variable
-            )
-            if region_weight > 0.0
+            for region in self._extract_disjoint_regions_for_variable(cause_variable)
+            if region.probability > 0.0
         )
 
         if regions_added == 0:
@@ -713,13 +729,13 @@ class CausalCircuit:
             return 0
 
         regions_added = 0
-        for cause_event, cause_weight in self._extract_disjoint_regions_for_variable(
+        for region in self._extract_disjoint_regions_for_variable(
             cause_variable, base_circuit=adjustment_conditioned_circuit
         ):
-            if cause_weight <= 0.0:
+            if region.probability <= 0.0:
                 continue
 
-            joint_event = adjustment_event.intersection_with(cause_event)
+            joint_event = adjustment_event.intersection_with(region.event)
             joint_conditioned_circuit, _ = copy.deepcopy(
                 self.probabilistic_circuit
             ).log_truncated_in_place(
@@ -731,8 +747,8 @@ class CausalCircuit:
                 continue
 
             regions_added += self._build_product_unit_for_region(
-                cause_event=cause_event,
-                cause_weight=adjustment_weight * cause_weight,
+                cause_event=region.event,
+                cause_weight=adjustment_weight * region.probability,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 conditioned_circuit=joint_conditioned_circuit,
@@ -768,18 +784,18 @@ class CausalCircuit:
         root_sum_unit = SumUnit(probabilistic_circuit=output_circuit)
         regions_added = sum(
             self._add_regions_for_adjustment_stratum(
-                adjustment_event=adjustment_event,
-                adjustment_weight=adjustment_weight,
+                adjustment_event=stratum.event,
+                adjustment_weight=stratum.probability,
                 cause_variable=cause_variable,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 output_circuit=output_circuit,
                 root_sum_unit=root_sum_unit,
             )
-            for adjustment_event, adjustment_weight in self._extract_leaf_regions_for_variables(
+            for stratum in self._extract_leaf_regions_for_variables(
                 adjustment_variables
             )
-            if adjustment_weight > 0.0
+            if stratum.probability > 0.0
         )
 
         if regions_added == 0:
@@ -793,18 +809,18 @@ class CausalCircuit:
         self,
         variable: Variable,
         base_circuit: ProbabilisticCircuit = None,
-    ) -> List[Tuple[Any, float]]:
+    ) -> List[SupportRegion]:
         """
-        Return (region_event, probability) pairs for each support region of variable.
+        Return a :class:`SupportRegion` for each support region of variable.
 
         :param variable: The Variable whose support regions to extract.
         :param base_circuit: Circuit to query. Defaults to self.probabilistic_circuit.
-        :returns: List of (composite_set_event, probability) pairs, one per region.
+        :returns: List of regions, one per region.
         """
         circuit = (
             base_circuit if base_circuit is not None else self.probabilistic_circuit
         )
-        regions: List[Tuple[Any, float]] = []
+        regions: List[SupportRegion] = []
         variable_support = circuit.support.marginal([variable])
         for simple_region in variable_support.simple_sets:
             region_event = SimpleEvent.from_data(
@@ -814,17 +830,17 @@ class CausalCircuit:
                 region_event.fill_missing_variables_pure(circuit.variables)
             )
             if probability > 0.0:
-                regions.append((region_event, float(probability)))
+                regions.append(SupportRegion(region_event, float(probability)))
         return regions
 
     def _extract_disjoint_regions_for_variable(
         self,
         variable: Variable,
         base_circuit: ProbabilisticCircuit = None,
-    ) -> List[Tuple[Any, float]]:
+    ) -> List[SupportRegion]:
         """
-        Return (region_event, probability) pairs for each structurally disjoint support
-        region of variable, read from the circuit's unmarginalized joint support.
+        Return a :class:`SupportRegion` for each structurally disjoint support region of
+        variable, read from the circuit's unmarginalized joint support.
 
         `_extract_leaf_regions_for_variable` marginalizes the joint support down to
         variable alone first, which coalesces every disjoint per-branch range into one
@@ -849,13 +865,13 @@ class CausalCircuit:
 
         :param variable: The Variable whose disjoint support regions to extract.
         :param base_circuit: Circuit to query. Defaults to self.probabilistic_circuit.
-        :returns: List of (composite_set_event, probability) pairs, one per disjoint
-            region, each with positive probability.
+        :returns: List of regions, one per disjoint region, each with positive
+            probability.
         """
         circuit = (
             base_circuit if base_circuit is not None else self.probabilistic_circuit
         )
-        regions_by_value: Dict[Any, Tuple[Any, float]] = {}
+        regions_by_value: Dict[Any, SupportRegion] = {}
         for simple_region in circuit.support.simple_sets:
             value = simple_region[variable]
             if value in regions_by_value:
@@ -865,7 +881,9 @@ class CausalCircuit:
                 region_event.fill_missing_variables_pure(circuit.variables)
             )
             if probability > 0.0:
-                regions_by_value[value] = (region_event, float(probability))
+                regions_by_value[value] = SupportRegion(
+                    region_event, float(probability)
+                )
         return list(regions_by_value.values())
 
     def _best_disjoint_region(
@@ -891,31 +909,30 @@ class CausalCircuit:
         """
         best_probability = -1.0
         best_region: Optional[Event] = None
-        for region_event, _ in self._extract_disjoint_regions_for_variable(variable):
+        for region in self._extract_disjoint_regions_for_variable(variable):
             region_probability = float(
                 interventional_circuit.probability(
-                    region_event.fill_missing_variables_pure(
+                    region.event.fill_missing_variables_pure(
                         interventional_circuit.variables
                     )
                 )
             )
             if region_probability > best_probability:
                 best_probability = region_probability
-                best_region = region_event
+                best_region = region.event
         return best_region
 
     def _extract_leaf_regions_for_variables(
         self,
         variables: List[Variable],
-    ) -> List[Tuple[Any, float]]:
+    ) -> List[SupportRegion]:
         """
-        Return (region_event, probability) pairs for the joint support of variables.
+        Return a :class:`SupportRegion` for the joint support of variables.
 
         :param variables: Variables whose joint support regions to extract.
-        :returns: List of (composite_set_event, probability) pairs, one per joint
-            region.
+        :returns: List of regions, one per joint region.
         """
-        regions: List[Tuple[Any, float]] = []
+        regions: List[SupportRegion] = []
         joint_support = self.probabilistic_circuit.support.marginal(variables)
         for simple_region in joint_support.simple_sets:
             region_event = SimpleEvent.from_data(
@@ -927,7 +944,7 @@ class CausalCircuit:
                 )
             )
             if probability > 0.0:
-                regions.append((region_event, float(probability)))
+                regions.append(SupportRegion(region_event, float(probability)))
         return regions
 
     def _query_probability_at_value(
@@ -973,17 +990,17 @@ class CausalCircuit:
         """
         best_probability = -1.0
         best_region: Optional[Event] = None
-        for region_event, _ in self._extract_leaf_regions_for_variable(cause_variable):
+        for region in self._extract_leaf_regions_for_variable(cause_variable):
             region_probability = float(
                 interventional_circuit.probability(
-                    region_event.fill_missing_variables_pure(
+                    region.event.fill_missing_variables_pure(
                         interventional_circuit.variables
                     )
                 )
             )
             if region_probability > best_probability:
                 best_probability = region_probability
-                best_region = region_event
+                best_region = region.event
         return best_region
 
     def _diagnose_single_cause_variable(

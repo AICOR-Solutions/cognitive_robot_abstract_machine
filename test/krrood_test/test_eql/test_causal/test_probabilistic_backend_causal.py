@@ -21,7 +21,10 @@ from random_events.set import Set
 from random_events.variable import Continuous, Symbolic
 
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.exceptions import NoCausesEffectConditionForCause
+from krrood.entity_query_language.exceptions import (
+    NoCauseVariablesForRanking,
+    NoCausesEffectConditionForCause,
+)
 from krrood.entity_query_language.factories import an, cause
 from krrood.parametrization.exceptions import (
     DoRequiresCausalCircuitModel,
@@ -371,3 +374,115 @@ def test_multiple_effect_variables_are_rejected():
     with pytest.raises(MultipleEffectVariablesNotSupported) as excinfo:
         list(match.evaluate(backend=backend))
     assert set(excinfo.value.variables) == {success, arm}
+
+
+# %% rank_causes
+
+
+@dataclass
+class PickAttempt:
+    arm: float
+    grip: float
+    success: Outcome
+
+
+def _build_pick_attempt_ranking_circuit() -> TwoCauseCandidatesCircuit:
+    """
+    The same two-candidate structure as `_build_two_cause_candidates_circuit`
+    (`decisive` separates the outcome perfectly, `uninformative` does not), built for
+    :class:`PickAttempt` instead of :class:`Pick` so `rank_causes` tests can query both
+    candidates through a real match without touching `Pick`'s own widely-reused fixture.
+    """
+    decisive = Continuous("PickAttempt.arm")
+    uninformative = Continuous("PickAttempt.grip")
+    success = Symbolic("PickAttempt.success", domain=Set.from_iterable(Outcome))
+    circuit = ProbabilisticCircuit()
+    root = SumUnit(probabilistic_circuit=circuit)
+    for decisive_range, outcome in [
+        ((0, 1), Outcome.FAILURE),
+        ((2, 3), Outcome.SUCCESS),
+    ]:
+        component = ProductUnit(probabilistic_circuit=circuit)
+        component.add_subcircuit(
+            leaf(
+                UniformDistribution(
+                    variable=decisive, interval=closed(*decisive_range).simple_sets[0]
+                ),
+                circuit,
+            )
+        )
+        component.add_subcircuit(
+            leaf(
+                UniformDistribution(
+                    variable=uninformative, interval=closed(0, 2).simple_sets[0]
+                ),
+                circuit,
+            )
+        )
+        component.add_subcircuit(
+            leaf(
+                SymbolicDistribution(
+                    variable=success,
+                    probabilities=MissingDict(float, {hash(outcome): 1.0}),
+                ),
+                circuit,
+            )
+        )
+        root.add_subcircuit(component, math.log(0.5))
+
+    causal_circuit = CausalCircuit.from_probabilistic_circuit(
+        circuit,
+        MarginalDeterminismTreeNode.from_causal_graph(
+            [decisive, uninformative], [success]
+        ),
+        [decisive, uninformative],
+        [success],
+    )
+    return TwoCauseCandidatesCircuit(causal_circuit, decisive, uninformative, success)
+
+
+def test_rank_causes_returns_every_candidate_ranked_highest_first():
+    circuit = _build_pick_attempt_ranking_circuit()
+    match = an(PickAttempt)(arm=cause(), grip=cause(), success=...)
+    match.causes_effect(match.variable.success == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit})
+    )
+
+    ranking = backend.rank_causes(match)
+
+    assert [scored.cause_variable for scored in ranking] == [
+        circuit.decisive_cause,
+        circuit.uninformative_cause,
+    ]
+    assert ranking[0].effect_probability_given_region == pytest.approx(1.0, abs=0.02)
+    assert ranking[1].effect_probability_given_region == pytest.approx(0.5, abs=0.05)
+
+
+def test_rank_causes_does_not_change_the_result_of_evaluate():
+    """
+    `rank_causes` is a read alongside the existing search, not a replacement for it --
+    `evaluate()`'s primary-cause selection for the same multi-`cause()` match must be
+    unaffected by calling `rank_causes` on it.
+    """
+    circuit = _build_pick_attempt_ranking_circuit()
+    match = an(PickAttempt)(arm=cause(), grip=cause(), success=...)
+    match.causes_effect(match.variable.success == Outcome.SUCCESS)
+    backend = ProbabilisticBackend(
+        model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit}),
+        number_of_samples=10,
+    )
+
+    ranking = backend.rank_causes(match)
+    results = list(match.evaluate(backend=backend))
+
+    assert ranking[0].cause_variable == circuit.decisive_cause
+    assert len(results) == 10
+    assert all(2.0 <= result.arm <= 3.0 for result in results)
+
+
+def test_rank_causes_rejects_a_match_with_no_cause_fields():
+    match = an(PickAttempt)(arm=..., grip=..., success=...)
+    backend = ProbabilisticBackend(model_registry=CausalCircuitRegistry({}))
+    with pytest.raises(NoCauseVariablesForRanking):
+        backend.rank_causes(match)

@@ -827,24 +827,24 @@ class ExtractLeafRegionsTestCase(unittest.TestCase):
     def test_cause_region_probabilities_sum_to_one(self):
         regions = self.cc._extract_leaf_regions_for_variable(self.x)
         self.assertAlmostEqual(
-            sum(probability for _, probability in regions), 1.0, delta=0.01
+            sum(region.probability for region in regions), 1.0, delta=0.01
         )
 
     def test_effect_region_probabilities_sum_to_one(self):
         regions = self.cc._extract_leaf_regions_for_variable(self.y)
         self.assertAlmostEqual(
-            sum(probability for _, probability in regions), 1.0, delta=0.01
+            sum(region.probability for region in regions), 1.0, delta=0.01
         )
 
     def test_all_region_probabilities_are_positive(self):
         for variable in [self.x, self.y]:
-            for _, probability in self.cc._extract_leaf_regions_for_variable(variable):
-                self.assertGreater(probability, 0.0)
+            for region in self.cc._extract_leaf_regions_for_variable(variable):
+                self.assertGreater(region.probability, 0.0)
 
     def test_regions_are_returned_as_event_probability_pairs(self):
-        for event, probability in self.cc._extract_leaf_regions_for_variable(self.x):
-            self.assertIsInstance(probability, float)
-            self.assertTrue(hasattr(event, "simple_sets"))
+        for region in self.cc._extract_leaf_regions_for_variable(self.x):
+            self.assertIsInstance(region.probability, float)
+            self.assertTrue(hasattr(region.event, "simple_sets"))
 
 
 class ExtractDisjointRegionsTestCase(unittest.TestCase):
@@ -873,25 +873,23 @@ class ExtractDisjointRegionsTestCase(unittest.TestCase):
     def test_region_probabilities_sum_to_one(self):
         regions = self.cc._extract_disjoint_regions_for_variable(self.x)
         self.assertAlmostEqual(
-            sum(probability for _, probability in regions), 1.0, delta=0.01
+            sum(region.probability for region in regions), 1.0, delta=0.01
         )
 
     def test_all_region_probabilities_are_positive(self):
-        for _, probability in self.cc._extract_disjoint_regions_for_variable(self.x):
-            self.assertGreater(probability, 0.0)
+        for region in self.cc._extract_disjoint_regions_for_variable(self.x):
+            self.assertGreater(region.probability, 0.0)
 
     def test_regions_are_returned_as_event_probability_pairs(self):
-        for event, probability in self.cc._extract_disjoint_regions_for_variable(
-            self.x
-        ):
-            self.assertIsInstance(probability, float)
-            self.assertTrue(hasattr(event, "simple_sets"))
+        for region in self.cc._extract_disjoint_regions_for_variable(self.x):
+            self.assertIsInstance(region.probability, float)
+            self.assertTrue(hasattr(region.event, "simple_sets"))
 
     def test_regions_are_each_roughly_equal_weight(self):
         # x's two branches are equal-weight (0.5 each) and non-overlapping.
         probabilities = sorted(
-            probability
-            for _, probability in self.cc._extract_disjoint_regions_for_variable(self.x)
+            region.probability
+            for region in self.cc._extract_disjoint_regions_for_variable(self.x)
         )
         self.assertAlmostEqual(probabilities[0], 0.5, delta=0.05)
         self.assertAlmostEqual(probabilities[1], 0.5, delta=0.05)

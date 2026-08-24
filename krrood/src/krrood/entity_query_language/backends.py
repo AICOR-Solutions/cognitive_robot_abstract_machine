@@ -25,6 +25,7 @@ from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.exceptions import (
     BackendCannotEvaluateCause,
+    NoCauseVariablesForRanking,
     NoCausesEffectConditionForCause,
     NoSolutionFound,
     GenerativeBackendQueryIsNotUnderspecifiedVariable,
@@ -114,10 +115,7 @@ class QueryBackend(ABC):
             return
         if self.raise_on_unresolvable_cause:
             raise BackendCannotEvaluateCause(expression, backend_type=type(self))
-        logger.warning(
-            f"{expression} contains a cause() intervention, which {type(self).__name__} "
-            f"cannot evaluate causally; treating it as an ordinary unspecified field."
-        )
+        logger.warning(BackendCannotEvaluateCause(expression, backend_type=type(self)))
 
 
 @dataclass
@@ -422,7 +420,8 @@ class ProbabilisticBackend(GenerativeBackend):
         :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.diagnose_failure`
         already uses to identify a ``primary_cause_variable`` -- trying one candidate at
         a time needs no joint, multi-variable intervention, which
-        ``backdoor_adjustment`` does not support.
+        ``backdoor_adjustment`` does not support. See :meth:`rank_causes` for every
+        candidate's score, not just this one.
 
         :param model: The causal circuit to search.
         :param cause_variables: The candidate cause variables, one or more.
@@ -434,6 +433,39 @@ class ProbabilisticBackend(GenerativeBackend):
         :raises NoSolutionFound: If no candidate has a region with positive probability.
         :return: The highest-scoring candidate.
         """
+        scored_interventions = cls._score_all_interventions(
+            model, cause_variables, effect_variable, effect_truncation_event
+        )
+        if not scored_interventions:
+            raise NoSolutionFound(expression.expression)
+        return scored_interventions[0]
+
+    @classmethod
+    def _score_all_interventions(
+        cls,
+        model: CausalCircuit,
+        cause_variables: List[random_events.variable.Variable],
+        effect_variable: random_events.variable.Variable,
+        effect_truncation_event: Optional[Event],
+    ) -> List[ScoredIntervention]:
+        """
+        Score every candidate cause variable independently for the region whose
+        intervention best explains the effect.
+
+        Shared by :meth:`_resolve_primary_intervention` (which keeps only the top
+        result) and :meth:`rank_causes` (which keeps them all) -- trying one candidate
+        at a time needs no joint, multi-variable intervention, which
+        ``backdoor_adjustment`` does not support.
+
+        :param model: The causal circuit to search.
+        :param cause_variables: The candidate cause variables, one or more.
+        :param effect_variable: The declared effect variable.
+        :param effect_truncation_event: The event the declared effect condition
+            translates to, used to narrow each candidate's interventional joint to the
+            effect before ranking its regions.
+        :return: Every candidate with a region of positive probability and a positive
+            effect probability within it, highest-scoring first.
+        """
         scored_interventions = [
             scored_intervention
             for cause_variable in cause_variables
@@ -444,11 +476,48 @@ class ProbabilisticBackend(GenerativeBackend):
             )
             is not None
         ]
-        if not scored_interventions:
-            raise NoSolutionFound(expression.expression)
-        return max(
-            scored_interventions,
+        scored_interventions.sort(
             key=lambda candidate: candidate.effect_probability_given_region,
+            reverse=True,
+        )
+        return scored_interventions
+
+    def rank_causes(self, expression: Match[T]) -> List[ScoredIntervention]:
+        """
+        Rank every ``cause()`` candidate in *expression* by how well its intervention
+        explains the declared effect.
+
+        Runs the same per-candidate search :meth:`_evaluate` uses internally for a
+        multi-``cause()`` query, but returns every scoreable candidate instead of only
+        the primary one :meth:`_evaluate` picks -- useful when several plausible causes
+        exist and how they compare matters, not just which one wins (for example, both
+        ``arm`` and ``force`` scoring high for a pick failure). Leaves
+        :meth:`_evaluate` and the primary-cause search it uses entirely unchanged; this
+        is an additional, independent read of the same candidates.
+
+        :param expression: A match with one or more ``cause()`` fields and a
+            ``causes_effect(...)`` condition.
+        :raises NoCauseVariablesForRanking: If *expression* has no ``cause()`` fields.
+        :raises NoCausesEffectConditionForCause: If no ``causes_effect(...)`` condition
+            declared an effect.
+        :raises MultipleEffectVariablesNotSupported: If more than one effect variable
+            was found.
+        :raises DoRequiresCausalCircuitModel: If the resolved model is not a
+            :class:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`.
+        :return: Every scoreable candidate, ranked highest-scoring first.
+        """
+        parameters = UnderspecifiedParameters(expression)
+        if not parameters.search_cause_variables:
+            raise NoCauseVariablesForRanking(expression.expression)
+        model = self.model_registry.get_model(parameters)
+        if not isinstance(model, CausalCircuit):
+            raise DoRequiresCausalCircuitModel(model)
+        cause_effect = self._resolve_cause_and_effect_variables(parameters, expression)
+        return self._score_all_interventions(
+            model,
+            cause_effect.cause_variables,
+            cause_effect.effect_variable,
+            parameters.truncation_assignments_from_where_conditions,
         )
 
     @staticmethod

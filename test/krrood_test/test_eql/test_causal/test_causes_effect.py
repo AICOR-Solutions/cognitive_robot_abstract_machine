@@ -49,6 +49,12 @@ def test_causes_effect_rejects_an_ellipsis_valued_comparator():
         CausesEffect(arm.status == ...)
 
 
+def test_causes_effect_rejects_a_set_valued_comparator():
+    arm = an(Pick)(arm=..., status="idle").variable
+    with pytest.raises(CausesEffectRequiresEqualityComparator):
+        CausesEffect(arm.status == {"SUCCESS", "FAILURE"})
+
+
 # %% transparent evaluation
 
 

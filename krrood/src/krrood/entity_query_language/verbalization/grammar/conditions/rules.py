@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import operator
 
-from krrood.entity_query_language.core.base_expressions import Filter
+from krrood.entity_query_language.core.base_expressions import (
+    Filter,
+    SymbolicExpression,
+)
 from krrood.entity_query_language.core.causal import CausesEffect
 from krrood.entity_query_language.core.variable import InstantiatedVariable
 from krrood.entity_query_language.operators.comparator import Comparator
@@ -674,26 +677,62 @@ class FilterRule(PhraseRule):
         return context.child(node.condition)
 
 
+def _causal_effect_clause(
+    condition: SymbolicExpression, context: RuleContext
+) -> VerbalizationFragment:
+    """
+    Render *condition* -- an equality comparator, or an AND of them (the only shapes.
+
+    :meth:`~krrood.entity_query_language.core.causal.CausesEffect.__post_init__` allows)
+    -- as one or more *"<attribute> to be <value>"* clauses, joined with an Oxford comma
+    for a conjunction, for :class:`CausesEffectRule` to prefix with *"what causes"*.
+    """
+    if isinstance(condition, AND):
+        parts = [
+            _causal_effect_clause(operand, context)
+            for operand in flatten_operands(condition, AND)
+        ]
+        if len(parts) == 1:
+            return parts[0]
+        return oxford_comma(parts, Conjunctions.AND.as_fragment(), pair_comma=True)
+    return PhraseFragment(
+        parts=[
+            context.child(condition.left),
+            Keywords.TO_BE.as_fragment(),
+            context.child(condition.right, as_value=True),
+        ]
+    )
+
+
 class CausesEffectRule(PhraseRule):
-    """Transparent wrapper (``causes_effect(...)``) → delegate to the wrapped condition.
+    """``causes_effect(...)`` → *"what causes <attribute> to be <value>"*.
 
-    ``causes_effect(...)`` evaluates identically to a plain condition under every
-    backend (see :class:`~krrood.entity_query_language.core.causal.CausesEffect`), so it
-    renders identically too -- the wrapper carries no surface text of its own, only
-    metadata :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` reads.
+    Evaluates identically to a plain condition under every backend (see
+    :class:`~krrood.entity_query_language.core.causal.CausesEffect`) -- only
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` additionally
+    reads it -- but reads as a causal question rather than a plain description, so a
+    causal query is recognisable from its verbalization alone.
 
-    >>> robot = variable(Robot, [])
-    >>> verbalize_expression(CausesEffect(robot.name == 'x'))
-    "the name of a Robot is 'x'"
+    >>> pick = variable(Pick, [])
+    >>> verbalize_expression(CausesEffect(pick.arm == 0.3))
+    'what causes the arm of a Pick to be 0.3'
     """
 
     construct = CausesEffect
 
     def build(self, node: CausesEffect, context: RuleContext) -> VerbalizationFragment:
         """
-        Delegate transparently to the wrapped condition -- no surface text of its own.
+        Prefix the effect condition with *"what causes"*, rendering each equality
+        comparator as *"<attribute> to be <value>"* instead of *"<attribute> is
+        <value>"*.
 
-        It adds nothing to the class example's rendering: the recursion into the wrapped
-        comparator produces the whole *the name of a Robot is 'x'* clause.
+        It owns the whole *what causes the arm of a Pick to be 0.3* span: the *"what
+        causes"* prefix, plus the *"to be"* copula the wrapped comparator's own
+        rendering would otherwise say as *"is"*.
         """
-        return context.child(node._child_)
+        return PhraseFragment(
+            parts=[
+                Keywords.WHAT_CAUSES.as_fragment(),
+                _causal_effect_clause(node._child_, context),
+            ]
+        )

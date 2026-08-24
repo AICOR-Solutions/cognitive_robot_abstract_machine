@@ -33,7 +33,7 @@ def test_selective_backend_warns_and_finds_nothing_by_default():
 
     assert results == []
     warning.assert_called_once()
-    assert "cause()" in warning.call_args.args[0]
+    assert isinstance(warning.call_args.args[0], BackendCannotEvaluateCause)
 
 
 def test_selective_backend_raises_when_configured_to_raise():
@@ -66,7 +66,7 @@ def test_generative_backend_warns_and_raises_the_existing_infeasibility_error():
             list(match.evaluate(backend=EntityQueryLanguageGenerativeBackend()))
 
     warning.assert_called_once()
-    assert "cause()" in warning.call_args.args[0]
+    assert isinstance(warning.call_args.args[0], BackendCannotEvaluateCause)
 
 
 def test_generative_backend_raises_when_configured_to_raise():

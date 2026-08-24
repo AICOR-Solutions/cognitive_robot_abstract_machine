@@ -12,15 +12,12 @@ causal code under a ``causal`` subpackage.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing_extensions import Any, Iterable, List
+from typing_extensions import TYPE_CHECKING, Any, Iterable, List
 
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import (
     OperationResult,
     UnaryExpression,
-)
-from krrood.entity_query_language.core.helpers import (
-    is_equality_literal_comparator_or_conjunction,
 )
 from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.exceptions import (
@@ -29,6 +26,11 @@ from krrood.entity_query_language.exceptions import (
 from krrood.entity_query_language.operators.core_logical_operators import (
     LogicalOperator,
 )
+
+if TYPE_CHECKING:
+    from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
+        ProbabilisticCircuit,
+    )
 
 
 @dataclass(eq=False, repr=False)
@@ -63,7 +65,7 @@ class CausesEffect(LogicalOperator, UnaryExpression):
 
     def __post_init__(self):
         super().__post_init__()
-        if not is_equality_literal_comparator_or_conjunction(self._child_):
+        if not self._child_._is_equality_literal_comparator_or_conjunction_():
             raise CausesEffectRequiresEqualityComparator(self._child_)
 
     def _evaluate__(
@@ -119,7 +121,7 @@ class ScoredIntervention:
     that region happens to cover: the higher one is the better explanation.
     """
 
-    narrowed_circuit: Any
+    narrowed_circuit: ProbabilisticCircuit
     """
     The interventional joint, truncated to the effect condition and this candidate's
     best region -- what the query samples from if this candidate turns out to be the

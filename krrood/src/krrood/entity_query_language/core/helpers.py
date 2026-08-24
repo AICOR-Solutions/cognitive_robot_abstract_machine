@@ -1,19 +1,13 @@
 from __future__ import annotations
 
-import operator
-from types import EllipsisType
 from typing_extensions import Any, Type, Optional, TYPE_CHECKING
 
 from krrood.entity_query_language.cache_data import InstanceFilteredDomain
-from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Literal
-from krrood.entity_query_language.operators.comparator import Comparator
-from krrood.entity_query_language.operators.core_logical_operators import AND
 from krrood.entity_query_language.utils import T, is_iterable
 from krrood.symbol_graph.symbol_graph import Symbol, SymbolGraph
 
 if TYPE_CHECKING:
-    from krrood.entity_query_language.core.base_expressions import SymbolicExpression
     from krrood.entity_query_language.core.variable import DomainType
 
 
@@ -47,53 +41,3 @@ def _resolve_domain(
     if domain is None and issubclass(type_, Symbol):
         return SymbolGraph().get_instances_of_type(type_)
     return domain
-
-
-# %% where-expression shape checks
-
-
-def is_literal_comparator(expression: SymbolicExpression) -> bool:
-    """
-    :param expression: The expression to check.
-    :return: Whether *expression* compares a mapped variable against a literal (e.g.
-        ``attribute == value``), as opposed to, for example, a comparison between two
-        attributes.
-    """
-    if not isinstance(expression, Comparator):
-        return False
-    if not isinstance(expression.left, MappedVariable):
-        return False
-    if not isinstance(expression.right, Literal):
-        return False
-    return True
-
-
-def is_equality_literal_comparator(expression: SymbolicExpression) -> bool:
-    """
-    :param expression: The expression to check.
-    :return: Whether *expression* is exactly ``attribute == value`` for a concrete
-        (non-``Ellipsis``) value -- the shape a causal effect condition requires: you
-        can ask what causes an attribute to equal a value, not what causes it to satisfy
-        an inequality, or to be left unconstrained.
-    """
-    if not is_literal_comparator(expression):
-        return False
-    if expression.operation is not operator.eq:
-        return False
-    return not isinstance(expression.right._value_, EllipsisType)
-
-
-def is_equality_literal_comparator_or_conjunction(
-    expression: SymbolicExpression,
-) -> bool:
-    """
-    :param expression: The expression to check.
-    :return: Whether *expression* is an equality literal comparator (see
-        :func:`is_equality_literal_comparator`), or several such comparators combined
-        with :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
-    """
-    if isinstance(expression, AND):
-        return is_equality_literal_comparator_or_conjunction(
-            expression.left
-        ) and is_equality_literal_comparator_or_conjunction(expression.right)
-    return is_equality_literal_comparator(expression)
