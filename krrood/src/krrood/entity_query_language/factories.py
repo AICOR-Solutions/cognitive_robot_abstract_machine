@@ -27,7 +27,7 @@ from krrood.entity_query_language.core.base_expressions import (
     TruthValueOperator,
     OperationResult,
 )
-from krrood.entity_query_language.core.causal import Cause
+from krrood.entity_query_language.operators.causal import CAUSE, CauseSentinel
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
@@ -172,17 +172,21 @@ def variable_from(
 # %% Causal Constructs
 
 
-def cause() -> Cause:
+def cause() -> CauseSentinel:
     """
     Mark a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as
-    a ``do()``-intervention target to search for, e.g. ``an(Pick)(arm=cause())``.
+    a ``do()``-intervention target to search for, e.g. ``a(Pick)(arm=cause())``.
+    Equivalent to writing the
+    :data:`~krrood.entity_query_language.operators.causal.CAUSE` constant directly
+    (``arm=CAUSE``) -- this spelling exists for parity with the other field-marking
+    factories, which are all calls.
 
     Pair with :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` to
     declare which condition is the effect the intervention should optimize for.
 
-    :return: A :class:`~krrood.entity_query_language.core.causal.Cause` marker.
+    :return: The :data:`~krrood.entity_query_language.operators.causal.CAUSE` sentinel.
     """
-    return Cause()
+    return CAUSE
 
 
 # %% Operators on Variables

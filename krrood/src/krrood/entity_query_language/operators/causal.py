@@ -2,11 +2,10 @@
 Constructs for expressing Pearl-style causal (``do()``) queries in the Entity Query
 Language.
 
-Kept physically separate from ``core/variable.py`` and
-``operators/core_logical_operators.py`` (the modules
-:class:`Cause`/:class:`CausesEffect` otherwise resemble) so causal-specific code has its
-own, easily reviewable surface, mirroring how ``probabilistic_model`` isolates its own
-causal code under a ``causal`` subpackage.
+Kept in its own module rather than folded into ``operators/core_logical_operators.py``
+or ``core/variable.py`` (the modules :class:`Cause`/:class:`CausesEffect` otherwise
+resemble) so causal-specific code has its own, easily reviewable surface, mirroring how
+``probabilistic_model`` isolates its own causal code under a ``causal`` subpackage.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from typing_extensions import TYPE_CHECKING, Any, Iterable, List
 
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import (
+    BinaryExpression,
     OperationResult,
     UnaryExpression,
 )
@@ -40,7 +40,7 @@ class Cause(Literal):
     a ``do()``-intervention target searched for by the query, rather than an observed
     value.
 
-    ``arm=cause()`` means: find the value of ``arm`` whose intervention (Pearl's
+    ``arm=CAUSE`` means: find the value of ``arm`` whose intervention (Pearl's
     ``do(arm=value)``) best explains the effect declared via
     :meth:`~krrood.entity_query_language.query.match.Match.causes_effect`. Always wraps
     ``Ellipsis`` -- there is no pinned-value form; pin a value with a plain assignment
@@ -48,6 +48,31 @@ class Cause(Literal):
     """
 
     _value_: Any = field(default=Ellipsis, init=False)
+
+
+class CauseSentinel:
+    """
+    Type of :data:`CAUSE`.
+
+    A distinct type (not ``Cause`` itself) so a match's kwargs can carry the same
+    sentinel to every field without those fields secretly sharing one
+    :class:`~krrood.entity_query_language.core.base_expressions.SymbolicExpression`
+    instance -- :meth:`~krrood.entity_query_language.query.match.Match.resolve`
+    replaces each occurrence with its own fresh :class:`Cause` when it walks the
+    kwargs, the same way a bare ``...`` is replaced per field rather than shared.
+    """
+
+    def __repr__(self) -> str:
+        return "CAUSE"
+
+
+CAUSE = CauseSentinel()
+"""
+Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
+``do()``-intervention target, without the parentheses of
+:func:`~krrood.entity_query_language.factories.cause` (``arm=CAUSE`` instead of
+``arm=cause()``) -- both spellings are equivalent.
+"""
 
 
 @dataclass(eq=False, repr=False)
@@ -65,7 +90,10 @@ class CausesEffect(LogicalOperator, UnaryExpression):
 
     def __post_init__(self):
         super().__post_init__()
-        if not self._child_._is_equality_literal_comparator_or_conjunction_():
+        if (
+            not isinstance(self._child_, BinaryExpression)
+            or not self._child_._is_equality_literal_comparator_or_conjunction_()
+        ):
             raise CausesEffectRequiresEqualityComparator(self._child_)
 
     def _evaluate__(

@@ -783,7 +783,7 @@ class SelectiveBackendCannotResolveEllipsisMatch(DataclassException):
 @dataclass
 class BackendCannotEvaluateCause(DataclassException):
     """
-    Raised when a match with a :class:`~krrood.entity_query_language.core.causal.Cause`
+    Raised when a match with a :class:`~krrood.entity_query_language.operators.causal.Cause`
     (``cause()``) intervention is evaluated with a backend that has no notion of a
     causal graph to search over, and that backend was configured (via
     ``raise_on_unresolvable_cause=True``) to fail loudly instead of warning and treating
@@ -885,7 +885,7 @@ class CausesEffectRequiresEqualityComparator(UsageError):
 @dataclass
 class NoCausesEffectConditionForCause(DataclassException):
     """
-    Raised when a :class:`~krrood.entity_query_language.core.causal.Cause` (``cause()``)
+    Raised when a :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause()``)
     is present in a match but no
     :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` condition
     declares which variable it should optimize for.
@@ -915,7 +915,7 @@ class NoCauseVariablesForRanking(DataclassException):
     """
     Raised when
     :meth:`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes` is
-    called on a match with no :class:`~krrood.entity_query_language.core.causal.Cause`
+    called on a match with no :class:`~krrood.entity_query_language.operators.causal.Cause`
     (``cause()``) fields to rank.
     """
 

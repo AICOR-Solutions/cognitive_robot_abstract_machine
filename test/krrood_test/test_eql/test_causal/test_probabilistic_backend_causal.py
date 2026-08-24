@@ -25,7 +25,8 @@ from krrood.entity_query_language.exceptions import (
     NoCauseVariablesForRanking,
     NoCausesEffectConditionForCause,
 )
-from krrood.entity_query_language.factories import an, cause
+from krrood.entity_query_language.factories import a, cause
+from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 from krrood.parametrization.exceptions import (
     DoRequiresCausalCircuitModel,
     MultipleEffectVariablesNotSupported,
@@ -58,7 +59,7 @@ def _build_two_region_causal_circuit() -> tuple:
 
     Ground truth: interventionally forcing `arm` into the high region is what makes
     `success` equal SUCCESS -- the query
-    `an(Pick)(arm=cause(), ...).causes_effect(success == Outcome.SUCCESS)` should
+    `a(Pick)(arm=cause(), ...).causes_effect(success == Outcome.SUCCESS)` should
     therefore only ever return instances with `arm` in `[2, 3]`.
     """
     arm = Continuous("Pick.arm")
@@ -184,7 +185,7 @@ def _build_two_cause_candidates_circuit() -> TwoCauseCandidatesCircuit:
 
 
 def test_raises_when_model_registry_does_not_resolve_a_causal_circuit():
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
 
     backend = ProbabilisticBackend(model_registry=FullyFactorizedRegistry())
@@ -194,7 +195,7 @@ def test_raises_when_model_registry_does_not_resolve_a_causal_circuit():
 
 def test_raises_when_cause_has_no_causes_effect_condition():
     causal_circuit, _, _ = _build_two_region_causal_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
 
     backend = ProbabilisticBackend(
         model_registry=CausalCircuitRegistry({Pick: causal_circuit})
@@ -208,7 +209,7 @@ def test_raises_when_cause_has_no_causes_effect_condition():
 
 def test_results_satisfy_the_causes_effect_condition():
     causal_circuit, _, _ = _build_two_region_causal_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
 
     backend = ProbabilisticBackend(
@@ -235,7 +236,7 @@ def test_results_land_in_the_intervention_region_that_causes_the_effect():
     (`BestDisjointRegionTestCase`).
     """
     causal_circuit, _, _ = _build_two_region_causal_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
 
     backend = ProbabilisticBackend(
@@ -258,7 +259,7 @@ def test_pipeline_reproduces_directly_computed_backdoor_adjustment_and_best_regi
     primitives selects.
     """
     causal_circuit, arm, success = _build_two_region_causal_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
 
     parameters = UnderspecifiedParameters(match)
@@ -314,7 +315,7 @@ def test_multiple_cause_candidates_selects_the_decisive_one_as_primary():
     `_build_two_cause_candidates_circuit`).
     """
     circuit = _build_two_cause_candidates_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
 
     parameters = UnderspecifiedParameters(match)
@@ -335,7 +336,7 @@ def test_multiple_cause_candidates_selects_the_decisive_one_as_primary():
 
 def test_the_uninformative_candidate_scores_lower_than_the_decisive_one():
     circuit = _build_two_cause_candidates_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
     parameters = UnderspecifiedParameters(match)
     backend = ProbabilisticBackend(
@@ -363,7 +364,7 @@ def test_the_uninformative_candidate_scores_lower_than_the_decisive_one():
 
 def test_multiple_effect_variables_are_rejected():
     causal_circuit, arm, success = _build_two_region_causal_circuit()
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(
         match.variable.success == Outcome.SUCCESS, match.variable.arm == 2.5
     )
@@ -443,7 +444,7 @@ def _build_pick_attempt_ranking_circuit() -> TwoCauseCandidatesCircuit:
 
 def test_rank_causes_returns_every_candidate_ranked_highest_first():
     circuit = _build_pick_attempt_ranking_circuit()
-    match = an(PickAttempt)(arm=cause(), grip=cause(), success=...)
+    match = a(PickAttempt)(arm=cause(), grip=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
         model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit})
@@ -466,7 +467,7 @@ def test_rank_causes_does_not_change_the_result_of_evaluate():
     unaffected by calling `rank_causes` on it.
     """
     circuit = _build_pick_attempt_ranking_circuit()
-    match = an(PickAttempt)(arm=cause(), grip=cause(), success=...)
+    match = a(PickAttempt)(arm=cause(), grip=cause(), success=...)
     match.causes_effect(match.variable.success == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
         model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit}),
@@ -482,7 +483,20 @@ def test_rank_causes_does_not_change_the_result_of_evaluate():
 
 
 def test_rank_causes_rejects_a_match_with_no_cause_fields():
-    match = an(PickAttempt)(arm=..., grip=..., success=...)
+    match = a(PickAttempt)(arm=..., grip=..., success=...)
     backend = ProbabilisticBackend(model_registry=CausalCircuitRegistry({}))
     with pytest.raises(NoCauseVariablesForRanking):
         backend.rank_causes(match)
+
+
+# %% whole-query verbalization
+
+
+def test_a_causal_query_verbalizes_the_causes_effect_clause_in_context():
+    match = a(Pick)(arm=cause(), success=...)
+    match.causes_effect(match.variable.success == Outcome.SUCCESS)
+
+    assert verbalize_expression(match) == (
+        "Generate a Pick and predict its arm and success values where what causes "
+        "its success to be SUCCESS"
+    )

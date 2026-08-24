@@ -19,7 +19,8 @@ anyone; warm weather drives both. *Observing* a value tells you what tends to co
 it; *setting* a value tells you what actually follows from it. The first is ordinary
 probabilistic conditioning (`X=`); Pearl calls the second "intervention" (`do(X)`) and
 argued the two are different questions whenever two fields share a hidden common cause
--- conditioning picks up the confounding correlation, intervention cuts it.
+-- conditioning picks up the confounding correlation, intervention cuts it
+{cite:t}`pearl2009causality`.
 
 {py:func}`~krrood.entity_query_language.factories.cause` and
 {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect` route a query
@@ -81,15 +82,70 @@ conditioned.probability(high_drowning.fill_missing_variables_pure(conditioned.va
 # 1.0 -- conditioning picks up the confound: high sales imply the warm season, which
 # implies drownings.
 
-# Intervention: set ice cream sales high without touching the season, ask the same question.
+# do(): backdoor_adjustment reconstructs P(drowning | do(ice cream sales = v)) for
+# every v at once, as one joint circuit -- probability() over the whole thing (not
+# narrowed to any one v) reads off its average over every possible intervention.
 interventional = causal_circuit.backdoor_adjustment(ice_cream_sales, drowning_incidents)
 interventional.probability(high_drowning.fill_missing_variables_pure(interventional.variables))
-# 0.5 -- unchanged from the unconditioned baseline: selling more ice cream does not
-# cause drownings.
+# 0.5 -- back to the unconfounded baseline: unlike conditioning, this number does not
+# shift toward "high" just because ice cream sales does.
 ```
 
 Conditioning and intervention give different answers on the exact same model -- that is
 the distinction `cause()` and `causes_effect()` exist to make queryable.
+
+```{note}
+Neither number here is *"if I specifically forced ice cream sales to be high, what would
+happen to drowning"* -- narrowing `interventional` to a specific value of
+`ice_cream_sales` needs the confounding `season` variable passed as an
+`adjustment_variables=[season]` argument to `backdoor_adjustment`, so it can be summed
+back out rather than left baked into the correlation. Without an explicit adjustment
+variable -- as here, where the season is not even a queryable field -- a *narrowed*
+intervention query cannot be told apart from conditioning; only the *unnarrowed* one
+(shown above) is meaningful. `cause()`/`causes_effect()` currently always call
+`backdoor_adjustment` with an empty adjustment set (see below), so the same caveat
+applies to EQL causal queries: they answer *"does this candidate explain the effect
+well on its own"*, not *"correcting for known confounders, what does forcing it to a
+value do"*.
+```
+
+### Doing this with EQL queries
+
+The conditioning half runs through EQL exactly as any other query -- register the plain
+`ProbabilisticCircuit` and use an ordinary `.where(...)`:
+
+```python
+from dataclasses import dataclass
+
+from krrood.entity_query_language.factories import a
+from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.parametrization.model_registries import DictRegistry
+
+
+@dataclass
+class Weather:
+    ice_cream_sales: float
+    drowning_incidents: float
+
+
+backend = ProbabilisticBackend(
+    model_registry=DictRegistry({Weather: circuit}), number_of_samples=1000
+)
+match = a(Weather)(ice_cream_sales=..., drowning_incidents=...)
+match.where(match.variable.ice_cream_sales >= 9.0)
+results = list(match.evaluate(backend=backend))
+sum(r.drowning_incidents >= 9.0 for r in results) / len(results)
+# 1.0 -- matches the direct computation above.
+```
+
+The intervention half is where the note above matters: `cause()`/`causes_effect()`
+would search for the `ice_cream_sales` region that best explains high drowning on this
+same, unadjusted model -- and, for exactly the reason given above, would find the same
+confounded answer conditioning already gives, since neither has a `season` variable to
+adjust for. Building a query that correctly separates the two needs the confounder
+modelled and passed to `backdoor_adjustment` explicitly, which the raw `CausalCircuit`
+API above supports (`adjustment_variables=[season]`) but `cause()`/`causes_effect()` do
+not expose yet.
 
 ---
 
@@ -100,10 +156,10 @@ search an intervention over, `causes_effect()` declares the condition that inter
 should explain.
 
 ```python
-from krrood.entity_query_language.factories import an, cause
+from krrood.entity_query_language.factories import a, cause
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 
-pick = (match := an(Pick)(arm=cause(), success=...)).causes_effect(
+pick = (match := a(Pick)(arm=cause(), success=...)).causes_effect(
     match.variable.success == Status.SUCCESS
 )
 verbalize_expression(pick)
@@ -117,6 +173,9 @@ verbalize_expression(pick)
 intervention (`do(arm=value)`) best explains the declared effect*. To pin a known value
 instead -- an ordinary conditioning assignment, not a causal one -- use a plain literal
 kwarg (`arm=0.3`).
+
+{py:data}`~krrood.entity_query_language.operators.causal.CAUSE` is the same marker
+without the parentheses -- `arm=CAUSE` and `arm=cause()` are interchangeable.
 
 ```{important}
 `cause()` needs a declared effect to search *for* -- see `causes_effect()` below.
@@ -181,7 +240,7 @@ wins,
 returns every candidate's score instead:
 
 ```python
-match = an(Pick)(arm=cause(), grip=cause(), success=...)
+match = a(Pick)(arm=cause(), grip=cause(), success=...)
 match.causes_effect(match.variable.success == Status.SUCCESS)
 
 ranking = backend.rank_causes(match)
@@ -215,9 +274,10 @@ backend.
 ## API Reference
 
 - {py:func}`~krrood.entity_query_language.factories.cause`
-- {py:class}`~krrood.entity_query_language.core.causal.Cause`
+- {py:data}`~krrood.entity_query_language.operators.causal.CAUSE`
+- {py:class}`~krrood.entity_query_language.operators.causal.Cause`
 - {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect`
-- {py:class}`~krrood.entity_query_language.core.causal.CausesEffect`
+- {py:class}`~krrood.entity_query_language.operators.causal.CausesEffect`
 - {py:class}`~krrood.parametrization.model_registries.CausalCircuitRegistry`
 - {py:class}`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`
 - {py:class}`~krrood.parametrization.exceptions.DoRequiresCausalCircuitModel`

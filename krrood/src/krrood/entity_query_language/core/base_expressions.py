@@ -860,58 +860,6 @@ class SymbolicExpression(AbstractContextManager):
         for child in self._children_:
             yield from child._leaves_
 
-    def _is_equality_literal_comparator_or_conjunction_(self) -> bool:
-        """
-        :return: Whether this expression is an equality literal comparator (see
-            :meth:`_is_equality_literal_comparator_`), or several such comparators
-            combined with
-            :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
-        """
-        from krrood.entity_query_language.operators.core_logical_operators import AND
-
-        if isinstance(self, AND):
-            return (
-                self.left._is_equality_literal_comparator_or_conjunction_()
-                and self.right._is_equality_literal_comparator_or_conjunction_()
-            )
-        return self._is_equality_literal_comparator_()
-
-    def _is_equality_literal_comparator_(self) -> bool:
-        """
-        :return: Whether this expression is exactly ``attribute == value`` for a
-            single concrete value -- the shape a causal effect condition requires:
-            you can ask what causes an attribute to equal a value, not what causes
-            it to satisfy an inequality, to be left unconstrained (``Ellipsis``), or
-            to fall within a set of values (a list/set/tuple), since a set
-            membership is not a single point intervention.
-        """
-        if not self._is_literal_comparator_():
-            return False
-        if self.operation is not operator.eq:
-            return False
-        value = self.right._value_
-        if isinstance(value, EllipsisType):
-            return False
-        return not isinstance(value, list_like_classes)
-
-    def _is_literal_comparator_(self) -> bool:
-        """
-        :return: Whether this expression compares a mapped variable against a
-            literal (e.g. ``attribute == value``), as opposed to, for example, a
-            comparison between two attributes.
-        """
-        from krrood.entity_query_language.operators.comparator import Comparator
-        from krrood.entity_query_language.core.mapped_variable import MappedVariable
-        from krrood.entity_query_language.core.variable import Literal
-
-        if not isinstance(self, Comparator):
-            return False
-        if not isinstance(self.left, MappedVariable):
-            return False
-        if not isinstance(self.right, Literal):
-            return False
-        return True
-
     def _invert_(self):
         """
         Invert the symbolic expression.
@@ -1036,6 +984,66 @@ class BinaryExpression(SymbolicExpression, ABC):
             self.left = new_child
         elif self.right is old_child:
             self.right = new_child
+
+    def _is_equality_literal_comparator_or_conjunction_(self) -> bool:
+        """
+        :return: Whether this expression is an equality literal comparator (see
+            :meth:`_is_equality_literal_comparator_`), or several such comparators
+            combined with
+            :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
+
+        Callers on an expression that might not be a :class:`BinaryExpression` at all
+        (a bare variable, a :class:`~....operators.core_logical_operators.Not`, ...)
+        must check ``isinstance(expression, BinaryExpression)`` themselves first --
+        this method only handles the two binary-expression shapes it is defined for.
+        """
+        from krrood.entity_query_language.operators.core_logical_operators import AND
+
+        if isinstance(self, AND):
+            for operand in (self.left, self.right):
+                if (
+                    not isinstance(operand, BinaryExpression)
+                    or not operand._is_equality_literal_comparator_or_conjunction_()
+                ):
+                    return False
+            return True
+        return self._is_equality_literal_comparator_()
+
+    def _is_equality_literal_comparator_(self) -> bool:
+        """
+        :return: Whether this expression is exactly ``attribute == value`` for a
+            single concrete value -- the shape a causal effect condition requires:
+            you can ask what causes an attribute to equal a value, not what causes
+            it to satisfy an inequality, to be left unconstrained (``Ellipsis``), or
+            to fall within a set of values (a list/set/tuple), since a set
+            membership is not a single point intervention.
+        """
+        if not self._is_literal_comparator_():
+            return False
+        if self.operation is not operator.eq:
+            return False
+        value = self.right._value_
+        if isinstance(value, EllipsisType):
+            return False
+        return not isinstance(value, list_like_classes)
+
+    def _is_literal_comparator_(self) -> bool:
+        """
+        :return: Whether this expression compares a mapped variable against a
+            literal (e.g. ``attribute == value``), as opposed to, for example, a
+            comparison between two attributes.
+        """
+        from krrood.entity_query_language.operators.comparator import Comparator
+        from krrood.entity_query_language.core.mapped_variable import MappedVariable
+        from krrood.entity_query_language.core.variable import Literal
+
+        if not isinstance(self, Comparator):
+            return False
+        if not isinstance(self.left, MappedVariable):
+            return False
+        if not isinstance(self.right, Literal):
+            return False
+        return True
 
 
 @dataclass(eq=False, repr=False)

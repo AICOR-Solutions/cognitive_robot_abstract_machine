@@ -16,7 +16,7 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
 )
-from krrood.entity_query_language.core.causal import (
+from krrood.entity_query_language.operators.causal import (
     Cause,
     CauseEffectVariables,
     ScoredIntervention,

@@ -11,7 +11,7 @@ from typing_extensions import Any, Iterable, Optional, Union, get_args
 from krrood.parametrization.exceptions import EmptyVariableDomain, InvalidEllipsis
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.core.causal import Cause, CausesEffect
+from krrood.entity_query_language.operators.causal import Cause, CausesEffect
 from krrood.entity_query_language.core.variable import Literal, Variable
 from krrood.entity_query_language.factories import and_
 from krrood.entity_query_language.operators.core_logical_operators import (
@@ -130,7 +130,7 @@ class UnderspecifiedParameters:
     def _extract_effect_variables_from_causes_effect_conditions(self) -> None:
         """
         Populate :attr:`effect_variables_from_causes_effect` by walking the where
-        conditions for :class:`~krrood.entity_query_language.core.causal.CausesEffect`
+        conditions for :class:`~krrood.entity_query_language.operators.causal.CausesEffect`
         nodes and reading the variable(s) their wrapped comparator(s) compare.
         """
         root = self._random_event_compiler.conditions_root
@@ -187,7 +187,7 @@ class UnderspecifiedParameters:
     ) -> dict[str, random_events.variable.Variable]:
         """
         Handle attribute matches assigned a
-        :class:`~krrood.entity_query_language.core.causal.Cause` (``cause()``) marker:
+        :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause()``) marker:
         register the variable to search over, the same way a free ``...`` field would
         be, and record it as a cause variable for
         :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`'s

@@ -2,19 +2,19 @@ from dataclasses import dataclass
 
 import pytest
 
-from krrood.entity_query_language.core.causal import Cause
+from krrood.entity_query_language.operators.causal import CAUSE, Cause, CauseSentinel
 from krrood.entity_query_language.core.variable import Literal
-from krrood.entity_query_language.factories import an, cause
+from krrood.entity_query_language.factories import a, cause
 
 # %% construction
 
 
-def test_cause_wraps_ellipsis():
-    assert cause()._value_ is Ellipsis
+def test_cause_class_wraps_ellipsis():
+    assert Cause()._value_ is Ellipsis
 
 
-def test_cause_is_a_literal():
-    assert isinstance(cause(), Literal)
+def test_cause_class_is_a_literal():
+    assert issubclass(Cause, Literal)
 
 
 def test_cause_rejects_a_positional_argument():
@@ -22,14 +22,18 @@ def test_cause_rejects_a_positional_argument():
         cause(0.3)
 
 
-def test_two_cause_instances_are_distinct_objects():
-    # Each `cause()` call is a fresh marker, since `Cause._type_` is backfilled
-    # per-attribute-match in place (see `AttributeMatch.assigned_variable`); sharing one
-    # instance across two attributes would let the second backfill silently overwrite it.
-    assert cause() is not cause()
+def test_cause_call_returns_the_cause_sentinel():
+    assert cause() is CAUSE
 
 
-# %% flowing through Match unmodified (no new Match/AttributeMatch branch is needed)
+def test_cause_sentinel_is_not_itself_a_cause_instance():
+    # CAUSE must stay a distinct type so each attribute it marks gets its own fresh
+    # Cause() during match resolution -- see CauseSentinel's docstring for why.
+    assert not isinstance(CAUSE, Cause)
+    assert isinstance(CAUSE, CauseSentinel)
+
+
+# %% flowing through Match (converted to a fresh Cause() per attribute on resolution)
 
 
 @dataclass
@@ -38,31 +42,49 @@ class Pick:
     grasped: bool
 
 
-def test_cause_flows_through_match_as_the_assigned_variable():
-    match = an(Pick)(arm=cause(), grasped=True)
+def _cause_attribute_match(match):
     [attribute_match] = [
         attribute_match
         for attribute_match in match.matches_with_variables
         if attribute_match.name_from_variable_access_path == "Pick.arm"
     ]
-    assert isinstance(attribute_match.assigned_variable, Cause)
+    return attribute_match
 
 
-def test_cause_backfills_its_type_from_the_attribute_it_is_assigned_to():
-    match = an(Pick)(arm=cause(), grasped=True)
-    [attribute_match] = [
-        attribute_match
-        for attribute_match in match.matches_with_variables
-        if attribute_match.name_from_variable_access_path == "Pick.arm"
-    ]
-    assert attribute_match.assigned_variable._type_ is float
+@pytest.mark.parametrize("mark_arm_as_cause", [cause(), CAUSE])
+def test_cause_flows_through_match_as_the_assigned_variable(mark_arm_as_cause):
+    match = a(Pick)(arm=mark_arm_as_cause, grasped=True)
+    assert isinstance(_cause_attribute_match(match).assigned_variable, Cause)
 
 
-def test_match_marks_a_cause_attribute_as_present():
-    match = an(Pick)(arm=cause(), grasped=True)
+@pytest.mark.parametrize("mark_arm_as_cause", [cause(), CAUSE])
+def test_cause_backfills_its_type_from_the_attribute_it_is_assigned_to(
+    mark_arm_as_cause,
+):
+    match = a(Pick)(arm=mark_arm_as_cause, grasped=True)
+    assert _cause_attribute_match(match).assigned_variable._type_ is float
+
+
+@pytest.mark.parametrize("mark_arm_as_cause", [cause(), CAUSE])
+def test_match_marks_a_cause_attribute_as_present(mark_arm_as_cause):
+    match = a(Pick)(arm=mark_arm_as_cause, grasped=True)
     assert match.has_cause_attributes is True
 
 
 def test_match_without_cause_reports_no_cause_attributes():
-    match = an(Pick)(arm=0.3, grasped=True)
+    match = a(Pick)(arm=0.3, grasped=True)
     assert match.has_cause_attributes is False
+
+
+def test_two_cause_marked_attributes_resolve_to_distinct_objects():
+    # Sharing one Cause() across two attributes would let the second attribute's
+    # type-backfill (see AttributeMatch.assigned_variable) silently overwrite the
+    # first's -- each attribute must resolve to its own instance instead.
+    match = a(Pick)(arm=CAUSE, grasped=CAUSE)
+    [arm_match, grasped_match] = [
+        attribute_match
+        for attribute_match in match.matches_with_variables
+        if attribute_match.name_from_variable_access_path
+        in ("Pick.arm", "Pick.grasped")
+    ]
+    assert arm_match.assigned_variable is not grasped_match.assigned_variable

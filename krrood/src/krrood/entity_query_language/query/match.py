@@ -32,7 +32,11 @@ from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
 )
-from krrood.entity_query_language.core.causal import Cause
+from krrood.entity_query_language.operators.causal import (
+    Cause,
+    CauseSentinel,
+    CausesEffect,
+)
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
     Attribute,
@@ -321,6 +325,10 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         parent = parent or self
         self.update_fields(variable, parent)
         for attr_name, attr_assigned_value in self.kwargs.items():
+            if isinstance(attr_assigned_value, CauseSentinel):
+                # Give this field its own Cause() rather than sharing the CAUSE
+                # sentinel itself -- see CauseSentinel's docstring for why.
+                attr_assigned_value = Cause()
             if isinstance(attr_assigned_value, (list, tuple)) and any(
                 isinstance(element, AbstractMatchExpression)
                 for element in attr_assigned_value
@@ -496,7 +504,7 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
     def causes_effect(self, *conditions: ConditionType) -> Match[T]:
         """
         Mark condition(s) as the effect side of a causal query, e.g.
-        ``an(Pick)(arm=cause()).causes_effect(pick.variable.action.status == SUCCESS)``.
+        ``a(Pick)(arm=cause()).causes_effect(pick.variable.action.status == SUCCESS)``.
 
         Sugar for ``self.where(CausesEffect(and_(*conditions)))``: semantically identical
         to an ordinary ``.where()`` under every backend except
@@ -507,7 +515,8 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         :param conditions: One literal comparator, or several combined with AND.
         :return: This match, for chaining.
         """
-        from krrood.entity_query_language.core.causal import CausesEffect
+        # `and_` stays a local import: factories.py imports this module, so a module-level
+        # import here would be circular.
         from krrood.entity_query_language.factories import and_
 
         return self.where(CausesEffect(and_(*conditions)))

@@ -13,7 +13,7 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
 from random_events.interval import closed
 from random_events.variable import Continuous
 
-from krrood.entity_query_language.factories import an, cause
+from krrood.entity_query_language.factories import a, cause
 from krrood.parametrization.model_registries import CausalCircuitRegistry
 from krrood.parametrization.parameterizer import UnderspecifiedParameters
 
@@ -58,7 +58,7 @@ def test_registry_resolves_the_circuit_registered_for_the_queried_class():
     pick_circuit = _build_pick_causal_circuit()
     registry = CausalCircuitRegistry({Pick: pick_circuit})
 
-    match = an(Pick)(arm=cause(), success=...)
+    match = a(Pick)(arm=cause(), success=...)
     match.causes_effect(match.variable.success == 0.5)
     parameters = UnderspecifiedParameters(match)
 
@@ -70,6 +70,6 @@ def test_registry_distinguishes_between_multiple_registered_classes():
     place_circuit = _build_pick_causal_circuit()
     registry = CausalCircuitRegistry({Pick: pick_circuit, Place: place_circuit})
 
-    pick_match = an(Pick)(arm=cause(), success=...)
+    pick_match = a(Pick)(arm=cause(), success=...)
     pick_match.causes_effect(pick_match.variable.success == 0.5)
     assert registry.get_model(UnderspecifiedParameters(pick_match)) is pick_circuit

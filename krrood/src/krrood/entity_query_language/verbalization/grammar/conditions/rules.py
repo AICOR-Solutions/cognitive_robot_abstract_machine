@@ -6,7 +6,7 @@ from krrood.entity_query_language.core.base_expressions import (
     Filter,
     SymbolicExpression,
 )
-from krrood.entity_query_language.core.causal import CausesEffect
+from krrood.entity_query_language.operators.causal import CausesEffect
 from krrood.entity_query_language.core.variable import InstantiatedVariable
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.core_logical_operators import (
@@ -681,19 +681,19 @@ def _causal_effect_clause(
     condition: SymbolicExpression, context: RuleContext
 ) -> VerbalizationFragment:
     """
-    Render *condition* -- an equality comparator, or an AND of them (the only shapes.
+    Render *condition* as one or more *"<attribute> to be <value>"* clauses, joined with
+    an Oxford comma for a conjunction, for :class:`CausesEffectRule` to prefix with
+    *"what causes"*.
 
-    :meth:`~krrood.entity_query_language.core.causal.CausesEffect.__post_init__` allows)
-    -- as one or more *"<attribute> to be <value>"* clauses, joined with an Oxford comma
-    for a conjunction, for :class:`CausesEffectRule` to prefix with *"what causes"*.
+    *condition* is an equality comparator, or an AND of them -- the only shapes
+    :meth:`~krrood.entity_query_language.operators.causal.CausesEffect.__post_init__`
+    allows.
     """
     if isinstance(condition, AND):
         parts = [
             _causal_effect_clause(operand, context)
             for operand in flatten_operands(condition, AND)
         ]
-        if len(parts) == 1:
-            return parts[0]
         return oxford_comma(parts, Conjunctions.AND.as_fragment(), pair_comma=True)
     return PhraseFragment(
         parts=[
@@ -708,7 +708,7 @@ class CausesEffectRule(PhraseRule):
     """``causes_effect(...)`` → *"what causes <attribute> to be <value>"*.
 
     Evaluates identically to a plain condition under every backend (see
-    :class:`~krrood.entity_query_language.core.causal.CausesEffect`) -- only
+    :class:`~krrood.entity_query_language.operators.causal.CausesEffect`) -- only
     :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` additionally
     reads it -- but reads as a causal question rather than a plain description, so a
     causal query is recognisable from its verbalization alone.
