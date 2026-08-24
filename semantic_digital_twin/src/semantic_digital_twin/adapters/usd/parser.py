@@ -140,15 +140,12 @@ class UsdGeomPrimType(StrEnum):
     SPHERE = "Sphere"
     CYLINDER = "Cylinder"
 
-    def create_shape(
-        self, prim: Usd.Prim, link_to_world: Gf.Matrix4d, body: Body
-    ) -> Shape:
+    def create_shape(self, prim: Usd.Prim, link_to_world: Gf.Matrix4d) -> Shape:
         """
         Creates the Shape a prim of this type describes.
 
         :param prim: The prim to create a shape for.
         :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
         :return: The created shape.
         """
         builders: Dict[UsdGeomPrimType, Type[UsdShapeBuilder]] = {
@@ -157,7 +154,7 @@ class UsdGeomPrimType(StrEnum):
             UsdGeomPrimType.SPHERE: UsdSphereShapeBuilder,
             UsdGeomPrimType.CYLINDER: UsdCylinderShapeBuilder,
         }
-        return builders[self](prim, link_to_world, body).build()
+        return builders[self](prim, link_to_world).build()
 
 
 class UsdPhysicsJointType(StrEnum):
@@ -221,11 +218,6 @@ class UsdShapeBuilder(ABC):
     The enclosing link's local-to-world transform.
     """
 
-    body: Body
-    """
-    The link's body, used as the shape's reference frame.
-    """
-
     @abstractmethod
     def build(self) -> Shape:
         """
@@ -241,7 +233,6 @@ class UsdCubeShapeBuilder(UsdShapeBuilder):
 
     def build(self) -> Box:
         origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
-        origin.reference_frame = self.body
         side = UsdGeom.Cube(self.prim).GetSizeAttr().Get()
         return Box(
             origin=origin,
@@ -260,7 +251,6 @@ class UsdSphereShapeBuilder(UsdShapeBuilder):
 
     def build(self) -> Sphere:
         origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
-        origin.reference_frame = self.body
         radius = UsdGeom.Sphere(self.prim).GetRadiusAttr().Get()
         average_scale = (scale[0] + scale[1] + scale[2]) / 3.0
         return Sphere(origin=origin, radius=radius * average_scale)
@@ -278,7 +268,6 @@ class UsdCylinderShapeBuilder(UsdShapeBuilder):
 
     def build(self) -> Cylinder:
         origin, scale = _decompose_local_transform(self.prim, self.link_to_world)
-        origin.reference_frame = self.body
         usd_cylinder = UsdGeom.Cylinder(self.prim)
         axis = usd_cylinder.GetAxisAttr().Get()
         # scale is in the prim's own local axes, unaffected by the alignment rotation
@@ -338,7 +327,7 @@ class UsdMeshShapeBuilder(UsdShapeBuilder):
 
         return Mesh.from_trimesh(
             mesh=trimesh_mesh,
-            origin=HomogeneousTransformationMatrix(reference_frame=self.body),
+            origin=HomogeneousTransformationMatrix(),
             uv=uv,
             texture_file_path=texture_file_path if uv is not None else None,
         )
@@ -555,7 +544,7 @@ class USDParser(WorldModelParser):
         """
         root_prim = self._root_prim()
         root_body_name = root_prim.GetName() if root_prim is not None else self.prefix
-        world = World.create_with_root_body(PrefixedName(root_body_name, self.prefix))
+        world = World.create_with_root_body(root_body_name, self.prefix)
         root_body = world.root
 
         # Every joint is described (and so validated) before the world is touched
@@ -596,19 +585,18 @@ class USDParser(WorldModelParser):
         root_prim = self._root_prim()
 
         if root_prim is not None:
-            world = World.create_with_root_body(
-                PrefixedName(root_prim.GetName(), self.prefix)
-            )
+            world = World.create_with_root_body(root_prim.GetName(), self.prefix)
             root_body = world.root
-            shapes = self._shapes_in_subtree(root_prim, root_body)
+            shapes = self._shapes_in_subtree(root_prim)
             shape_collection = ShapeCollection(shapes, reference_frame=root_body)
+            shape_collection.transform_all_shapes_to_own_frame()
             root_body.visual = shape_collection
             root_body.collision = shape_collection
             with world.modify_world():
                 self._attach_semantic_labels(world, root_prim, root_body)
             return world
 
-        world = World.create_with_root_body(PrefixedName(self.prefix, self.prefix))
+        world = World.create_with_root_body(self.prefix, self.prefix)
         root_body = world.root
         with world.modify_world():
             for prim in self._top_level_prims():
@@ -814,23 +802,24 @@ class USDParser(WorldModelParser):
         :param link_prim: The link's root USD prim.
         :return: The created body, not yet added to a world.
         """
-        body = Body(name=PrefixedName(link_prim.GetName(), self.prefix))
-        shapes = self._shapes_in_subtree(link_prim, body)
-        shape_collection = ShapeCollection(shapes, reference_frame=body)
-        body.visual = shape_collection
-        body.collision = shape_collection
+        shapes = self._shapes_in_subtree(link_prim)
+        shape_collection = ShapeCollection(shapes)
+        body = Body(
+            name=PrefixedName(link_prim.GetName(), self.prefix),
+            visual=shape_collection,
+            collision=shape_collection,
+        )
         inertial = self._parse_inertial(link_prim, body)
         if inertial is not None:
             body.inertial = inertial
         return body
 
-    def _shapes_in_subtree(self, link_prim: Usd.Prim, body: Body) -> List[Shape]:
+    def _shapes_in_subtree(self, link_prim: Usd.Prim) -> List[Shape]:
         """
         Creates the Shape for every mesh/primitive prim in a link's subtree.
 
         :param link_prim: The link the shapes are positioned relative to, and the root
             of the subtree to search for them.
-        :param body: The link's body, used as each shape's reference frame.
         :return: The created shapes.
         """
         link_to_world = UsdGeom.Xformable(link_prim).ComputeLocalToWorldTransform(
@@ -838,13 +827,13 @@ class USDParser(WorldModelParser):
         )
         shapes = []
         for prim in Usd.PrimRange(link_prim):
-            shape = self._create_shape(prim, link_to_world, body)
+            shape = self._create_shape(prim, link_to_world)
             if shape is not None:
                 shapes.append(shape)
         return shapes
 
     def _create_shape(
-        self, prim: Usd.Prim, link_to_world: Gf.Matrix4d, body: Body
+        self, prim: Usd.Prim, link_to_world: Gf.Matrix4d
     ) -> Optional[Shape]:
         """
         Creates the Shape a mesh/primitive prim describes.
@@ -858,7 +847,6 @@ class USDParser(WorldModelParser):
 
         :param prim: The prim to create a shape for.
         :param link_to_world: The enclosing link's local-to-world transform.
-        :param body: The link's body, used as the shape's reference frame.
         :return: The created shape, or ``None`` if ``prim`` is not shape geometry.
         :raises UnsupportedUsdGeometryTypeError: If ``prim`` is a renderable geometric
             primitive of a type this parser does not build a Shape for.
@@ -875,7 +863,7 @@ class USDParser(WorldModelParser):
                     supported_types=list(UsdGeomPrimType),
                 ) from error
             return None
-        return geom_type.create_shape(prim, link_to_world, body)
+        return geom_type.create_shape(prim, link_to_world)
 
     # %% inertials
 

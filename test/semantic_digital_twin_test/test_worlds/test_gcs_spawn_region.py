@@ -14,7 +14,7 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 @pytest.fixture
 def simple_world():
-    world = World.create_with_root_body(PrefixedName("map"))
+    world = World.create_with_root_body("map")
 
     # Add a target body
     target = Body(name=PrefixedName("target"))

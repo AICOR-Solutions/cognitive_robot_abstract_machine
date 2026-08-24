@@ -8,7 +8,6 @@ import numpy as np
 
 from semantic_digital_twin.adapters.package_resolver import CompositePathResolver
 from semantic_digital_twin.api import BodySpecification
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Handle,
@@ -48,7 +47,7 @@ class ApartmentEnvironment:
         """
         Create a world holding nothing but the apartment.
         """
-        world = World.create_with_root_body(PrefixedName("root"))
+        world = World.create_with_root_body("root")
         self.populate(world)
         return world
 

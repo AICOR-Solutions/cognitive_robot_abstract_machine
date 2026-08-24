@@ -195,9 +195,8 @@ def test_parse_raises_on_unsupported_geometry_instead_of_silently_dropping_it():
 def test_create_mesh_shape_applies_a_non_uniform_scale():
     stage = build_stage_with_scaled_mesh(scale=(2.0, 3.0, 4.0))
     mesh_prim = stage.GetPrimAtPath("/object/scaled/mesh")
-    body = Body(name=PrefixedName("test_body"))
 
-    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1), body).build()
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
 
     vertices = shape.unscaled_mesh.vertices
     np.testing.assert_allclose(vertices.max(axis=0), [2.0, 3.0, 0.0], atol=1e-5)
@@ -403,9 +402,8 @@ def test_uv_coordinates_is_none_without_an_st_primvar(texture_file):
 def test_create_mesh_shape_applies_the_bound_texture(texture_file):
     stage = build_stage_with_textured_mesh(texture_file)
     mesh_prim = stage.GetPrimAtPath("/object/mesh")
-    body = Body(name=PrefixedName("test_body"))
 
-    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1), body).build()
+    shape = UsdMeshShapeBuilder(mesh_prim, Gf.Matrix4d(1)).build()
 
     mesh = shape.unscaled_mesh
     assert mesh.visual.kind == "texture"
@@ -418,9 +416,8 @@ def test_create_mesh_shape_has_no_texture_without_a_bound_material(texture_file)
     unbound_mesh.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (1, 1, 0)])
     unbound_mesh.CreateFaceVertexCountsAttr([3])
     unbound_mesh.CreateFaceVertexIndicesAttr([0, 1, 2])
-    body = Body(name=PrefixedName("test_body"))
 
-    shape = UsdMeshShapeBuilder(unbound_mesh.GetPrim(), Gf.Matrix4d(1), body).build()
+    shape = UsdMeshShapeBuilder(unbound_mesh.GetPrim(), Gf.Matrix4d(1)).build()
 
     assert shape.unscaled_mesh.visual.kind != "texture"
 

@@ -643,13 +643,16 @@ class World(HasSimulatorProperties):
         self.collision_manager.add_to_world(self)
 
     @classmethod
-    def create_with_root_body(cls, name: Optional[PrefixedName] = None) -> World:
+    def create_with_root_body(
+        cls, root_body_name: str = "map", prefix: Optional[str] = None
+    ) -> World:
         """
         Creates a new instance of the World class with a root body.
 
-        :param name: The root body's name, defaulting to an unprefixed "map".
+        :param root_body_name: The root body's name.
+        :param prefix: Optional namespace prefix for the root body's name.
         """
-        root_body = Body(name=name if name is not None else PrefixedName("map"))
+        root_body = Body(name=PrefixedName(root_body_name, prefix))
         world = World()
         with world.modify_world():
             world.add_body(root_body)
