@@ -43,13 +43,14 @@ from krrood.entity_query_language.core.mapped_variable import (
     FlatVariable,
     CanBehaveLikeAVariable,
     MappedVariable,
-    Index,
+    IndexByValue,
 )
 from krrood.entity_query_language.core.variable import Literal, DomainType, Variable
 from krrood.entity_query_language.evaluable import Evaluable
 from krrood.entity_query_language.exceptions import (
     CalledMatchMultipleTimes,
     MatchTypeCannotBeDetermined,
+    ReadOnlyMapping,
 )
 from krrood.entity_query_language.predicate import HasType
 from krrood.entity_query_language.query.quantifiers import An, ResultQuantifier
@@ -711,10 +712,10 @@ class AttributeMatch(AbstractMatchExpression[T]):
         for step in self.variable._access_path_[:-1]:
             if isinstance(step, Attribute):
                 current_value = current_value.kwargs[step._attribute_name_]
-            elif isinstance(step, Index):
+            elif isinstance(step, IndexByValue):
                 current_value = current_value[step._key_]
             else:
-                assert_never(step)
+                raise ReadOnlyMapping(step)
 
         final_step = self.variable._access_path_[-1]
 
