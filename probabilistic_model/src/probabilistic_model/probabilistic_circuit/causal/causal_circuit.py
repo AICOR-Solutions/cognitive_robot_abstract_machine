@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import copy
+import enum
 import itertools
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from anytree import NodeMixin, PreOrderIter, findall
 from scipy.special import logsumexp
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent, Event
+from random_events.sigma_algebra import AbstractCompositeSet, AbstractSimpleSet
 from random_events.variable import Variable
 from tabulate import tabulate
 
@@ -735,7 +737,7 @@ class CausalCircuit:
     def _add_region_for_cause_value(
         self,
         cause_region: SupportRegion,
-        adjustment_strata: List[SupportRegion],
+        adjustment_groups: List[SupportRegion],
         effect_variable: Variable,
         cause_marginal_circuit: ProbabilisticCircuit,
         output_circuit: ProbabilisticCircuit,
@@ -745,29 +747,30 @@ class CausalCircuit:
         Build one ProductUnit for cause_region and attach it to root_sum_unit, weighted
         by cause_region's own marginal probability.
 
-        The ProductUnit's effect side is ``sum_z P(effect | cause=v, Z=z) * P(Z=z)``:
-        a SumUnit over each adjustment stratum's own conditional effect distribution,
-        weighted by that stratum's probability and renormalized (some strata may have
-        zero joint probability with this cause region and be skipped, so the weights
-        that remain do not already sum to 1). Weighting the ProductUnit itself by
-        P(cause=v) -- not by any per-stratum weight -- is what keeps the circuit a
-        valid joint distribution overall (weights across every cause region still sum
-        to 1) while truncating to this one region recovers exactly the deconfounded
-        mixture, regardless of that region's own absolute weight.
+        The ProductUnit's effect side is ``sum_z P(effect | cause=v, Z=z) * P(Z=z)``: a
+        SumUnit over each adjustment group's own conditional effect distribution,
+        weighted by that group's probability and renormalized (some adjustment groups
+        may have zero joint probability with this cause region and be skipped, so the
+        weights that remain do not already sum to 1). Weighting the ProductUnit itself
+        by P(cause=v) -- not by any per-adjustment-group weight -- is what keeps the
+        circuit a valid joint distribution overall (weights across every cause region
+        still sum to 1) while truncating to this one region recovers exactly the
+        deconfounded mixture, regardless of that region's own absolute weight.
 
         :param cause_region: The cause value/region to build this ProductUnit for.
-        :param adjustment_strata: The adjustment set's own disjoint regions, one per
-            value combination of the adjustment variables.
+        :param adjustment_groups: One :class:`SupportRegion` per distinct value
+            combination of the adjustment variables (``adjustment_variables`` in
+            :meth:`_compute_interventional_circuit_with_adjustment`).
         :param effect_variable: The effect Variable to marginalise onto.
         :param cause_marginal_circuit: Marginal circuit over the cause Variable.
         :param output_circuit: Circuit to attach the new ProductUnit to.
         :param root_sum_unit: SumUnit to attach the weighted ProductUnit to.
         :returns: True if the ProductUnit was successfully added, False if every
-            stratum's joint truncation with this cause region was empty.
+            adjustment group's joint truncation with this cause region was empty.
         """
         effect_mixture = SumUnit(probabilistic_circuit=output_circuit)
-        for stratum in adjustment_strata:
-            joint_event = stratum.event.intersection_with(cause_region.event)
+        for adjustment_group in adjustment_groups:
+            joint_event = adjustment_group.event.intersection_with(cause_region.event)
             joint_conditioned_circuit, _ = copy.deepcopy(
                 self.probabilistic_circuit
             ).log_truncated_in_place(
@@ -780,7 +783,7 @@ class CausalCircuit:
             self._attach_weighted_marginal(
                 effect_mixture,
                 joint_conditioned_circuit.marginal([effect_variable]),
-                math.log(stratum.probability),
+                math.log(adjustment_group.probability),
                 output_circuit,
             )
 
@@ -829,19 +832,19 @@ class CausalCircuit:
         cause_marginal_circuit = copy.deepcopy(self.probabilistic_circuit).marginal(
             [cause_variable]
         )
-        adjustment_strata = [
-            stratum
-            for stratum in self._extract_leaf_regions_for_variables(
+        adjustment_groups = [
+            adjustment_group
+            for adjustment_group in self._extract_leaf_regions_for_variables(
                 adjustment_variables
             )
-            if stratum.probability > 0.0
+            if adjustment_group.probability > 0.0
         ]
         output_circuit = ProbabilisticCircuit()
         root_sum_unit = SumUnit(probabilistic_circuit=output_circuit)
         regions_added = sum(
             self._add_region_for_cause_value(
                 cause_region=cause_region,
-                adjustment_strata=adjustment_strata,
+                adjustment_groups=adjustment_groups,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 output_circuit=output_circuit,
@@ -955,19 +958,31 @@ class CausalCircuit:
         return list(regions_by_value.values())
 
     @staticmethod
-    def _split_into_atomic_values(value: Any) -> List[Any]:
+    def _split_into_atomic_values(
+        value: Union[AbstractCompositeSet, int, float, bool, enum.Enum],
+    ) -> List[
+        Union[AbstractCompositeSet, AbstractSimpleSet, int, float, bool, enum.Enum]
+    ]:
         """
-        Split *value* into its individual elements if it is a union of more than one (a
-        discrete :class:`~random_events.set.Set` mixing several values), otherwise
-        return it unchanged.
+        Split *value* into its individual elements if it is a union of more than one
+        (several disjoint ranges for a :class:`~random_events.interval.Interval` --
+        which both :class:`~random_events.variable.Continuous` and
+        :class:`~random_events.variable.Integer` use as their domain -- or several
+        values for a discrete :class:`~random_events.set.Set`), otherwise return it
+        unchanged.
+
+        *value* is only ever composite (and thus splittable) when the branch it came
+        from mixes several ranges or values with positive probability; a branch whose
+        leaf is a single deterministic point instead yields one of
+        :data:`~random_events.variable.compatible_types` directly, which has no
+        `simple_sets` to split.
 
         :param value: A single support value read off a joint support's simple set.
         :returns: The union's elements, or ``[value]`` if *value* is not a multi-element
             union.
         """
-        elements = getattr(value, "simple_sets", None)
-        if elements is not None and len(elements) > 1:
-            return list(elements)
+        if isinstance(value, AbstractCompositeSet) and len(value.simple_sets) > 1:
+            return list(value.simple_sets)
         return [value]
 
     def _best_disjoint_region(

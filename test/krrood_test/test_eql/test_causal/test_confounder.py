@@ -7,18 +7,9 @@ from krrood.entity_query_language.operators.causal import (
     Confounder,
     ConfounderSentinel,
 )
-from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.factories import a, confounder
 
 # %% construction
-
-
-def test_confounder_class_wraps_ellipsis():
-    assert Confounder()._value_ is Ellipsis
-
-
-def test_confounder_class_is_a_literal():
-    assert issubclass(Confounder, Literal)
 
 
 def test_confounder_rejects_a_positional_argument():

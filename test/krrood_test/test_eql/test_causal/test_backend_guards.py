@@ -12,7 +12,7 @@ from krrood.entity_query_language.exceptions import (
     SelectiveBackendCannotResolveEllipsisMatch,
     UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration,
 )
-from krrood.entity_query_language.factories import a, cause
+from krrood.entity_query_language.factories import a, CAUSE
 
 
 @dataclass
@@ -26,7 +26,7 @@ class Pick:
 
 def test_selective_backend_warns_and_finds_nothing_by_default():
     apple = Pick(0.3, True)
-    match = a(Pick)(arm=cause(), grasped=True).from_([apple])
+    match = a(Pick)(arm=CAUSE, grasped=True).from_([apple])
 
     with patch("krrood.entity_query_language.backends.logger.warning") as warning:
         results = list(match.evaluate(backend=EntityQueryLanguageBackend()))
@@ -38,7 +38,7 @@ def test_selective_backend_warns_and_finds_nothing_by_default():
 
 def test_selective_backend_raises_when_configured_to_raise():
     apple = Pick(0.3, True)
-    match = a(Pick)(arm=cause(), grasped=True).from_([apple])
+    match = a(Pick)(arm=CAUSE, grasped=True).from_([apple])
 
     backend = EntityQueryLanguageBackend(raise_on_unresolvable_cause=True)
     with pytest.raises(BackendCannotEvaluateCause):
@@ -57,7 +57,7 @@ def test_selective_backend_still_rejects_a_plain_ellipsis_attribute():
 def test_generative_backend_warns_and_raises_the_existing_infeasibility_error():
     # `arm` is a non-enum type, so degrading `cause()` to `...` for a backend with no
     # causal reasoning hits the same infeasibility guard a bare `arm=...` would.
-    match = a(Pick)(arm=cause(), grasped=True)
+    match = a(Pick)(arm=CAUSE, grasped=True)
 
     with patch("krrood.entity_query_language.backends.logger.warning") as warning:
         with pytest.raises(
@@ -70,7 +70,7 @@ def test_generative_backend_warns_and_raises_the_existing_infeasibility_error():
 
 
 def test_generative_backend_raises_when_configured_to_raise():
-    match = a(Pick)(arm=cause(), grasped=True)
+    match = a(Pick)(arm=CAUSE, grasped=True)
     backend = EntityQueryLanguageGenerativeBackend(raise_on_unresolvable_cause=True)
     with pytest.raises(BackendCannotEvaluateCause):
         list(match.evaluate(backend=backend))

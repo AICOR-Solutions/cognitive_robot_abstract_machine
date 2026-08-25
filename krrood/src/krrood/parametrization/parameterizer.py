@@ -220,9 +220,9 @@ class UnderspecifiedParameters:
         if not issubclass(type_, compatible_types):
             raise InvalidEllipsis(type_)
 
-        re_variable = variable_from_name_and_type(name=name, type_=type_)
-        self.search_cause_variables.append(re_variable)
-        return {name: re_variable}
+        cause_variable = variable_from_name_and_type(name=name, type_=type_)
+        self.search_cause_variables.append(cause_variable)
+        return {name: cause_variable}
 
     def _handle_confounder_attribute_match(
         self, attribute_match: AttributeMatch
@@ -246,9 +246,9 @@ class UnderspecifiedParameters:
         if not issubclass(type_, compatible_types):
             raise InvalidEllipsis(type_)
 
-        re_variable = variable_from_name_and_type(name=name, type_=type_)
-        self.search_confounder_variables.append(re_variable)
-        return {name: re_variable}
+        confounder_variable = variable_from_name_and_type(name=name, type_=type_)
+        self.search_confounder_variables.append(confounder_variable)
+        return {name: confounder_variable}
 
     def _handle_literal_attribute_match(
         self, attribute_match: AttributeMatch

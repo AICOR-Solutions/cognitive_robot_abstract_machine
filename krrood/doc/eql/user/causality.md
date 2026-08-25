@@ -49,8 +49,11 @@ from probabilistic_model.probabilistic_circuit.causal.causal_circuit import (
     CausalCircuit, MarginalDeterminismTreeNode,
 )
 
-ice_cream_sales = Continuous("ice_cream_sales")
-drowning_incidents = Continuous("drowning_incidents")
+# Named "SummerStatistics.<field>" up front so this same circuit can later be handed
+# to a DictRegistry keyed on the SummerStatistics class defined below -- DictRegistry
+# looks a query's fields up by this qualified name, unlike CausalCircuitRegistry.
+ice_cream_sales = Continuous("SummerStatistics.ice_cream_sales")
+drowning_incidents = Continuous("SummerStatistics.drowning_incidents")
 
 circuit = ProbabilisticCircuit()
 root = SumUnit(probabilistic_circuit=circuit)
@@ -129,10 +132,13 @@ class SummerStatistics:
 backend = ProbabilisticBackend(
     model_registry=DictRegistry({SummerStatistics: circuit}), number_of_samples=1000
 )
-match = a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)
-match.where(match.variable.ice_cream_sales >= 9.0)
-results = list(match.evaluate(backend=backend))
-sum(r.drowning_incidents >= 9.0 for r in results) / len(results)
+high_ice_cream = (match := a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)).where(
+    match.variable.ice_cream_sales >= 9.0
+)
+also_high_drowning = (both_high := a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)).where(
+    both_high.variable.ice_cream_sales >= 9.0, both_high.variable.drowning_incidents >= 9.0
+)
+len(also_high_drowning.tolist(backend=backend)) / len(high_ice_cream.tolist(backend=backend))
 # 1.0 -- matches the direct computation above.
 ```
 
@@ -156,7 +162,7 @@ to `backdoor_adjustment` as its adjustment set, the same `Z` from the formula ab
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from krrood.entity_query_language.factories import a, cause, CONFOUNDER
+from krrood.entity_query_language.factories import a, CAUSE, CONFOUNDER
 
 class Season(Enum):
     WARM = auto()
@@ -187,14 +193,16 @@ backend = ProbabilisticBackend(
 )
 
 # Without CONFOUNDER: the search can't separate the confound from the effect.
-naive = a(Trial)(treatment=cause(), season=..., outcome=...)
-naive.causes_effect(naive.variable.outcome == Outcome.SUCCESS)
+naive = (n := a(Trial)(treatment=CAUSE, season=..., outcome=...)).causes_effect(
+    n.variable.outcome == Outcome.SUCCESS
+)
 backend.rank_causes(naive)[0].effect_probability_given_region
 # 0.8 -- spurious, the same number plain conditioning on treatment=HIGH would give.
 
 # With CONFOUNDER: season is summed back out, recovering the causal truth.
-adjusted = a(Trial)(treatment=cause(), season=CONFOUNDER, outcome=...)
-adjusted.causes_effect(adjusted.variable.outcome == Outcome.SUCCESS)
+adjusted = (adj := a(Trial)(treatment=CAUSE, season=CONFOUNDER, outcome=...)).causes_effect(
+    adj.variable.outcome == Outcome.SUCCESS
+)
 backend.rank_causes(adjusted)[0].effect_probability_given_region
 # 0.6 -- treatment=LOW scores the same 0.6, correctly showing treatment has no real
 # effect once season is accounted for.
@@ -218,10 +226,10 @@ search an intervention over, `causes_effect()` declares the condition that inter
 should explain.
 
 ```python
-from krrood.entity_query_language.factories import a, cause
+from krrood.entity_query_language.factories import a, CAUSE
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 
-pick = (match := a(Pick)(arm=cause(), success=...)).causes_effect(
+pick = (match := a(Pick)(arm=CAUSE, success=...)).causes_effect(
     match.variable.success == Status.SUCCESS
 )
 verbalize_expression(pick)
@@ -304,7 +312,7 @@ wins,
 returns every candidate's score instead:
 
 ```python
-match = a(Pick)(arm=cause(), grip=cause(), success=...)
+match = a(Pick)(arm=CAUSE, grip=CAUSE, success=...)
 match.causes_effect(match.variable.success == Status.SUCCESS)
 
 ranking = backend.rank_causes(match)
