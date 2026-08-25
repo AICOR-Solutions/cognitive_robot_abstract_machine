@@ -46,6 +46,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    BoundingBoxCollection2D,
 )
 
 # %% palette
@@ -412,7 +413,7 @@ class NavigationScene:
     The path to draw, from its start to its goal.
     """
 
-    obstacles: Optional[BoundingBoxCollection] = None
+    obstacles: Optional[Union[BoundingBoxCollection, BoundingBoxCollection2D]] = None
     """
     The environment's true collision geometry, unbloated.
 
@@ -430,13 +431,13 @@ class NavigationScene:
             occupied_space = (
                 ~self.graph_of_convex_sets.free_space_event & self.search_space.event
             )
-            self.obstacles = BoundingBoxCollection.from_event(
+            self.obstacles = type(self.search_space).from_event(
                 reference_frame=self.search_space.reference_frame,
                 event=occupied_space,
             )
 
     @property
-    def search_space(self) -> BoundingBoxCollection:
+    def search_space(self) -> Union[BoundingBoxCollection, BoundingBoxCollection2D]:
         """
         :return: The volume the graph of convex sets was built in, and the extent every
             panel is framed to.

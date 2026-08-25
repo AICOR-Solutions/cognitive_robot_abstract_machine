@@ -45,6 +45,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.figure import 
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    BoundingBoxCollection2D,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -414,6 +415,44 @@ def test_path_detours_around_the_pillar(room_scene: NavigationScene):
         + (float(waypoints[-1].y) - float(waypoints[0].y)) ** 2
     ) ** 0.5
     assert room_scene.path.length > straight_line_distance
+
+
+def test_navigation_scene_derives_a_planar_obstacle_collection_for_a_planar_graph(
+    room_world: World,
+):
+    """
+    A scene built with no obstacles collection derives one from the graph's own search
+    space and free space; for a planar graph that derivation must stay two-dimensional
+    rather than reaching for the volumetric bounding-box collection unconditionally.
+    """
+    origin = HomogeneousTransformationMatrix(reference_frame=room_world.root)
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -ROOM_HALF_EXTENT,
+                -ROOM_HALF_EXTENT,
+                0.0,
+                ROOM_HALF_EXTENT,
+                ROOM_HALF_EXTENT,
+                ROOM_HEIGHT,
+                origin,
+            )
+        ],
+        room_world.root,
+    )
+    graph = PlanarGraphOfBoundingBoxes.navigation_map_from_world(
+        world=room_world, search_space=search_space, bloat_obstacles=CLEARANCE
+    )
+    query = hardest_path_query(graph)
+    waypoints = graph.path_from_to(query.start, query.goal)
+
+    scene = NavigationScene(
+        graph_of_convex_sets=graph,
+        environment_name="room",
+        path=NavigationPath(waypoints),
+    )
+
+    assert isinstance(scene.obstacles, BoundingBoxCollection2D)
 
 
 # %% the figure

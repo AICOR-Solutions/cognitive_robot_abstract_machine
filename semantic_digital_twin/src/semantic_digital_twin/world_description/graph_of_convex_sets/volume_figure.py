@@ -16,6 +16,7 @@ since a single camera angle hides whatever it projects behind something else.
 from __future__ import annotations
 
 import enum
+import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -586,6 +587,10 @@ class GraphOfConvexSetsVolumeFigure:
             it reports.
         """
         width = 1.0 / len(self.panels)
+        labels = itertools.islice(
+            (chr(ordinal) for ordinal in range(ord("a"), ord("z") + 1)),
+            len(self.panels),
+        )
         return [
             dict(
                 text=(
@@ -603,7 +608,7 @@ class GraphOfConvexSetsVolumeFigure:
                 align="left",
                 font=dict(size=14, color=palette.text_primary),
             )
-            for index, (label, panel) in enumerate(zip("abc", self.panels))
+            for index, (label, panel) in enumerate(zip(labels, self.panels))
         ]
 
     @staticmethod

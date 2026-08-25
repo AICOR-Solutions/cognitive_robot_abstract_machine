@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from numpy import allclose
 
 from krrood.entity_query_language.factories import a, entity, variable
+from krrood.entity_query_language.query.query import Entity
 from random_events.interval import SimpleInterval
 from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.adapters.mjcf import MJCFParser
@@ -34,6 +35,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     VolumetricGraphOfBoundingBoxes,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    AmbiguousSelectedVariableError,
     MissingFloatLikeFieldError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
@@ -240,6 +242,44 @@ def test_constrain_to_free_space_adds_a_where_condition(table_world: World):
 
     assert condition is not None
     assert condition._children_
+
+
+def test_constrain_to_free_space_rejects_a_query_selecting_multiple_variables(
+    table_world: World,
+):
+    """
+    A query's ``selected_variable`` picks the first of its selections without checking
+    there is only one, so constrain_to_free_space must reject a query built to select
+    more than one variable rather than silently constraining whichever one happened to
+    be first.
+    """
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                HomogeneousTransformationMatrix(reference_frame=table_world.root),
+            )
+        ],
+        table_world.root,
+    )
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
+        table_world, search_space=search_space
+    )
+
+    query = Entity(
+        _selected_variables_=(
+            variable(Point3),
+            variable(Point3),
+        )
+    )
+
+    with pytest.raises(AmbiguousSelectedVariableError):
+        graph_of_convex_sets.constrain_to_free_space(query)
 
 
 def test_navigation_map_from_world(table_world: World):

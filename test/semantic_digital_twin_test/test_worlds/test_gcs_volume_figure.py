@@ -381,6 +381,31 @@ def test_each_legend_entry_is_shown_once_across_the_whole_figure(
     ]
 
 
+def test_a_panel_title_is_generated_for_every_panel_not_just_the_first_three(
+    barrier_scene: NavigationScene,
+):
+    """
+    A panel's label is derived from its position among however many panels the figure
+    holds, rather than zipped against a fixed three-letter alphabet that would silently
+    drop the title of a fourth panel instead of labelling it.
+    """
+    panels = (
+        EnvironmentVolumePanel(),
+        ConvexSetsVolumePanel(),
+        OptimalPathVolumePanel(),
+        EnvironmentVolumePanel(),
+    )
+    figure = GraphOfConvexSetsVolumeFigure(barrier_scene, panels=panels).render()
+
+    labels = [
+        annotation.text.split("<br>")[0] for annotation in figure.layout.annotations
+    ]
+
+    assert labels == [
+        f"<b>({letter}) {panel.name}</b>" for letter, panel in zip("abcd", panels)
+    ]
+
+
 def test_the_figure_is_saved_as_an_interactive_page(barrier_scene, tmp_path):
     """
     A single camera angle hides whatever it projects behind something else, so a page

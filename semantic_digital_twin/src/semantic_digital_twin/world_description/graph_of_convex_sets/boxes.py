@@ -29,6 +29,7 @@ from typing_extensions import (
 )
 
 from krrood.entity_query_language.core.mapped_variable import (
+    Attribute,
     CanBehaveLikeAVariable,
     MappedVariable,
 )
@@ -63,6 +64,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     SearchSpaceT,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    AmbiguousSelectedVariableError,
     MissingFloatLikeFieldError,
     UnconnectedGraphError,
 )
@@ -445,15 +447,16 @@ class GraphOfBoundingBoxes(
                 else selected_variable
             )
 
+        free_space_event = self.free_space_event
         fields = {
             spatial_variable.name: self._floatlike_field(
                 variable, spatial_variable.name
             )
-            for spatial_variable in self.free_space_event.variables
+            for spatial_variable in free_space_event.variables
         }
 
         simple_event_conditions = []
-        for simple_event in self.free_space_event.simple_sets:
+        for simple_event in free_space_event.simple_sets:
             axes = [simple_event[name].simple_sets for name in fields]
             for combination in itertools.product(*axes):
                 bounds = []
@@ -484,7 +487,7 @@ class GraphOfBoundingBoxes(
         :raises MissingFloatLikeFieldError: If the field does not exist or is not
             float-like.
         """
-        field = getattr(variable, field_name)
+        field = variable._get_mapped_variable_(Attribute, field_name)
         resolved_type = GraphOfBoundingBoxes._resolved_type_of(field)
         if resolved_type is not float:
             raise MissingFloatLikeFieldError(variable, field_name, resolved_type)
@@ -508,7 +511,7 @@ class GraphOfBoundingBoxes(
         owner_type = (
             selected_variable._type_
             if selected_variable is not None
-            else getattr(root, "_type_", None)
+            else root.__dict__.get("_type_")
         )
         for step in field._access_path_:
             owner_type = get_field_type_endpoint(owner_type, step._attribute_name_)
@@ -526,9 +529,19 @@ class GraphOfBoundingBoxes(
             every eql variable answers any attribute name through ``__getattr__``, by
             fabricating a new symbolic attribute rather than raising, so probing the
             instance can never tell a real property from one that does not exist.
+
+        :raises AmbiguousSelectedVariableError: If ``root`` selects more than one
+            variable, so ``root.selected_variable`` would silently pick the first one
+            rather than the one the caller actually meant to constrain.
         """
         if not hasattr(type(root), "selected_variable"):
             return None
+        # ``root._selected_variables_`` is a genuine dataclass field of ``root``, always
+        # set by ``__init__``, so reading it never falls through to ``__getattr__`` the
+        # way probing an arbitrary name would.
+        selected_variable_count = len(root._selected_variables_)
+        if selected_variable_count != 1:
+            raise AmbiguousSelectedVariableError(root, selected_variable_count)
         return root.selected_variable
 
 
@@ -772,7 +785,7 @@ class VolumetricGraphOfBoundingBoxes(
     def create_as_region(
         self,
         name: Optional[PrefixedName] = None,
-        color: Color = Color(0.5, 1.0, 0.5, 0.5),
+        color: Optional[Color] = None,
     ) -> Region:
         """
         Spawn the GCS as a region (world_entity) connected with a fixed connection with
@@ -780,11 +793,13 @@ class VolumetricGraphOfBoundingBoxes(
         from its free space.
 
         :param name: The name of the region.
-        :param color: The color of the region.
+        :param color: The color of the region. Defaults to a translucent green.
         :return: The region.
         """
         if name is None:
             name = PrefixedName("gcs_region")
+        if color is None:
+            color = Color(0.5, 1.0, 0.5, 0.5)
 
         bbox_collection = BoundingBoxCollection(
             shapes=list(self.graph.nodes()),
@@ -1066,7 +1081,7 @@ class PlanarGraphOfBoundingBoxes(
         self,
         slab_height: float,
         name: Optional[PrefixedName] = None,
-        color: Color = Color(0.5, 1.0, 0.5, 0.5),
+        color: Optional[Color] = None,
     ) -> Region:
         """
         Spawn the GCS as a region (world_entity) connected with a fixed connection with
@@ -1076,11 +1091,13 @@ class PlanarGraphOfBoundingBoxes(
 
         :param slab_height: The thickness of the spawned slab.
         :param name: The name of the region.
-        :param color: The color of the region.
+        :param color: The color of the region. Defaults to a translucent green.
         :return: The region.
         """
         if name is None:
             name = PrefixedName("gcs_region")
+        if color is None:
+            color = Color(0.5, 1.0, 0.5, 0.5)
 
         half_height = slab_height / 2
         bbox_collection = BoundingBoxCollection(

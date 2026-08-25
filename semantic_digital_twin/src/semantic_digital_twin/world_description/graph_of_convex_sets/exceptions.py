@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from krrood.entity_query_language.core.mapped_variable import MappedVariable
-from typing_extensions import Optional, Type
+from krrood.entity_query_language.core.mapped_variable import (
+    CanBehaveLikeAVariable,
+    MappedVariable,
+)
+from typing_extensions import Optional, Type, Union
 
 from semantic_digital_twin.exceptions import UsageError
-from semantic_digital_twin.spatial_types import Point3
+from semantic_digital_twin.spatial_types import Point3, Pose2D
 
 
 @dataclass
@@ -76,12 +79,12 @@ class UnreachableGoalError(UsageError):
     goal.
     """
 
-    start: Point3
+    start: Union[Point3, Pose2D]
     """
     Where the queried path was supposed to begin.
     """
 
-    goal: Point3
+    goal: Union[Point3, Pose2D]
     """
     Where the queried path was supposed to end.
     """
@@ -91,6 +94,34 @@ class UnreachableGoalError(UsageError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class AmbiguousSelectedVariableError(UsageError):
+    """
+    Raised when constraining an eql variable to a graph of convex sets' free space, but
+    the variable's query selects more than one variable, so which one the constraint is
+    meant for cannot be inferred.
+    """
+
+    query: CanBehaveLikeAVariable
+    """
+    The query that selects more than one variable.
+    """
+
+    selected_variable_count: int
+    """
+    How many variables the query selects.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.query} selects {self.selected_variable_count} variables, so the "
+            "one to constrain to free space is ambiguous."
+        )
+
+    def suggest_correction(self) -> str:
+        return "pass the specific variable to constrain instead of its query."
 
 
 @dataclass
