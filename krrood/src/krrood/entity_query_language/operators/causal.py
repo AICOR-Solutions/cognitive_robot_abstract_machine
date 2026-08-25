@@ -28,6 +28,7 @@ from krrood.entity_query_language.operators.core_logical_operators import (
 )
 
 if TYPE_CHECKING:
+    from krrood.entity_query_language.core.mapped_variable import Attribute
     from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
         ProbabilisticCircuit,
     )
@@ -112,6 +113,16 @@ class CausesEffect(LogicalOperator, UnaryExpression):
     Only :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`
     additionally reads it, to find which variable(s) a :class:`Cause` search should
     optimize for.
+    """
+
+    cause_attributes: List[Attribute] = field(default_factory=list, kw_only=True)
+    """
+    The ``cause``-marked attribute(s) this effect condition explains, so its
+    verbalization can name them (*"the arm causes its outcome to be SUCCESS"*) instead
+    of a generic *"what causes"*.
+
+    Empty when built directly rather than through
+    :meth:`~krrood.entity_query_language.query.match.Match.causes_effect`.
     """
 
     def __post_init__(self):

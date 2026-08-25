@@ -231,11 +231,11 @@ should explain.
 from krrood.entity_query_language.factories import a, cause
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 
-pick = a(Pick)(arm=cause, success=...)
-pick.causes_effect(pick.variable.success == Status.SUCCESS)
+pick = a(Pick)(arm=cause, outcome=...)
+pick.causes_effect(pick.variable.outcome == Status.SUCCESS)
 verbalize_expression(pick)
-# 'Generate a Pick and predict its arm and success values where what causes its
-#  success to be SUCCESS'
+# 'Generate a Pick and predict its arm and outcome values where its arm causes
+#  its outcome to be SUCCESS'
 ```
 
 ### `cause`
@@ -289,7 +289,7 @@ backend = ProbabilisticBackend(
     model_registry=CausalCircuitRegistry({Pick: pick_causal_circuit}),
 )
 results = list(pick.evaluate(backend=backend))
-assert all(r.success == Status.SUCCESS for r in results)
+assert all(r.outcome == Status.SUCCESS for r in results)
 ```
 
 If the registry resolves anything other than a `CausalCircuit` for a query containing
@@ -309,8 +309,8 @@ wins,
 returns every candidate's score instead:
 
 ```python
-match = a(Pick)(arm=cause, grip=cause, success=...)
-match.causes_effect(match.variable.success == Status.SUCCESS)
+match = a(Pick)(arm=cause, grip=cause, outcome=...)
+match.causes_effect(match.variable.outcome == Status.SUCCESS)
 
 ranking = backend.rank_causes(match)
 for scored in ranking:

@@ -503,11 +503,14 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         Mark condition(s) as the effect side of a causal query, e.g.
         ``a(Pick)(arm=cause).causes_effect(pick.variable.action.status == SUCCESS)``.
 
-        Sugar for ``self.where(CausesEffect(and_(*conditions)))``: semantically identical
-        to an ordinary ``.where()`` under every backend except
+        Sugar for ``self.where(CausesEffect(and_(*conditions), cause_attributes=...))``:
+        semantically identical to an ordinary ``.where()`` under every backend except
         :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, which reads
         the wrapped condition to find which variable(s) a
         :data:`~krrood.entity_query_language.factories.cause` search should optimize for.
+        The ``cause``-marked attribute(s) are also attached to the built
+        :class:`~krrood.entity_query_language.operators.causal.CausesEffect` node, so its
+        verbalization can name them.
 
         :param conditions: One literal comparator, or several combined with AND.
         :return: This match, for chaining.
@@ -516,7 +519,14 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         # import here would be circular.
         from krrood.entity_query_language.factories import and_
 
-        return self.where(CausesEffect(and_(*conditions)))
+        cause_attributes = [
+            attribute_match.attribute
+            for attribute_match in self.matches_with_variables
+            if isinstance(attribute_match.assigned_value, Cause)
+        ]
+        return self.where(
+            CausesEffect(and_(*conditions), cause_attributes=cause_attributes)
+        )
 
     def from_(self, domain: DomainType) -> Self:
         """

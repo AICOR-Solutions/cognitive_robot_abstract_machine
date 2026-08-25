@@ -72,6 +72,12 @@ from krrood.entity_query_language.verbalization.vocabulary.english import (
     Prepositions,
     Punctuation,
 )
+from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech import (
+    clause,
+    ConjunctivePhrase,
+    Noun,
+    Verb,
+)
 
 
 class ComparatorRule(PhraseRule):
@@ -705,34 +711,40 @@ def _causal_effect_clause(
 
 
 class CausesEffectRule(PhraseRule):
-    """``causes_effect(...)`` → *"what causes <attribute> to be <value>"*.
+    """``causes_effect(...)`` → *"<cause attribute> causes <attribute> to be <value>"*.
 
     Evaluates identically to a plain condition under every backend (see
     :class:`~krrood.entity_query_language.operators.causal.CausesEffect`) -- only
     :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` additionally
-    reads it -- but reads as a causal question rather than a plain description, so a
-    causal query is recognisable from its verbalization alone.
+    reads it -- but names the searched cause explicitly, so a causal query is
+    recognisable from its verbalization alone rather than reading as a vague *"what"*.
 
     >>> pick = variable(Pick, [])
-    >>> verbalize_expression(CausesEffect(pick.arm == 0.3))
-    'what causes the arm of a Pick to be 0.3'
+    >>> verbalize_expression(CausesEffect(pick.arm == 0.3, cause_attributes=[pick.arm]))
+    'the arm of a Pick causes the arm of the Pick to be 0.3'
     """
 
     construct = CausesEffect
 
     def build(self, node: CausesEffect, context: RuleContext) -> VerbalizationFragment:
         """
-        Prefix the effect condition with *"what causes"*, rendering each equality
-        comparator as *"<attribute> to be <value>"* instead of *"<attribute> is
+        Prefix the effect condition with *"<cause attribute> causes"*, rendering each
+        equality comparator as *"<attribute> to be <value>"* instead of *"<attribute> is
         <value>"*.
 
-        It owns the whole *what causes the arm of a Pick to be 0.3* span: the *"what
-        causes"* prefix, plus the *"to be"* copula the wrapped comparator's own
-        rendering would otherwise say as *"is"*.
+        Falls back to the generic *"what causes"* when built without any
+        ``cause_attributes`` (a :class:`CausesEffect` constructed directly rather than
+        through :meth:`~krrood.entity_query_language.query.match.Match.causes_effect`).
         """
-        return PhraseFragment(
-            parts=[
-                Keywords.WHAT_CAUSES.as_fragment(),
-                _causal_effect_clause(node._child_, context),
-            ]
+        effect_clause = _causal_effect_clause(node._child_, context)
+        if not node.cause_attributes:
+            return PhraseFragment(
+                parts=[Keywords.WHAT_CAUSES.as_fragment(), effect_clause]
+            )
+        cause_nouns = [
+            Noun(context.child(attribute)) for attribute in node.cause_attributes
+        ]
+        subject = (
+            cause_nouns[0] if len(cause_nouns) == 1 else ConjunctivePhrase(cause_nouns)
         )
+        return clause(subject, Verb("cause"), effect_clause)
