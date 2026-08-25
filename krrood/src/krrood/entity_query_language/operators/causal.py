@@ -54,12 +54,22 @@ class CauseSentinel:
     """
     Type of :data:`CAUSE`.
 
-    A distinct type (not ``Cause`` itself) so a match's kwargs can carry the same
-    sentinel to every field without those fields secretly sharing one
-    :class:`~krrood.entity_query_language.core.base_expressions.SymbolicExpression`
-    instance -- :meth:`~krrood.entity_query_language.query.match.Match.resolve`
-    replaces each occurrence with its own fresh :class:`Cause` when it walks the
-    kwargs, the same way a bare ``...`` is replaced per field rather than shared.
+    A *sentinel* here means a fixed marker value whose only job is to be recognised and
+    swapped out later, the same role ``Ellipsis`` (``...``) already plays for a plain
+    underspecified field.
+
+    A distinct type -- not ``Cause`` itself -- because unlike a plain literal kwarg
+    (``arm=0.3``), whose ``Literal`` wrapper :meth:`AttributeMatch.assigned_variable
+    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>` builds
+    fresh, on the spot, once the attribute it belongs to is known, a bare
+    ``cause()``/``CAUSE`` is a fully-built value the *caller* supplies before any
+    attribute is known. If ``CAUSE`` were itself a ``Cause`` instance, every field
+    marked with it would share that one object; the second field's type backfill (see
+    :meth:`AttributeMatch.assigned_variable
+    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`) would
+    then silently overwrite the first's. :meth:`~krrood.entity_query_language.query.match.Match.resolve`
+    avoids this by replacing each occurrence of the sentinel with its own fresh
+    :class:`Cause` when it walks the kwargs.
     """
 
     def __repr__(self) -> str:
@@ -71,7 +81,12 @@ CAUSE = CauseSentinel()
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 ``do()``-intervention target, without the parentheses of
 :func:`~krrood.entity_query_language.factories.cause` (``arm=CAUSE`` instead of
-``arm=cause()``) -- both spellings are equivalent.
+``arm=cause()``).
+
+The two are fully equivalent at runtime; ``cause()`` exists only so
+this marker reads the same way as the query's other field-marking factories, which are
+all calls (e.g. :func:`~krrood.entity_query_language.factories.set_of`) -- pick
+whichever spelling reads better in a given query.
 """
 
 
@@ -152,9 +167,11 @@ class CauseEffectVariables:
     """
     The variable(s) a ``cause()`` intervention is searched over.
 
-    When there is more than one, each is tried independently and the one whose
-    intervention best explains the effect becomes the primary cause -- there is no
-    joint, multi-variable intervention.
+    When there is more than one, each is tried independently -- there is no joint,
+    multi-variable intervention -- and the one with the highest
+    :attr:`~krrood.entity_query_language.operators.causal.ScoredIntervention.effect_probability_given_region`
+    becomes the primary cause: the candidate whose own best region gives the highest
+    ``P(effect | do(cause in best_region))``.
     """
 
     effect_variable: random_events.variable.Variable

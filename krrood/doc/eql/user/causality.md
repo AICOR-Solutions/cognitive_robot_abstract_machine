@@ -121,15 +121,15 @@ from krrood.parametrization.model_registries import DictRegistry
 
 
 @dataclass
-class Weather:
+class SummerStatistics:
     ice_cream_sales: float
     drowning_incidents: float
 
 
 backend = ProbabilisticBackend(
-    model_registry=DictRegistry({Weather: circuit}), number_of_samples=1000
+    model_registry=DictRegistry({SummerStatistics: circuit}), number_of_samples=1000
 )
-match = a(Weather)(ice_cream_sales=..., drowning_incidents=...)
+match = a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)
 match.where(match.variable.ice_cream_sales >= 9.0)
 results = list(match.evaluate(backend=backend))
 sum(r.drowning_incidents >= 9.0 for r in results) / len(results)

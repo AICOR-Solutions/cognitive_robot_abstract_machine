@@ -997,6 +997,8 @@ class BinaryExpression(SymbolicExpression, ABC):
         must check ``isinstance(expression, BinaryExpression)`` themselves first --
         this method only handles the two binary-expression shapes it is defined for.
         """
+        # Local import: core_logical_operators.py imports this module, so a
+        # module-level import of AND here would be circular.
         from krrood.entity_query_language.operators.core_logical_operators import AND
 
         if isinstance(self, AND):
@@ -1033,6 +1035,8 @@ class BinaryExpression(SymbolicExpression, ABC):
             literal (e.g. ``attribute == value``), as opposed to, for example, a
             comparison between two attributes.
         """
+        # Local imports: comparator.py, mapped_variable.py and variable.py each
+        # import this module, so module-level imports of them here would be circular.
         from krrood.entity_query_language.operators.comparator import Comparator
         from krrood.entity_query_language.core.mapped_variable import MappedVariable
         from krrood.entity_query_language.core.variable import Literal
