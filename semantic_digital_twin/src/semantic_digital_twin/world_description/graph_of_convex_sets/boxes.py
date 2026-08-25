@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import logging
 import time
 from abc import abstractmethod
@@ -11,13 +12,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import rustworkx as rx
-from random_events.interval import closed, Interval
+from random_events.interval import Bound, closed, Interval
 from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
 from rtree import index
-from typing_extensions import Generic, List, Optional, Dict, Sequence, Self, TypeVar
+from typing_extensions import (
+    Generic,
+    List,
+    Optional,
+    Dict,
+    Sequence,
+    Self,
+    Type,
+    TypeVar,
+)
 
+from krrood.entity_query_language.core.mapped_variable import (
+    CanBehaveLikeAVariable,
+    MappedVariable,
+)
+from krrood.entity_query_language.operators.core_logical_operators import (
+    AND,
+    OR,
+    chained_logic,
+)
+from krrood.symbol_graph.helpers import get_field_type_endpoint
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
@@ -43,6 +63,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     SearchSpaceT,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    MissingFloatLikeFieldError,
     UnconnectedGraphError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
@@ -389,6 +410,126 @@ class GraphOfBoundingBoxes(
         return Event.from_simple_sets(
             *[node.simple_event for node in self.graph.nodes()]
         )
+
+    def constrain_to_free_space(self, variable: MappedVariable) -> OR:
+        """
+        Add a where condition to ``variable``'s query, restricting it to lie within
+        this graph's free space.
+
+        The free space is a union of boxes, so the condition is an ``OR`` over one
+        ``AND`` per box, each conjoining a lower and an upper bound per coordinate.
+        Which coordinates that is -- x, y for a planar graph; x, y, z for a
+        volumetric one -- follows from :attr:`free_space_event` alone, so this one
+        implementation serves every :class:`GraphOfBoundingBoxes` subclass.
+
+        ``variable`` is rerooted onto its query's own ``selected_variable`` before
+        its fields are read: a query's own type does not resolve (what it selects
+        lives on ``selected_variable`` instead), and a condition built directly
+        against the selection is exactly what evaluates correctly per query result
+        without needing the query's own rerooting machinery to intervene.
+
+        :param variable: The eql variable to constrain, e.g. a Pose2D- or
+            Point3-typed attribute of a query, or the query itself.
+        :return: The condition that was added.
+        :raises MissingFloatLikeFieldError: If ``variable`` has no float-like field
+            for one of this graph's spatial coordinates.
+        """
+        chain_root = (
+            variable._chain_root_ if isinstance(variable, MappedVariable) else variable
+        )
+        selected_variable = GraphOfBoundingBoxes._selected_variable_of(chain_root)
+        if selected_variable is not None:
+            variable = (
+                variable._reroot_on_(selected_variable, chain_root)
+                if isinstance(variable, MappedVariable)
+                else selected_variable
+            )
+
+        fields = {
+            spatial_variable.name: self._floatlike_field(
+                variable, spatial_variable.name
+            )
+            for spatial_variable in self.free_space_event.variables
+        }
+
+        simple_event_conditions = []
+        for simple_event in self.free_space_event.simple_sets:
+            axes = [simple_event[name].simple_sets for name in fields]
+            for combination in itertools.product(*axes):
+                bounds = []
+                for field_name, simple_interval in zip(fields, combination):
+                    field = fields[field_name]
+                    bounds.append(
+                        field >= simple_interval.lower
+                        if simple_interval.left == Bound.CLOSED
+                        else field > simple_interval.lower
+                    )
+                    bounds.append(
+                        field <= simple_interval.upper
+                        if simple_interval.right == Bound.CLOSED
+                        else field < simple_interval.upper
+                    )
+                simple_event_conditions.append(chained_logic(AND, *bounds))
+
+        condition = chained_logic(OR, *simple_event_conditions)
+        chain_root.where(condition)
+        return condition
+
+    @staticmethod
+    def _floatlike_field(variable: MappedVariable, field_name: str) -> MappedVariable:
+        """
+        :param variable: The eql variable to read the field from.
+        :param field_name: The name of the field.
+        :return: The field, accessed symbolically on ``variable``.
+        :raises MissingFloatLikeFieldError: If the field does not exist or is not
+            float-like.
+        """
+        field = getattr(variable, field_name)
+        resolved_type = GraphOfBoundingBoxes._resolved_type_of(field)
+        if resolved_type is not float:
+            raise MissingFloatLikeFieldError(variable, field_name, resolved_type)
+        return field
+
+    @staticmethod
+    def _resolved_type_of(field: MappedVariable) -> Optional[Type]:
+        """
+        Resolve the domain type a mapping chain's leaf field holds.
+
+        ``field._type_`` itself does not resolve when the chain is rooted at a query
+        rather than at an already-typed variable, since a query's own ``_type_`` is
+        unset -- what it selects lives on its ``selected_variable`` instead. Walking
+        the chain's own access path against that seed type sidesteps the gap.
+
+        :param field: The field to resolve the type of.
+        :return: The field's domain type, or None if it does not exist.
+        """
+        root = field._chain_root_
+        selected_variable = GraphOfBoundingBoxes._selected_variable_of(root)
+        owner_type = (
+            selected_variable._type_
+            if selected_variable is not None
+            else getattr(root, "_type_", None)
+        )
+        for step in field._access_path_:
+            owner_type = get_field_type_endpoint(owner_type, step._attribute_name_)
+        return owner_type
+
+    @staticmethod
+    def _selected_variable_of(root) -> Optional[CanBehaveLikeAVariable]:
+        """
+        :param root: The chain root of an eql variable.
+        :return: ``root.selected_variable`` if ``root`` is a query with a real
+            ``selected_variable`` property, or None otherwise.
+
+        .. note::
+            Checked via the class rather than ``hasattr(root, "selected_variable")``:
+            every eql variable answers any attribute name through ``__getattr__``, by
+            fabricating a new symbolic attribute rather than raising, so probing the
+            instance can never tell a real property from one that does not exist.
+        """
+        if not hasattr(type(root), "selected_variable"):
+            return None
+        return root.selected_variable
 
 
 @dataclass

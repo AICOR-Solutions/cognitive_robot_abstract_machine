@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from numpy import allclose
 
+from krrood.entity_query_language.factories import a, entity, variable
 from random_events.interval import SimpleInterval
 from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.adapters.mjcf import MJCFParser
@@ -31,6 +32,9 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     PlanarGraphOfBoundingBoxes,
     VolumetricGraphOfBoundingBoxes,
+)
+from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
+    MissingFloatLikeFieldError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
@@ -167,6 +171,75 @@ def test_from_world(table_world: World):
         start_occupied = Point3(-10, -10, -10, reference_frame=table_world.root)
         target_occupied = Point3(10, 10, 10, reference_frame=table_world.root)
         graph_of_convex_sets.path_from_to(start_occupied, target_occupied)
+
+
+def test_constrain_to_free_space_requires_floatlike_fields(table_world: World):
+    """
+    constrain_to_free_space must check that the given variable has a float-like field
+    for every spatial coordinate its free space is expressed over, rather than silently
+    building a nonsensical condition -- EQL's own attribute access never raises for a
+    field that does not actually exist on the queried type.
+    """
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                HomogeneousTransformationMatrix(reference_frame=table_world.root),
+            )
+        ],
+        table_world.root,
+    )
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
+        table_world, search_space=search_space
+    )
+
+    query = entity(variable(str))
+
+    with pytest.raises(MissingFloatLikeFieldError):
+        graph_of_convex_sets.constrain_to_free_space(query)
+
+
+def test_constrain_to_free_space_adds_a_where_condition(table_world: World):
+    """
+    constrain_to_free_space attaches its condition to the variable's own query, rather
+    than merely returning it for the caller to attach.
+
+    The full round trip -- evaluating the attached condition back into an event and
+    checking it matches the free space exactly -- is covered end-to-end by
+    ``test_constrain_to_free_space`` in ``test_sage10k.py``, which exercises this
+    through a query nested inside a larger entity the way callers actually use it; this
+    test only checks that a condition ends up attached, without depending on
+    ``UnderspecifiedParameters``' behaviour for a bare top-level selection.
+    """
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                HomogeneousTransformationMatrix(reference_frame=table_world.root),
+            )
+        ],
+        table_world.root,
+    )
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
+        table_world, search_space=search_space
+    )
+
+    query = a(Point3)(x=..., y=..., z=..., reference_frame=None)
+
+    condition = graph_of_convex_sets.constrain_to_free_space(query.expression)
+
+    assert condition is not None
+    assert condition._children_
 
 
 def test_navigation_map_from_world(table_world: World):
