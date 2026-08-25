@@ -39,14 +39,13 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from typing_extensions import Iterable, List, Optional, Sequence, Self, Union
 
-from semantic_digital_twin.spatial_types import Point3, Pose2D
+from semantic_digital_twin.spatial_types import Point2D, Point3
 from semantic_digital_twin.world_description.geometry import BoundingBox, BoundingBox2D
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
-    BoundingBoxCollection2D,
 )
 
 # %% palette
@@ -273,7 +272,7 @@ class NavigationPath:
     instead of recomputing it from a bare list.
     """
 
-    waypoints: List[Union[Point3, Pose2D]]
+    waypoints: List[Union[Point3, Point2D]]
     """
     The points to navigate to, starting at the query's start and ending at its goal.
     """
@@ -335,17 +334,17 @@ class ConvexSetAdjacency:
     convex set, through the portal the two sets share, to the center of the other.
     """
 
-    source_center: Union[Point3, Pose2D]
+    source_center: Union[Point3, Point2D]
     """
     The center of the convex set the edge starts at.
     """
 
-    portal_center: Union[Point3, Pose2D]
+    portal_center: Union[Point3, Point2D]
     """
     The center of the region where the two convex sets overlap.
     """
 
-    target_center: Union[Point3, Pose2D]
+    target_center: Union[Point3, Point2D]
     """
     The center of the convex set the edge ends at.
     """
@@ -393,9 +392,7 @@ class NavigationScene:
     Building the graph (from a world or otherwise) and solving the path are both the
     caller's job: see
     :class:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.GraphOfBoundingBoxes`'s
-    ``navigation_map_from_world``/``free_space_from_world`` and ``path_from_to``, and
-    :func:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.hardest_path_query`
-    for picking a demonstrative query.
+    ``navigation_map_from_world``/``free_space_from_world`` and ``path_from_to``.
     """
 
     graph_of_convex_sets: GraphOfBoundingBoxes
@@ -413,7 +410,7 @@ class NavigationScene:
     The path to draw, from its start to its goal.
     """
 
-    obstacles: Optional[Union[BoundingBoxCollection, BoundingBoxCollection2D]] = None
+    obstacles: Optional[BoundingBoxCollection] = None
     """
     The environment's true collision geometry, unbloated.
 
@@ -431,13 +428,15 @@ class NavigationScene:
             occupied_space = (
                 ~self.graph_of_convex_sets.free_space_event & self.search_space.event
             )
-            self.obstacles = type(self.search_space).from_event(
+            box_type = type(self.search_space.bounding_boxes[0])
+            self.obstacles = BoundingBoxCollection.from_event(
+                box_type,
                 reference_frame=self.search_space.reference_frame,
                 event=occupied_space,
             )
 
     @property
-    def search_space(self) -> Union[BoundingBoxCollection, BoundingBoxCollection2D]:
+    def search_space(self) -> BoundingBoxCollection:
         """
         :return: The volume the graph of convex sets was built in, and the extent every
             panel is framed to.
@@ -738,7 +737,7 @@ class EndpointsLayer(SceneLayer):
     def _draw_endpoint(
         self,
         axes: Axes,
-        endpoint: Union[Point3, Pose2D],
+        endpoint: Union[Point3, Point2D],
         label: str,
         marker: str,
         color: str,

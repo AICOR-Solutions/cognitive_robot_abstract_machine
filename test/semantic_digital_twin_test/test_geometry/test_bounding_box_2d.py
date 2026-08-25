@@ -5,12 +5,12 @@ from random_events.product_algebra import Event, SimpleEvent
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import BoundingBox2D
 from semantic_digital_twin.world_description.shape_collection import (
-    BoundingBoxCollection2D,
+    BoundingBoxCollection,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -82,7 +82,7 @@ def test_bounding_box_2d_event_round_trip():
     )
     event = Event.from_simple_sets(simple_event)
 
-    bbc = BoundingBoxCollection2D.from_event(world.root, event)
+    bbc = BoundingBoxCollection.from_event(BoundingBox2D, world.root, event)
     bb = bbc.bounding_boxes[0]
     assert len(bbc.bounding_boxes) == 1
     assert bb.x_interval.lower == 0
@@ -112,7 +112,7 @@ def test_bounding_box_2d_contains():
         -0.5, -1, 0.5, 1, HomogeneousTransformationMatrix(reference_frame=world.root)
     )
 
-    point = Pose2D(0, 0, reference_frame=world.root)
+    point = Point2D(0, 0, reference_frame=world.root)
 
     assert bb.contains(point)
 
@@ -126,7 +126,7 @@ def test_bounding_box_2d_does_not_contain_a_point_outside():
         -0.5, -1, 0.5, 1, HomogeneousTransformationMatrix(reference_frame=world.root)
     )
 
-    point = Pose2D(10, 10, reference_frame=world.root)
+    point = Point2D(10, 10, reference_frame=world.root)
 
     assert not bb.contains(point)
 
@@ -136,10 +136,9 @@ def test_bounding_box_2d_center():
 
     center = bb.center
 
-    assert isinstance(center, Pose2D)
+    assert isinstance(center, Point2D)
     assert float(center.x) == 1.0
     assert float(center.y) == 2.0
-    assert float(center.yaw) == 0.0
 
 
 def test_bounding_box_2d_bloat():
@@ -180,7 +179,7 @@ def test_bounding_box_2d_intersection_with_disjoint_box_is_none():
     assert a.intersection_with(b) is None
 
 
-# %% BoundingBoxCollection2D
+# %% BoundingBoxCollection[BoundingBox2D]
 
 
 def test_bounding_box_collection_2d_merge():
@@ -189,8 +188,8 @@ def test_bounding_box_collection_2d_merge():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
 
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
-    first = BoundingBoxCollection2D([BoundingBox2D(0, 0, 1, 1, origin)], world.root)
-    second = BoundingBoxCollection2D([BoundingBox2D(1, 0, 2, 1, origin)], world.root)
+    first = BoundingBoxCollection([BoundingBox2D(0, 0, 1, 1, origin)], world.root)
+    second = BoundingBoxCollection([BoundingBox2D(1, 0, 2, 1, origin)], world.root)
 
     merged = first.merge(second)
 
@@ -203,7 +202,7 @@ def test_bounding_box_collection_2d_bounding_box():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
 
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
-    collection = BoundingBoxCollection2D(
+    collection = BoundingBoxCollection(
         [
             BoundingBox2D(0, 0, 1, 1, origin),
             BoundingBox2D(2, -1, 3, 0, origin),

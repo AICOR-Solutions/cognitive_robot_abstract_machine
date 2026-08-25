@@ -64,7 +64,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
-from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.geometry import BoundingBox, Color, Scale
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -1129,6 +1129,36 @@ class HasSupportingSurface(IsStorageSpace):
             p_object_root.add_subcircuit(leaf(y_p, surface_circuit))
 
         return surface_circuit
+
+    def spawn_bounding_boxes_as_region(
+        self,
+        boxes: BoundingBoxCollection[BoundingBox],
+        name: Optional[PrefixedName] = None,
+        color: Optional[Color] = None,
+    ) -> Region:
+        """
+        Spawn a collection of bounding boxes as a region, connected to this
+        annotation's root with a fixed connection.
+
+        :param boxes: The bounding boxes to spawn, e.g. the free space of a graph of
+            convex sets.
+        :param name: The name of the region. Defaults to "region".
+        :param color: The color of the region. Defaults to a translucent green.
+        :return: The region.
+        """
+        if name is None:
+            name = PrefixedName("region")
+        if color is None:
+            color = Color(0.5, 1.0, 0.5, 0.5)
+
+        shapes = boxes.as_shapes()
+        shapes.dye_shapes(color)
+        region = Region.from_shape_collection(name, shapes)
+
+        with self._world.modify_world():
+            self._world.add_region(region)
+            self._world.add_connection(FixedConnection(parent=self.root, child=region))
+        return region
 
 
 @dataclass(eq=False)

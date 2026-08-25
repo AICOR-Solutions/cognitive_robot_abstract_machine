@@ -12,9 +12,9 @@ from coraplex.robot_plans.actions.core.container import OpenAction
 from coraplex.robot_plans.actions.core.misc import MoveToReach
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
-from semantic_digital_twin.spatial_types import Pose2D, Pose
+from semantic_digital_twin.spatial_types import Point2D, Pose2D, Pose
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    navigation_map_at_target,
+    PlanarGraphOfBoundingBoxes,
 )
 from semantic_digital_twin.exceptions import PointOccupiedError
 
@@ -39,7 +39,9 @@ class Sage10kOpenDoor(ActionDescription):
         A navigation map is created around the door handle and used to constrain an
         underspecified reach action, which is sequenced with an opening action.
         """
-        gcs = navigation_map_at_target(target=self.door.handle.root)
+        gcs = PlanarGraphOfBoundingBoxes.navigation_map_at_target(
+            target=self.door.handle.root
+        )
 
         arm = Arms.LEFT
 
@@ -56,7 +58,7 @@ class Sage10kOpenDoor(ActionDescription):
 
         # Find a node in free space that is near the pre-grasp pose. gcs is planar, so
         # the query point is its floor-plane projection, not the full 3D position.
-        target_node = gcs.node_of_point(Pose2D.from_pose(pre_grasp_pose))
+        target_node = gcs.node_of_point(Point2D.from_pose(pre_grasp_pose))
         if target_node is None:
             raise PointOccupiedError(
                 self.world.transform(pre_grasp_pose, self.world.root).position

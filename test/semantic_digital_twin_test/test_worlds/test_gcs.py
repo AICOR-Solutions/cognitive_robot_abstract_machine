@@ -15,7 +15,7 @@ from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
-from semantic_digital_twin.spatial_types import Point3, Pose, Pose2D
+from semantic_digital_twin.spatial_types import Point2D, Point3, Pose
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
@@ -40,7 +40,6 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions imp
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
-    BoundingBoxCollection2D,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -89,6 +88,7 @@ def graph_of_convex_sets_unit_box() -> VolumetricGraphOfBoundingBoxesFixture:
         }
     )
     obstacles = BoundingBoxCollection.from_event(
+        BoundingBox,
         world.root,
         ~obstacle.simple_event.as_composite_set() & limiting_event.as_composite_set(),
     )
@@ -314,13 +314,16 @@ def test_navigation_map_from_world(table_world: World):
     assert all(
         isinstance(node, BoundingBox2D) for node in graph_of_convex_sets.graph.nodes()
     )
-    assert isinstance(graph_of_convex_sets.search_space, BoundingBoxCollection2D)
+    assert all(
+        isinstance(box, BoundingBox2D)
+        for box in graph_of_convex_sets.search_space.bounding_boxes
+    )
 
 
-def test_navigation_map_path_returns_pose2d_waypoints(table_world: World):
+def test_navigation_map_path_returns_point2d_waypoints(table_world: World):
     """
-    A planar GCS's path is expressed in Pose2D, not Point3: there is no z to report, and
-    interior waypoints (portals between boxes) carry no meaningful orientation.
+    A planar GCS's path is expressed in Point2D, not Point3: there is no z to report,
+    and interior waypoints (portals between boxes) carry no meaningful orientation.
     """
     search_space = BoundingBoxCollection(
         [
@@ -342,17 +345,15 @@ def test_navigation_map_path_returns_pose2d_waypoints(table_world: World):
         table_world, search_space=search_space
     )
 
-    start = Pose2D(-4.5, -0.5, reference_frame=table_world.root)
-    goal = Pose2D(-2.5, 1.5, reference_frame=table_world.root)
+    start = Point2D(-4.5, -0.5, reference_frame=table_world.root)
+    goal = Point2D(-2.5, 1.5, reference_frame=table_world.root)
     path = graph_of_convex_sets.path_from_to(start, goal)
 
     assert path is not None
     assert len(path) > 1
     for waypoint in path:
-        assert isinstance(waypoint, Pose2D)
+        assert isinstance(waypoint, Point2D)
         assert float(waypoint.z) == 0.0
-    for waypoint in path[1:-1]:
-        assert float(waypoint.yaw) == 0.0
 
 
 def test_from_world_with_rotated_box():

@@ -121,7 +121,9 @@ def test_event_casting(pr2_apartment_state_reset):
     )
     event = Event.from_simple_sets(simple_event)
 
-    bbc = BoundingBoxCollection.from_event(pr2_apartment_state_reset.root, event)
+    bbc = BoundingBoxCollection.from_event(
+        BoundingBox, pr2_apartment_state_reset.root, event
+    )
     bb = bbc.bounding_boxes[0]
     assert len(bbc.bounding_boxes) == 1
     assert bb.x_interval.lower == 0

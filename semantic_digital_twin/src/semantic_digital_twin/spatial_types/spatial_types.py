@@ -1167,6 +1167,128 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
 
 
 @dataclass(eq=False, init=False, repr=False)
+class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+    """
+    Represents a 2D point with reference frame handling.
+
+    Stored as a bare 2×1 symbolic vector ``[x, y]``, with no homogeneous augmentation --
+    the same convention :class:`Pose2D` uses. :meth:`to_point3` converts to the
+    equivalent 3D :class:`Point3` whenever a 3D calculation is required.
+    """
+
+    def __init__(
+        self,
+        x: sm.ScalarData = 0,
+        y: sm.ScalarData = 0,
+        reference_frame: Optional[KinematicStructureEntity] = None,
+    ):
+        """
+        :param x: X-coordinate of the point. Defaults to 0.
+        :param y: Y-coordinate of the point. Defaults to 0.
+        :param reference_frame:
+        """
+        self.casadi_sx = sm.to_sx([x, y])
+        self.reference_frame = reference_frame
+        super().__post_init__()
+
+    def _verify_type(self):
+        if self.shape != (2, 1):
+            raise WrongDimensionsError(
+                expected_dimensions=(2, 1), actual_dimensions=self.shape
+            )
+
+    @classmethod
+    def from_iterable(
+        cls,
+        data: sm.VectorData,
+        reference_frame: Optional[KinematicStructureEntity] = None,
+    ) -> Point2D:
+        """
+        :param data: Array-like data used to initialize the Point2D instance.
+        :param reference_frame: The reference frame. If the data has a
+            ``reference_frame`` attribute, and this parameter is not specified, it will
+            be taken from the data.
+        :return: The Point2D instance.
+        """
+        if isinstance(data, SpatialType) and reference_frame is None:
+            reference_frame = data.reference_frame
+        result = cls(reference_frame=reference_frame)
+        result.casadi_sx = sm.to_sx(data)
+        return result
+
+    @classmethod
+    def from_pose(
+        cls,
+        pose: Pose,
+        reference_frame: Optional[KinematicStructureEntity] = None,
+    ) -> Point2D:
+        """
+        Extract a Point2D from a 3D Pose by dropping z, roll, pitch and yaw.
+
+        :param pose: The pose to extract the point from.
+        :param reference_frame: The reference frame. Defaults to ``pose``'s.
+        :return: The Point2D instance.
+        """
+        frame = reference_frame if reference_frame is not None else pose.reference_frame
+        return cls(x=pose.x, y=pose.y, reference_frame=frame)
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        reference_frame = cls._parse_optional_frame_from_json(
+            data, key="reference_frame_id", **kwargs
+        )
+        return cls.from_iterable(
+            data["data"][:2],
+            reference_frame=reference_frame,
+        )
+
+    def to_json(self) -> Dict[str, Any]:
+        if not self.is_constant():
+            raise SpatialTypeNotJsonSerializable(self)
+        result = super().to_json()
+        if self.reference_frame is not None:
+            result["reference_frame_id"] = to_json(self.reference_frame.id)
+        result["data"] = self.to_np().tolist()
+        return result
+
+    @property
+    def x(self) -> sm.Scalar:
+        return self[0]
+
+    @x.setter
+    def x(self, value: sm.ScalarData):
+        self[0] = value
+
+    @property
+    def y(self) -> sm.Scalar:
+        return self[1]
+
+    @y.setter
+    def y(self, value: sm.ScalarData):
+        self[1] = value
+
+    @property
+    def z(self) -> float:
+        """
+        :return: Always 0 -- a 2D point has no height of its own.
+        """
+        return 0
+
+    def to_point3(self, z: sm.ScalarData = 0) -> Point3:
+        """
+        Convert to a 3D :class:`Point3`.
+
+        :param z: The z-coordinate the resulting point should have. Defaults to 0.
+        """
+        return Point3(self.x, self.y, z, reference_frame=self.reference_frame)
+
+    def __hash__(self):
+        if self.is_constant():
+            return hash((*self.to_np().tolist(), self.reference_frame))
+        return super().__hash__()
+
+
+@dataclass(eq=False, init=False, repr=False)
 class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     """
     Representation of a 3D vector with reference frame support for homogenous
@@ -2210,8 +2332,11 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     # ------------------------------------------------------------------
 
     @property
-    def position(self) -> Point3:
-        return self.to_pose().to_position()
+    def position(self) -> Point2D:
+        """
+        :return: The position this pose is composed of, dropping the bearing.
+        """
+        return Point2D(self.x, self.y, reference_frame=self.reference_frame)
 
     @property
     def orientation(self) -> Quaternion:
@@ -2245,6 +2370,26 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         _, _, yaw = pose.to_rotation_matrix().to_rpy()
         frame = reference_frame if reference_frame is not None else pose.reference_frame
         return cls(x=pose.x, y=pose.y, yaw=yaw, reference_frame=frame)
+
+    @classmethod
+    def from_position_and_yaw(
+        cls,
+        position: Point2D,
+        yaw: sm.ScalarData = 0,
+        reference_frame: Optional[KinematicStructureEntity] = None,
+    ) -> Pose2D:
+        """
+        Compose a Pose2D from a position and a bearing.
+
+        :param position: Where the pose is.
+        :param yaw: Which way the pose faces. Defaults to 0.
+        :param reference_frame: The reference frame. Defaults to ``position``'s.
+        :return: The Pose2D instance.
+        """
+        frame = (
+            reference_frame if reference_frame is not None else position.reference_frame
+        )
+        return cls(x=position.x, y=position.y, yaw=yaw, reference_frame=frame)
 
     # ------------------------------------------------------------------
     # JSON serialization

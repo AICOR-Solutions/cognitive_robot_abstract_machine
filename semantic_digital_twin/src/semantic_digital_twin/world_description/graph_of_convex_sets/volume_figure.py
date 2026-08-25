@@ -22,12 +22,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from typing_extensions import List, Sequence
 
+from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.world_description.geometry import Bounds
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     FigurePalette,
@@ -39,7 +41,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.figure import 
 
 
 def polyline_trace(
-    polylines: Sequence[np.ndarray], color: str, width: float, name: str
+    polylines: Sequence[npt.NDArray[np.float64]], color: str, width: float, name: str
 ) -> go.Scatter3d:
     """
     Join separate polylines into a single trace, separated by gaps.
@@ -245,7 +247,9 @@ class EndpointsVolumeLayer(VolumeLayer):
         ]
 
     @staticmethod
-    def _endpoint_trace(endpoint, label: str, symbol: str, color: str) -> go.Scatter3d:
+    def _endpoint_trace(
+        endpoint: Point3, label: str, symbol: str, color: str
+    ) -> go.Scatter3d:
         """
         :param endpoint: The point to mark.
         :param label: The name written beside the marker.

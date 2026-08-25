@@ -22,11 +22,15 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
+from semantic_digital_twin.world_description.geometry import (
+    Box,
+    BoundingBox,
+    BoundingBox2D,
+    Scale,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     PlanarGraphOfBoundingBoxes,
     VolumetricGraphOfBoundingBoxes,
-    hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     UnconnectedGraphError,
@@ -45,9 +49,10 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.figure import 
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
-    BoundingBoxCollection2D,
 )
 from semantic_digital_twin.world_description.world_entity import Body
+
+from .gcs_test_helpers import hardest_path_query
 
 # %% the world every scene in this module is built from
 
@@ -452,7 +457,8 @@ def test_navigation_scene_derives_a_planar_obstacle_collection_for_a_planar_grap
         path=NavigationPath(waypoints),
     )
 
-    assert isinstance(scene.obstacles, BoundingBoxCollection2D)
+    assert len(scene.obstacles.bounding_boxes) > 0
+    assert all(isinstance(box, BoundingBox2D) for box in scene.obstacles.bounding_boxes)
 
 
 # %% the figure

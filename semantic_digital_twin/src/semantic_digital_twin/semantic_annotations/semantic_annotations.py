@@ -52,7 +52,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Scale, Color
+from semantic_digital_twin.world_description.geometry import BoundingBox, Scale, Color
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -220,7 +220,7 @@ class Aperture(HasRootRegion):
         ).event
         new_wall_event = wall_event - hole_event
         new_bounding_box_collection = BoundingBoxCollection.from_event(
-            parent.root, new_wall_event
+            BoundingBox, parent.root, new_wall_event
         ).as_shapes()
 
         parent.root.collision = new_bounding_box_collection
@@ -1456,6 +1456,99 @@ class SemanticEnvironmentAnnotation(HasRootBody):
     """
     Represents a semantic annotation of the environment.
     """
+
+    def obstacle_entities(
+        self, search_space: BoundingBoxCollection[BoundingBox]
+    ) -> List[Body]:
+        """
+        Collect the obstacle bodies to consider within ``search_space``.
+
+        Filters out agent entities so the robot does not treat itself as an obstacle,
+        and bodies without meaningful collision geometry.
+
+        :param search_space: The search space; its reference frame is used to look up
+            the owning world.
+        :return: The obstacle bodies to consider.
+        """
+        world = search_space.reference_frame._world
+
+        agents = world.get_semantic_annotations_by_type(Agent)
+        agent_entities = set()
+        for agent in agents:
+            agent_entities.update(agent.kinematic_structure_entities)
+
+        return [
+            entity
+            for entity in self.kinematic_structure_entities
+            if isinstance(entity, Body)
+            and entity.has_collision()
+            and entity not in agent_entities
+        ]
+
+    def build_bloated_obstacle_collection(
+        self,
+        search_space: BoundingBoxCollection[BoundingBox],
+        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        bloat_obstacles: float = 0.0,
+        bloat_walls: float = 0.0,
+    ) -> BoundingBoxCollection[BoundingBox]:
+        """
+        Collect and bloat this annotation's obstacle bounding boxes.
+
+        Applies independent bloat amounts to obstacles and walls.
+
+        :param search_space: The search space; its reference frame is used as the
+            origin.
+        :param semantic_wall_annotation: An optional annotation containing wall
+            entities.
+        :param bloat_obstacles: Amount to expand each obstacle bounding box
+            symmetrically in x and y.
+        :param bloat_walls: Amount to expand wall bounding boxes in their thinner
+            dimension.
+        :return: A collection of the bloated obstacle and wall bounding boxes.
+        """
+        world_root = search_space.reference_frame
+
+        entities_to_consider = self.obstacle_entities(search_space)
+
+        collections = [
+            entity.collision.as_bounding_box_collection_at_origin(
+                HomogeneousTransformationMatrix(reference_frame=world_root)
+            )
+            for entity in entities_to_consider
+        ]
+
+        obstacle_bounding_boxes = BoundingBoxCollection([], world_root)
+        for bounding_box_collection in collections:
+            obstacle_bounding_boxes = obstacle_bounding_boxes.merge(
+                bounding_box_collection
+            )
+
+        bloated_obstacles = BoundingBoxCollection(
+            [
+                bounding_box.bloat(bloat_obstacles, bloat_obstacles, 0.01)
+                for bounding_box in obstacle_bounding_boxes
+            ],
+            world_root,
+        )
+
+        if semantic_wall_annotation is not None:
+            bloated_walls = BoundingBoxCollection(
+                [
+                    (
+                        bounding_box.bloat(bloat_walls, 0, 0.01)
+                        if bounding_box.width > bounding_box.depth
+                        else bounding_box.bloat(0, bloat_walls, 0.01)
+                    )
+                    for bounding_box in semantic_wall_annotation.as_bounding_box_collection_at_origin(
+                        HomogeneousTransformationMatrix(reference_frame=world_root)
+                    )
+                ],
+                world_root,
+            )
+            bloated_obstacles.merge(bloated_walls)
+
+        return bloated_obstacles
 
 
 @dataclass(eq=False)

@@ -7,20 +7,15 @@ import experiments.orm.ormatic_interface  # type: ignore
 from coraplex.datastructures.dataclasses import Context
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import execute_single
-from coraplex.robot_plans.actions.core.misc import MoveToReach
 from experiments.sage_10k.sage10k_actions import Sage10kOpenDoor
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.factories import a, an
-from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from random_events.variable import Continuous
-from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Wall,
     Door,
     Handle,
     Hinge,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.spatial_types.spatial_types import Vector3
 from semantic_digital_twin.world import World
@@ -106,71 +101,3 @@ def test_door_opening(wall_door_handle_world, _hsr_world_setup, rclpy_node):
     assert np.isclose(
         door.mechanical_joint.root.parent_connection.position, np.pi / 2, atol=2e-2
     )
-
-
-@pytest.mark.skip(
-    reason=(
-        "constrain_to_free_space is fully covered by test_gcs.py (field validation, "
-        "exception handling, and that the condition it returns gets attached to the "
-        "variable's query). This test instead round-trips that condition through "
-        "krrood's UnderspecifiedParameters/WhereExpressionToRandomEventTranslator and "
-        "compares the reconstructed event back against the free-space event exactly. "
-        "The reconstruction differs from the reference by one interval's open/closed "
-        "boundary at a shared seam point between two touching free-space regions; the "
-        "condition-building logic here is structurally identical to the removed "
-        "translate_free_space_to_where_condition (which this test's reconstruction "
-        "matched exactly before this change), so the discrepancy traces to the "
-        "translator's handling of the mapping chain rather than to this condition. "
-        "Root-causing it further needs deeper krrood-internals investigation than "
-        "this change warrants."
-    )
-)
-def test_constrain_to_free_space(wall_door_handle_world):
-    from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-        navigation_map_at_target,
-    )
-
-    world, wall, door, handle = wall_door_handle_world
-
-    # Create navigation map at target (handle)
-    gcs = navigation_map_at_target(target=handle.root)
-
-    # Create a variable for the robot
-
-    query = a(MoveToReach)(
-        target_pose_offset_robot=a(Pose2D)(x=..., y=..., yaw=..., reference_frame=None),
-    )
-
-    # Constrain the query to the GCS's free space. constrain_to_free_space attaches the
-    # condition to the underlying Entity, which is all a query evaluation needs. The
-    # Match tracks its where conditions separately (for UnderspecifiedParameters below),
-    # so it also needs to know about the condition -- appended directly rather than via
-    # Match.where(), since that would re-add it to the Entity a second time.
-    condition = gcs.constrain_to_free_space(query.expression.target_pose_offset_robot)
-    query._where_conditions_.append(condition)
-
-    parameters = UnderspecifiedParameters(query)
-    # assert that the parameters truncation event is the same as the free space
-
-    result_to_compare = (
-        parameters.truncation_assignments_from_where_conditions.update_variables(
-            {
-                Continuous(
-                    "MoveToReach.target_pose_offset_robot.x"
-                ): SpatialVariables.x.value,
-                Continuous(
-                    "MoveToReach.target_pose_offset_robot.y"
-                ): SpatialVariables.y.value,
-            }
-        )
-    )
-    # The reconstructed event and the reference are compared through the same
-    # .marginal(xy) normalization on both sides: PlanarGraphOfBoundingBoxes.free_space_event
-    # is already x,y-only, but constrain_to_free_space builds its condition from the raw,
-    # unmerged per-box free-space regions, while a bare .marginal() call also merges
-    # adjacent boxes that touch at a shared boundary -- without normalizing both sides the
-    # same way, two touching regions can compare unequal by boundary openness alone even
-    # though they describe the same free space.
-    assert result_to_compare.marginal(
-        SpatialVariables.xy
-    ) == gcs.free_space_event.marginal(SpatialVariables.xy)

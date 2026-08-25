@@ -23,7 +23,6 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     VolumetricGraphOfBoundingBoxes,
-    hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
     NavigationPath,
@@ -42,6 +41,8 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure 
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
+
+from .gcs_test_helpers import hardest_path_query
 from semantic_digital_twin.world_description.world_entity import Body
 
 # %% the world the scene is built from

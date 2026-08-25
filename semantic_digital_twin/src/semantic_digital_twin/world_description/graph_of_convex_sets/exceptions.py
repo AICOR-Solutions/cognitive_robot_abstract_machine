@@ -9,7 +9,7 @@ from krrood.entity_query_language.core.mapped_variable import (
 from typing_extensions import Optional, Type, Union
 
 from semantic_digital_twin.exceptions import UsageError
-from semantic_digital_twin.spatial_types import Point3, Pose2D
+from semantic_digital_twin.spatial_types import Point2D, Point3
 
 
 @dataclass
@@ -79,12 +79,12 @@ class UnreachableGoalError(UsageError):
     goal.
     """
 
-    start: Union[Point3, Pose2D]
+    start: Union[Point3, Point2D]
     """
     Where the queried path was supposed to begin.
     """
 
-    goal: Union[Point3, Pose2D]
+    goal: Union[Point3, Point2D]
     """
     Where the queried path was supposed to end.
     """

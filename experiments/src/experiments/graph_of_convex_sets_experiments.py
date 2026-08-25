@@ -380,7 +380,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
 
         def _materialise_free_space():
             return BoundingBoxCollection.from_event(
-                reference_frame=world.root, event=free_space
+                BoundingBox, reference_frame=world.root, event=free_space
             )
 
         free_space_collection, materialise_elapsed = self._measure(

@@ -369,9 +369,7 @@ class GraphOfConvexPolygons(GraphOfConvexSets[Point3, BoundingBoxCollection]):
         semantic_annotation = SemanticEnvironmentAnnotation(
             root=world.root, _world=world
         )
-        obstacle_entities = cls._obstacle_entities(
-            result.search_space, semantic_annotation
-        )
+        obstacle_entities = semantic_annotation.obstacle_entities(result.search_space)
         result.obstacles = [
             _shape_to_convex_set(shape, world.root, bloat_obstacles, bloat_obstacles)
             for entity in obstacle_entities
