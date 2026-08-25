@@ -31,43 +31,71 @@ backdoor-adjustment machinery instead of plain conditioning, when evaluated with
 
 ### Seeing the difference
 
-A minimal model makes the distinction concrete. `ice_cream_sales` and
-`drowning_incidents` are both driven by a hidden season that pushes both high or both
-low together (a warm-season branch, a cold-season branch), with no direct link between
-the two:
+A minimal model makes the distinction concrete. `season` drives both `ice_cream_sales`
+and `drowning_incidents` -- warm days push both higher, cold days push both lower -- but
+`ice_cream_sales` also varies somewhat independently of season, so it is not fully
+determined by it:
 
 ```python
 import math
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
-from random_events.variable import Continuous
+from random_events.set import Set
+from random_events.variable import Continuous, Symbolic
 from probabilistic_model.distributions.uniform import UniformDistribution
+from probabilistic_model.distributions.distributions import SymbolicDistribution
+from probabilistic_model.utils import MissingDict
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit, ProductUnit, SumUnit, leaf,
 )
 from probabilistic_model.probabilistic_circuit.causal.causal_circuit import (
     CausalCircuit, MarginalDeterminismTreeNode,
 )
+from enum import Enum, auto
+
+class Season(Enum):
+    WARM = auto()
+    COLD = auto()
+
+class DrowningLevel(Enum):
+    HIGH = auto()
+    LOW = auto()
 
 # Named "SummerStatistics.<field>" up front so this same circuit can later be handed
 # to a DictRegistry keyed on the SummerStatistics class defined below -- DictRegistry
 # looks a query's fields up by this qualified name, unlike CausalCircuitRegistry.
+season = Symbolic("SummerStatistics.season", domain=Set.from_iterable(Season))
 ice_cream_sales = Continuous("SummerStatistics.ice_cream_sales")
-drowning_incidents = Continuous("SummerStatistics.drowning_incidents")
+drowning_incidents = Symbolic(
+    "SummerStatistics.drowning_incidents", domain=Set.from_iterable(DrowningLevel)
+)
 
 circuit = ProbabilisticCircuit()
 root = SumUnit(probabilistic_circuit=circuit)
-for ice_cream_range, drowning_range in [((0, 1), (0, 1)), ((9, 10), (9, 10))]:
+# (season, ice_cream_sales range, drowning_incidents, branch weight): ice_cream_sales
+# is HIGH 70% of the time in WARM, only 30% in COLD -- real overlap, not a deterministic
+# tie -- while drowning_incidents follows season alone, regardless of ice_cream_sales.
+branches = [
+    (Season.WARM, (9, 10), DrowningLevel.HIGH, 0.35),
+    (Season.WARM, (0, 1), DrowningLevel.HIGH, 0.15),
+    (Season.COLD, (0, 1), DrowningLevel.LOW, 0.35),
+    (Season.COLD, (9, 10), DrowningLevel.LOW, 0.15),
+]
+for season_value, ice_cream_range, drowning_value, weight in branches:
     branch = ProductUnit(probabilistic_circuit=circuit)
+    branch.add_subcircuit(leaf(
+        SymbolicDistribution(variable=season, probabilities=MissingDict(float, {hash(season_value): 1.0})),
+        circuit,
+    ))
     branch.add_subcircuit(leaf(
         UniformDistribution(variable=ice_cream_sales, interval=closed(*ice_cream_range).simple_sets[0]),
         circuit,
     ))
     branch.add_subcircuit(leaf(
-        UniformDistribution(variable=drowning_incidents, interval=closed(*drowning_range).simple_sets[0]),
+        SymbolicDistribution(variable=drowning_incidents, probabilities=MissingDict(float, {hash(drowning_value): 1.0})),
         circuit,
     ))
-    root.add_subcircuit(branch, math.log(0.5))
+    root.add_subcircuit(branch, math.log(weight))
 
 causal_circuit = CausalCircuit.from_probabilistic_circuit(
     circuit,
@@ -77,13 +105,13 @@ causal_circuit = CausalCircuit.from_probabilistic_circuit(
 )
 
 high_ice_cream = SimpleEvent.from_data({ice_cream_sales: closed(9, 10).simple_sets[0]}).as_composite_set()
-high_drowning = SimpleEvent.from_data({drowning_incidents: closed(9, 10).simple_sets[0]}).as_composite_set()
+high_drowning = SimpleEvent.from_data({drowning_incidents: Set.from_iterable([DrowningLevel.HIGH])}).as_composite_set()
 
 # Conditioning: observe high ice cream sales, ask about drowning incidents.
 conditioned, _ = circuit.truncated(high_ice_cream.fill_missing_variables_pure(circuit.variables))
 conditioned.probability(high_drowning.fill_missing_variables_pure(conditioned.variables))
-# 1.0 -- conditioning picks up the confound: high sales imply the warm season, which
-# implies drownings.
+# 0.7 -- conditioning picks up the confound: high sales lean warm, which leans toward
+# high drowning incidents.
 
 # do(): backdoor_adjustment reconstructs P(drowning | do(ice cream sales = v)) for
 # every v at once, as one joint circuit -- probability() over the whole thing (not
@@ -103,11 +131,11 @@ happen to drowning"* -- narrowing `interventional` to a specific value of
 `ice_cream_sales` needs the confounding `season` variable passed as an
 `adjustment_variables=[season]` argument to `backdoor_adjustment`, so it can be summed
 back out rather than left baked into the correlation. Without an explicit adjustment
-variable -- as here, where the season is not even a queryable field -- a *narrowed*
-intervention query cannot be told apart from conditioning; only the *unnarrowed* one
-(shown above) is meaningful. See [Adjusting for a confounder](#adjusting-for-a-confounder)
-below for a model where the confounder *is* queryable, and `CONFOUNDER` does exactly
-this through `cause()`/`causes_effect()`.
+variable, a *narrowed* intervention query cannot be told apart from conditioning; only
+the *unnarrowed* one (shown above) is meaningful. See
+[Adjusting for a confounder](#adjusting-for-a-confounder) below for exactly this, done
+through EQL's `cause()`/`causes_effect()`/`CONFOUNDER` instead of calling
+`backdoor_adjustment` directly.
 ```
 
 ### Doing this with EQL queries
@@ -125,29 +153,29 @@ from krrood.parametrization.model_registries import DictRegistry
 
 @dataclass
 class SummerStatistics:
+    season: Season
     ice_cream_sales: float
-    drowning_incidents: float
+    drowning_incidents: DrowningLevel
 
 
 backend = ProbabilisticBackend(
     model_registry=DictRegistry({SummerStatistics: circuit}), number_of_samples=1000
 )
-high_ice_cream = (match := a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)).where(
+high_ice_cream = (match := a(SummerStatistics)(season=..., ice_cream_sales=..., drowning_incidents=...)).where(
     match.variable.ice_cream_sales >= 9.0
 )
-also_high_drowning = (both_high := a(SummerStatistics)(ice_cream_sales=..., drowning_incidents=...)).where(
-    both_high.variable.ice_cream_sales >= 9.0, both_high.variable.drowning_incidents >= 9.0
-)
-len(also_high_drowning.tolist(backend=backend)) / len(high_ice_cream.tolist(backend=backend))
-# 1.0 -- matches the direct computation above.
+results = high_ice_cream.tolist(backend=backend)
+sum(r.drowning_incidents == DrowningLevel.HIGH for r in results) / len(results)
+# approximately 0.7 -- matches the direct computation above, up to sampling noise: this
+# estimates the fraction from drawn samples rather than computing it exactly, since
+# average()/count() aggregation is not supported against ProbabilisticBackend.
 ```
 
 The intervention half is where the note above matters: `cause()`/`causes_effect()`
 would search for the `ice_cream_sales` region that best explains high drowning on this
 same, unadjusted model -- and, for exactly the reason given above, would find the same
-confounded answer conditioning already gives, since neither has a `season` variable to
-adjust for. See the next section for a model where `season` *is* queryable, and marking
-it `CONFOUNDER` correctly separates the two through EQL.
+confounded answer conditioning already gives, unless `season` is also marked
+`CONFOUNDER`. See the next section for exactly that.
 
 (adjusting-for-a-confounder)=
 
@@ -156,65 +184,42 @@ it `CONFOUNDER` correctly separates the two through EQL.
 `cause()` fields are searched with an empty adjustment set by default -- fine when
 nothing confounds the candidate and the effect, wrong otherwise. Mark a known
 confounder with `CONFOUNDER` (or the equivalent `confounder()` call) and it is passed
-to `backdoor_adjustment` as its adjustment set, the same `Z` from the formula above:
+to `backdoor_adjustment` as its adjustment set, the same `Z` from the formula above --
+on the very same `SummerStatistics` model used above, this time through
+{py:class}`~krrood.parametrization.model_registries.CausalCircuitRegistry`, which hands
+the query the already-built `causal_circuit` directly instead of a plain
+`ProbabilisticCircuit`:
 
 ```python
-from dataclasses import dataclass
-from enum import Enum, auto
-
 from krrood.entity_query_language.factories import a, CAUSE, CONFOUNDER
+from krrood.parametrization.model_registries import CausalCircuitRegistry
 
-class Season(Enum):
-    WARM = auto()
-    COLD = auto()
-
-class Treatment(Enum):
-    LOW = auto()
-    HIGH = auto()
-
-class Outcome(Enum):
-    SUCCESS = auto()
-    FAILURE = auto()
-
-@dataclass
-class Trial:
-    treatment: Treatment
-    season: Season
-    outcome: Outcome
-```
-
-`season` confounds both `treatment` and `outcome` here; `treatment` has no causal
-effect of its own -- warm trials are both more likely to use `treatment=HIGH` *and*
-more likely to succeed, purely because of the season, not because of the treatment:
-
-```python
 backend = ProbabilisticBackend(
-    model_registry=CausalCircuitRegistry({Trial: trial_causal_circuit})
+    model_registry=CausalCircuitRegistry({SummerStatistics: causal_circuit})
 )
 
 # Without CONFOUNDER: the search can't separate the confound from the effect.
-naive = (n := a(Trial)(treatment=CAUSE, season=..., outcome=...)).causes_effect(
-    n.variable.outcome == Outcome.SUCCESS
+naive = (n := a(SummerStatistics)(season=..., ice_cream_sales=CAUSE, drowning_incidents=...)).causes_effect(
+    n.variable.drowning_incidents == DrowningLevel.HIGH
 )
 backend.rank_causes(naive)[0].effect_probability_given_region
-# 0.8 -- spurious, the same number plain conditioning on treatment=HIGH would give.
+# 0.7 -- spurious, the same number plain conditioning on ice_cream_sales gave above.
 
 # With CONFOUNDER: season is summed back out, recovering the causal truth.
-adjusted = (adj := a(Trial)(treatment=CAUSE, season=CONFOUNDER, outcome=...)).causes_effect(
-    adj.variable.outcome == Outcome.SUCCESS
+adjusted = (adj := a(SummerStatistics)(season=CONFOUNDER, ice_cream_sales=CAUSE, drowning_incidents=...)).causes_effect(
+    adj.variable.drowning_incidents == DrowningLevel.HIGH
 )
 backend.rank_causes(adjusted)[0].effect_probability_given_region
-# 0.6 -- treatment=LOW scores the same 0.6, correctly showing treatment has no real
-# effect once season is accounted for.
+# 0.5 -- back to the unconfounded baseline, correctly showing ice_cream_sales has no
+# real effect on drowning_incidents once season is accounted for.
 ```
 
 ```{important}
 `CONFOUNDER` only reliably deconfounds when the marked variable's own distribution
-*overlaps* across the confounder's states -- as `treatment` does here (both
-`treatment=HIGH` and `treatment=LOW` occur, with different probabilities, in both
-seasons). A cause variable whose value is deterministically tied to which branch it
-came from (no overlap) has nothing for an adjustment set to correct, the same as an
-empty one.
+*overlaps* across the confounder's states -- as `ice_cream_sales` does here (both
+`HIGH` and `LOW` ranges occur, with different probabilities, in both seasons). A cause
+variable whose value is deterministically tied to which branch it came from (no
+overlap) has nothing for an adjustment set to correct, the same as an empty one.
 ```
 
 ---

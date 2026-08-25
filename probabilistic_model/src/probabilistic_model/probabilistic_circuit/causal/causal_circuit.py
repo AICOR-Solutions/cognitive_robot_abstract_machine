@@ -737,7 +737,7 @@ class CausalCircuit:
     def _add_region_for_cause_value(
         self,
         cause_region: SupportRegion,
-        adjustment_groups: List[SupportRegion],
+        adjustment_partitions: List[SupportRegion],
         effect_variable: Variable,
         cause_marginal_circuit: ProbabilisticCircuit,
         output_circuit: ProbabilisticCircuit,
@@ -748,29 +748,33 @@ class CausalCircuit:
         by cause_region's own marginal probability.
 
         The ProductUnit's effect side is ``sum_z P(effect | cause=v, Z=z) * P(Z=z)``: a
-        SumUnit over each adjustment group's own conditional effect distribution,
-        weighted by that group's probability and renormalized (some adjustment groups
-        may have zero joint probability with this cause region and be skipped, so the
-        weights that remain do not already sum to 1). Weighting the ProductUnit itself
-        by P(cause=v) -- not by any per-adjustment-group weight -- is what keeps the
-        circuit a valid joint distribution overall (weights across every cause region
-        still sum to 1) while truncating to this one region recovers exactly the
-        deconfounded mixture, regardless of that region's own absolute weight.
+        SumUnit over each adjustment partition's own conditional effect distribution,
+        weighted by that partition's probability and renormalized (some adjustment
+        partitions may have zero joint probability with this cause region and be
+        skipped, so the weights that remain do not already sum to 1). Weighting the
+        ProductUnit itself by P(cause=v) -- not by any per-adjustment-partition weight
+        -- is what keeps the circuit a valid joint distribution overall (weights across
+        every cause region still sum to 1) while truncating to this one region recovers
+        exactly the deconfounded mixture, regardless of that region's own absolute
+        weight.
 
         :param cause_region: The cause value/region to build this ProductUnit for.
-        :param adjustment_groups: One :class:`SupportRegion` per distinct value
+        :param adjustment_partitions: One :class:`SupportRegion` per distinct value
             combination of the adjustment variables (``adjustment_variables`` in
-            :meth:`_compute_interventional_circuit_with_adjustment`).
+            :meth:`_compute_interventional_circuit_with_adjustment`) -- together they
+            partition the population into disjoint, exhaustive groups.
         :param effect_variable: The effect Variable to marginalise onto.
         :param cause_marginal_circuit: Marginal circuit over the cause Variable.
         :param output_circuit: Circuit to attach the new ProductUnit to.
         :param root_sum_unit: SumUnit to attach the weighted ProductUnit to.
         :returns: True if the ProductUnit was successfully added, False if every
-            adjustment group's joint truncation with this cause region was empty.
+            adjustment partition's joint truncation with this cause region was empty.
         """
         effect_mixture = SumUnit(probabilistic_circuit=output_circuit)
-        for adjustment_group in adjustment_groups:
-            joint_event = adjustment_group.event.intersection_with(cause_region.event)
+        for adjustment_partition in adjustment_partitions:
+            joint_event = adjustment_partition.event.intersection_with(
+                cause_region.event
+            )
             joint_conditioned_circuit, _ = copy.deepcopy(
                 self.probabilistic_circuit
             ).log_truncated_in_place(
@@ -783,7 +787,7 @@ class CausalCircuit:
             self._attach_weighted_marginal(
                 effect_mixture,
                 joint_conditioned_circuit.marginal([effect_variable]),
-                math.log(adjustment_group.probability),
+                math.log(adjustment_partition.probability),
                 output_circuit,
             )
 
@@ -832,19 +836,19 @@ class CausalCircuit:
         cause_marginal_circuit = copy.deepcopy(self.probabilistic_circuit).marginal(
             [cause_variable]
         )
-        adjustment_groups = [
-            adjustment_group
-            for adjustment_group in self._extract_leaf_regions_for_variables(
+        adjustment_partitions = [
+            adjustment_partition
+            for adjustment_partition in self._extract_leaf_regions_for_variables(
                 adjustment_variables
             )
-            if adjustment_group.probability > 0.0
+            if adjustment_partition.probability > 0.0
         ]
         output_circuit = ProbabilisticCircuit()
         root_sum_unit = SumUnit(probabilistic_circuit=output_circuit)
         regions_added = sum(
             self._add_region_for_cause_value(
                 cause_region=cause_region,
-                adjustment_groups=adjustment_groups,
+                adjustment_partitions=adjustment_partitions,
                 effect_variable=effect_variable,
                 cause_marginal_circuit=cause_marginal_circuit,
                 output_circuit=output_circuit,
