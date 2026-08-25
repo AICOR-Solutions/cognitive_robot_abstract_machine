@@ -34,10 +34,8 @@ from krrood.entity_query_language.core.base_expressions import (
 )
 from krrood.entity_query_language.operators.causal import (
     Cause,
-    CauseMarker,
     CausesEffect,
     Confounder,
-    ConfounderMarker,
 )
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
@@ -328,12 +326,6 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         parent = parent or self
         self.update_fields(variable, parent)
         for attr_name, attr_assigned_value in self.kwargs.items():
-            if isinstance(attr_assigned_value, CauseMarker):
-                # Give this field its own Cause() rather than sharing the cause
-                # marker itself -- see CauseMarker's docstring for why.
-                attr_assigned_value = Cause()
-            elif isinstance(attr_assigned_value, ConfounderMarker):
-                attr_assigned_value = Confounder()
             if isinstance(attr_assigned_value, (list, tuple)) and any(
                 isinstance(element, AbstractMatchExpression)
                 for element in attr_assigned_value
@@ -653,15 +645,15 @@ class AttributeMatch(AbstractMatchExpression[T]):
             isinstance(self.assigned_value, (Cause, Confounder))
             and self.assigned_value._type_ is None
         ):
-            # A `Cause`/`Confounder` is built by the user as a bare `cause`/
-            # `confounder` marker before it is ever matched to an attribute, so unlike
-            # a plain literal (whose `Literal` wrapper is created right here, with
-            # `_type_=self.type`), it has no declared type of its own yet. Backfill it
-            # now that the attribute this marker was assigned to is known, so code
-            # reading `assigned_variable._type_` (parametrization, generation) sees the
-            # attribute's declared type instead of `None`.
-            self.assigned_value._type_ = self.type
-            return self.assigned_value
+            # `cause`/`confounder` are shared instances written directly into every
+            # matching kwarg, so unlike a plain literal (whose `Literal` wrapper is
+            # created fresh right here, with `_type_=self.type`), an unresolved one has
+            # no declared type of its own yet, and mutating it in place would corrupt
+            # every other field also marked `cause`/`confounder`. Return a fresh,
+            # per-attribute copy with the type filled in instead, so code reading
+            # `assigned_variable._type_` (parametrization, generation) sees the
+            # attribute's declared type without touching the shared original.
+            return type(self.assigned_value)(_type_=self.type)
         elif not isinstance(self.assigned_value, SymbolicExpression):
             return Literal(
                 _name__=self.variable._name_,

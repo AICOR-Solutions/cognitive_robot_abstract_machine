@@ -502,6 +502,18 @@ def test_a_causal_query_verbalizes_the_causes_effect_clause_in_context():
     )
 
 
+def test_causes_effect_verbalizes_correctly_alongside_an_unrelated_where_condition():
+    match = a(PickAttempt)(arm=cause, grip=..., success=...)
+    match.where(match.variable.grip > 0.5)
+    match.causes_effect(match.variable.success == Outcome.SUCCESS)
+
+    assert verbalize_expression(match) == (
+        "Generate a PickAttempt and predict its arm, grip, and success values "
+        "where its grip is greater than 0.5, and what causes its success to be "
+        "SUCCESS"
+    )
+
+
 # %% confounder
 
 

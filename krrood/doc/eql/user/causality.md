@@ -161,9 +161,8 @@ class SummerStatistics:
 backend = ProbabilisticBackend(
     model_registry=DictRegistry({SummerStatistics: circuit}), number_of_samples=1000
 )
-high_ice_cream = (match := a(SummerStatistics)(season=..., ice_cream_sales=..., drowning_incidents=...)).where(
-    match.variable.ice_cream_sales >= 9.0
-)
+high_ice_cream = a(SummerStatistics)(season=..., ice_cream_sales=..., drowning_incidents=...)
+high_ice_cream.where(high_ice_cream.variable.ice_cream_sales >= 9.0)
 results = high_ice_cream.tolist(backend=backend)
 sum(r.drowning_incidents == DrowningLevel.HIGH for r in results) / len(results)
 # approximately 0.7 -- matches the direct computation above, up to sampling noise: this
@@ -199,16 +198,14 @@ backend = ProbabilisticBackend(
 )
 
 # Without confounder: the search can't separate the confound from the effect.
-naive = (n := a(SummerStatistics)(season=..., ice_cream_sales=cause, drowning_incidents=...)).causes_effect(
-    n.variable.drowning_incidents == DrowningLevel.HIGH
-)
+naive = a(SummerStatistics)(season=..., ice_cream_sales=cause, drowning_incidents=...)
+naive.causes_effect(naive.variable.drowning_incidents == DrowningLevel.HIGH)
 backend.rank_causes(naive)[0].effect_probability_given_region
 # 0.7 -- spurious, the same number plain conditioning on ice_cream_sales gave above.
 
 # With confounder: season is summed back out, recovering the causal truth.
-adjusted = (adj := a(SummerStatistics)(season=confounder, ice_cream_sales=cause, drowning_incidents=...)).causes_effect(
-    adj.variable.drowning_incidents == DrowningLevel.HIGH
-)
+adjusted = a(SummerStatistics)(season=confounder, ice_cream_sales=cause, drowning_incidents=...)
+adjusted.causes_effect(adjusted.variable.drowning_incidents == DrowningLevel.HIGH)
 backend.rank_causes(adjusted)[0].effect_probability_given_region
 # 0.5 -- back to the unconfounded baseline, correctly showing ice_cream_sales has no
 # real effect on drowning_incidents once season is accounted for.
@@ -234,9 +231,8 @@ should explain.
 from krrood.entity_query_language.factories import a, cause
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 
-pick = (match := a(Pick)(arm=cause, success=...)).causes_effect(
-    match.variable.success == Status.SUCCESS
-)
+pick = a(Pick)(arm=cause, success=...)
+pick.causes_effect(pick.variable.success == Status.SUCCESS)
 verbalize_expression(pick)
 # 'Generate a Pick and predict its arm and success values where what causes its
 #  success to be SUCCESS'

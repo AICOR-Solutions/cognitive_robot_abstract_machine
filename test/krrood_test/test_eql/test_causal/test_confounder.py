@@ -1,21 +1,17 @@
 from dataclasses import dataclass
 
-from krrood.entity_query_language.operators.causal import Confounder, ConfounderMarker
+from krrood.entity_query_language.operators.causal import Confounder
 from krrood.entity_query_language.factories import a, confounder
 
 # %% construction
 
 
-def test_confounder_marker_is_not_itself_a_confounder_instance():
-    # confounder must stay a distinct type so each attribute it marks gets its own
-    # fresh Confounder() during match resolution -- see ConfounderMarker's
-    # docstring for why.
-    assert not isinstance(confounder, Confounder)
-    assert isinstance(confounder, ConfounderMarker)
+def test_confounder_is_a_confounder_instance_with_no_type_of_its_own():
+    assert isinstance(confounder, Confounder)
+    assert confounder._type_ is None
 
 
-# %% flowing through Match (converted to a fresh Confounder() per attribute on
-# resolution)
+# %% flowing through Match (backfilled with a fresh, per-attribute copy on resolution)
 
 
 @dataclass
@@ -44,10 +40,9 @@ def test_confounder_backfills_its_type_from_the_attribute_it_is_assigned_to():
 
 
 def test_two_confounder_marked_attributes_resolve_to_distinct_objects():
-    # Sharing one Confounder() across two attributes would let the second
-    # attribute's type-backfill (see AttributeMatch.assigned_variable) silently
-    # overwrite the first's -- each attribute must resolve to its own instance
-    # instead.
+    # Backfilling one attribute's type onto the shared `confounder` instance in
+    # place would silently overwrite it for every other attribute also marked
+    # `confounder` -- each attribute must resolve to its own copy instead.
     match = a(Trial)(treatment=confounder, season=confounder)
     [treatment_match, season_match] = [
         attribute_match
@@ -56,3 +51,10 @@ def test_two_confounder_marked_attributes_resolve_to_distinct_objects():
         in ("Trial.treatment", "Trial.season")
     ]
     assert treatment_match.assigned_variable is not season_match.assigned_variable
+    assert treatment_match.assigned_variable._type_ is float
+    assert season_match.assigned_variable._type_ is str
+
+
+def test_marking_attributes_as_confounder_does_not_mutate_the_shared_instance():
+    a(Trial)(treatment=confounder, season=confounder)
+    assert confounder._type_ is None

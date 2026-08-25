@@ -45,37 +45,23 @@ class Cause(Literal):
     :meth:`~krrood.entity_query_language.query.match.Match.causes_effect`. Always wraps
     ``Ellipsis`` -- there is no pinned-value form; pin a value with a plain assignment
     (``arm=0.3``) instead.
+
+    :data:`cause` is a single shared instance written directly into every ``cause``
+    kwarg (``arm=cause``); it carries no attribute-specific type of its own until one
+    is attached. :meth:`AttributeMatch.assigned_variable
+    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`
+    returns a fresh, per-attribute copy with the type filled in rather than mutating
+    this shared instance, so multiple ``cause``-marked fields on the same query never
+    interfere with each other.
     """
 
     _value_: Any = field(default=Ellipsis, init=False)
-
-
-class CauseMarker:
-    """
-    Type of :data:`cause`.
-
-    A *marker* here means a fixed value whose only job is to flag a field for special
-    handling and be swapped out later, the same role ``Ellipsis`` (``...``) already
-    plays for a plain underspecified field.
-
-    A distinct type -- not ``Cause`` itself -- because unlike a plain literal kwarg
-    (``arm=0.3``), whose ``Literal`` wrapper :meth:`AttributeMatch.assigned_variable
-    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>` builds
-    fresh, on the spot, once the attribute it belongs to is known, ``cause`` is a
-    fully-built value the *caller* supplies before any attribute is known. If ``cause``
-    were itself a ``Cause`` instance, every field marked with it would share that one
-    object; the second field's type backfill (see :meth:`AttributeMatch.assigned_variable
-    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`) would
-    then silently overwrite the first's. :meth:`~krrood.entity_query_language.query.match.Match.resolve`
-    avoids this by replacing each occurrence of the marker with its own fresh
-    :class:`Cause` when it walks the kwargs.
-    """
 
     def __repr__(self) -> str:
         return "cause"
 
 
-cause = CauseMarker()
+cause = Cause()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 ``do()``-intervention target searched for by the query (``arm=cause``).
@@ -94,23 +80,20 @@ class Confounder(Literal):
     :class:`Cause` and the declared effect, and must be summed back out rather than
     left baked into the correlation between them. Always wraps ``Ellipsis``, the same
     as :class:`Cause`.
+
+    :data:`confounder` is a single shared instance, for the same reason as
+    :data:`cause`: :meth:`AttributeMatch.assigned_variable
+    <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`
+    returns a fresh, per-attribute copy rather than mutating it.
     """
 
     _value_: Any = field(default=Ellipsis, init=False)
-
-
-class ConfounderMarker:
-    """
-    Type of :data:`confounder` -- the :class:`Confounder` counterpart of
-    :class:`CauseMarker`, for the same reason: each field it marks needs its own fresh
-    :class:`Confounder` rather than sharing one instance.
-    """
 
     def __repr__(self) -> str:
         return "confounder"
 
 
-confounder = ConfounderMarker()
+confounder = Confounder()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 variable to adjust for when searching a :class:`Cause` intervention -- see
@@ -177,8 +160,8 @@ class CauseEffectVariables:
     set, summed back out of each cause candidate's interventional probability so it is
     not left baked into the correlation between cause and effect.
 
-    Empty for a query with no confounders declared -- the interventional search then
-    falls back to an empty adjustment set, exactly as before ``confounder`` existed.
+    Empty for a query with no confounders declared, so the interventional search falls
+    back to an empty adjustment set.
     """
 
 

@@ -1,19 +1,17 @@
 from dataclasses import dataclass
 
-from krrood.entity_query_language.operators.causal import Cause, CauseMarker
+from krrood.entity_query_language.operators.causal import Cause
 from krrood.entity_query_language.factories import a, cause
 
 # %% construction
 
 
-def test_cause_marker_is_not_itself_a_cause_instance():
-    # cause must stay a distinct type so each attribute it marks gets its own fresh
-    # Cause() during match resolution -- see CauseMarker's docstring for why.
-    assert not isinstance(cause, Cause)
-    assert isinstance(cause, CauseMarker)
+def test_cause_is_a_cause_instance_with_no_type_of_its_own():
+    assert isinstance(cause, Cause)
+    assert cause._type_ is None
 
 
-# %% flowing through Match (converted to a fresh Cause() per attribute on resolution)
+# %% flowing through Match (backfilled with a fresh, per-attribute copy on resolution)
 
 
 @dataclass
@@ -52,9 +50,9 @@ def test_match_without_cause_reports_no_cause_attributes():
 
 
 def test_two_cause_marked_attributes_resolve_to_distinct_objects():
-    # Sharing one Cause() across two attributes would let the second attribute's
-    # type-backfill (see AttributeMatch.assigned_variable) silently overwrite the
-    # first's -- each attribute must resolve to its own instance instead.
+    # Backfilling one attribute's type onto the shared `cause` instance in place
+    # would silently overwrite it for every other attribute also marked `cause` --
+    # each attribute must resolve to its own copy instead.
     match = a(Pick)(arm=cause, grasped=cause)
     [arm_match, grasped_match] = [
         attribute_match
@@ -63,3 +61,10 @@ def test_two_cause_marked_attributes_resolve_to_distinct_objects():
         in ("Pick.arm", "Pick.grasped")
     ]
     assert arm_match.assigned_variable is not grasped_match.assigned_variable
+    assert arm_match.assigned_variable._type_ is float
+    assert grasped_match.assigned_variable._type_ is bool
+
+
+def test_marking_attributes_as_cause_does_not_mutate_the_shared_instance():
+    a(Pick)(arm=cause, grasped=cause)
+    assert cause._type_ is None
