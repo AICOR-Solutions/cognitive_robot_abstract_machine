@@ -27,7 +27,7 @@ from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
 
-logger = logging.getLogger("semantic_digital_twin").setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False)

@@ -57,7 +57,10 @@ class PerceptionTask(Task):
 
     accept_first_if_multiple: bool = False
     """
-    If there are multiple results of the same type returned, accept the first one
+    Whether several candidates may be resolved by taking the first one.
+
+    When False, several candidates raise
+    :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
@@ -75,13 +78,12 @@ class PerceptionTask(Task):
     ) -> Optional[ObservationStateValues]:
         if self._detections_applied:
             return ObservationStateValues.TRUE
-        for detection in self.perception_source.detect(
+        detection = self.perception_source.detect(
             self.query, self.accept_first_if_multiple
-        ):
-            detection.apply_to(
-                self.query.world,
-                trust_orientation=self.query.trust_detected_orientation,
-            )
+        )
+        detection.apply_to(
+            self.query.world, trust_orientation=self.query.trust_detected_orientation
+        )
         self._detections_applied = True
         return ObservationStateValues.TRUE
 
@@ -102,7 +104,10 @@ class DetectingMotion(BaseMotion):
 
     accept_first_if_multiple: bool = False
     """
-    If there are multiple results of the same type returned, accept the first one
+    Whether several candidates may be resolved by taking the first one.
+
+    When False, several candidates raise
+    :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
     @property

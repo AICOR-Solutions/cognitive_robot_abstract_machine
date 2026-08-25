@@ -14,7 +14,10 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 from semantic_digital_twin.reasoning.predicates import visible
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import (
+    HomogeneousTransformationMatrix,
+    RotationMatrix,
+)
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import BoundingBox
@@ -249,14 +252,19 @@ class PerceptionInterface(ABC):
     @abstractmethod
     def detect(
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
-    ) -> List[Detection]:
+    ) -> Detection:
         """
         Answer a perception query.
 
         :param query: What to look for and where.
-        :param accept_first_if_multiple: Whether if there are multiple results of the
-            same type returned, accept the first one
-        :return: The objects this source saw.
+        :param accept_first_if_multiple: Whether several candidates may be resolved by
+            taking the first one. When False, several candidates raise
+            :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen
+            between.
+        :return: The object this source saw.
+        :raises NothingDetected: If the source saw nothing.
+        :raises UnidentifiedDetections: If several candidates were seen and none of them
+            may be picked.
         """
 
     @staticmethod
@@ -264,14 +272,16 @@ class PerceptionInterface(ABC):
         detections: List[Detection],
         query: PerceptionQuery,
         accept_first_if_multiple: bool,
-    ) -> List[Detection]:
+    ) -> Detection:
         """
         Reduce what a source saw to the one detection a query is answered with.
 
         :param detections: What the source reported for the query.
         :param query: The query that was answered.
         :param accept_first_if_multiple: Whether several candidates may be resolved by
-            taking the first one.
+            taking the first one. When False, several candidates raise
+            :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen
+            between.
         :return: The single detection the query is answered with.
         :raises NothingDetected: If the source saw nothing.
         :raises UnidentifiedDetections: If several candidates were seen and none of them
@@ -281,7 +291,7 @@ class PerceptionInterface(ABC):
             raise NothingDetected(query.semantic_annotation)
         if len(detections) > 1 and not accept_first_if_multiple:
             raise UnidentifiedDetections(query.semantic_annotation, len(detections))
-        return detections[:1]
+        return detections[0]
 
     @staticmethod
     def for_execution_type(
@@ -315,7 +325,7 @@ class WorldPerception(PerceptionInterface):
 
     def detect(
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
-    ) -> List[Detection]:
+    ) -> Detection:
         annotation_by_body = {}
         for annotation in query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
@@ -358,7 +368,7 @@ class RoboKudoPerception(PerceptionInterface):
 
     def detect(
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
-    ) -> List[Detection]:
+    ) -> Detection:
         # RoboKudo's messages only exist where its pipeline is installed, so they are
         # imported here rather than at module level: reading the world in simulation must
         # not depend on them.

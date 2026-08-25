@@ -23,12 +23,6 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot, MobileBase
 from semantic_digital_twin.spatial_types.spatial_types import Pose, Vector3
 from semantic_digital_twin.world import World
 
-HEADINGS = [0.0, np.pi / 2, -np.pi / 2, np.pi, 0.3]
-"""
-Headings a base is asked to face, covering the four axis directions and an arbitrary
-angle in between.
-"""
-
 # %% the forward axes the declared robots use
 
 
@@ -187,7 +181,7 @@ def test_a_robot_is_selected_for_every_forward_axis_that_can_be_spawned():
 @pytest.mark.parametrize(
     "robot_type", ROBOTS_WITH_DISTINCT_FORWARD_AXES, ids=robot_name
 )
-@pytest.mark.parametrize("heading_yaw", HEADINGS)
+@pytest.mark.parametrize("heading_yaw", [0.0, np.pi / 2, -np.pi / 2, np.pi, 0.3])
 def test_forward_axis_points_along_the_heading(
     robot_type: Type[AbstractRobot], heading_yaw: float
 ):

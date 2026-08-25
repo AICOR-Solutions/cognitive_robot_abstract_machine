@@ -76,7 +76,10 @@ class DetectAction(ActionDescription):
 
     accept_first_if_multiple: bool = False
     """
-    If there are multiple results of the same type returned, accept the first one
+    Whether several candidates may be resolved by taking the first one.
+
+    When False, several candidates raise
+    :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
     @property

@@ -112,12 +112,6 @@ def stretch_controller_process():
 # %% standalone perception pipeline
 
 
-CEREAL_ORIGIN = (0.0, 0.0, 0.0)
-"""
-Where the pipeline reports the cereal within the cereal's own frame.
-"""
-
-
 @pytest.fixture()
 def cereal_perception_process(stretch_controller_process):
     """
@@ -138,6 +132,8 @@ def cereal_perception_process(stretch_controller_process):
             for name, _ in get_action_names_and_types(probe_node)
         )
 
+    cereal_origin = (0.0, 0.0, 0.0)
+
     with StandaloneProcess(
         launcher_path=Path(__file__).parent.parent
         / "dataset"
@@ -149,7 +145,7 @@ def cereal_perception_process(stretch_controller_process):
             "--frame-id",
             CEREAL_NAME,
             "--position",
-            *(str(coordinate) for coordinate in CEREAL_ORIGIN),
+            *(str(coordinate) for coordinate in cereal_origin),
         ],
     ) as process:
         yield process
