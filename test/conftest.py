@@ -13,6 +13,8 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
 
+from .pytest_environment import PytestEnvironmentVariable
+
 try:
     from semantic_digital_twin.robots.garmi import Garmi
 except ImportError:
@@ -23,6 +25,12 @@ try:
 except ModuleNotFoundError:
     # ROS dependencies.
     Context = None
+
+try:
+    from giskardpy.middleware.ros2 import rospy
+except ModuleNotFoundError:
+    # ROS dependencies.
+    rospy = None
 from semantic_digital_twin.adapters.package_resolver import PathResolver
 from semantic_digital_twin.collision_checking.collision_matrix import (
     MaxAvoidedCollisionsOverride,
@@ -139,7 +147,7 @@ The structure of fixtures in this conftest:
 
 
 def pytest_configure(config):
-    worker = os.environ.get("PYTEST_XDIST_WORKER")
+    worker = os.environ.get(PytestEnvironmentVariable.XDIST_WORKER)
 
     if worker:
         worker_num = int(worker.removeprefix("gw"))
@@ -934,6 +942,27 @@ def pr2_apartment_state_reset(pr2_apartment_world):
 ###############################
 ######### Utils ###############
 ###############################
+
+
+@pytest.fixture(scope="function")
+def init_rospy():
+    """
+    Gives a test the global Giskard ros node.
+
+    ..warning::
+        This fixture drives the same global ros context as :func:`rclpy_node`, so the
+        two cannot be used together.
+    """
+    if rospy is None:
+        pytest.skip("ROS not installed")
+
+    rospy.init_node("giskard")
+
+    try:
+        yield None
+    finally:
+        # Cleanly reset TF and shutdown ROS2 node/executor
+        rospy.shutdown()
 
 
 @pytest.fixture(scope="function")

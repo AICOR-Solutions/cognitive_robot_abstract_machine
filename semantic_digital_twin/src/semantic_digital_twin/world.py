@@ -6,6 +6,7 @@ import inspect
 import logging
 import threading
 import uuid
+from contextlib import contextmanager
 from copy import deepcopy, copy
 from dataclasses import dataclass, field
 from functools import wraps, cached_property
@@ -26,6 +27,7 @@ from typing_extensions import (
     Callable,
     Any,
     Iterable,
+    Iterator,
     TYPE_CHECKING,
     get_args,
 )
@@ -72,7 +74,6 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
-    ActiveConnection1DOF,
     FixedConnection,
     ActiveConnection,
 )
@@ -155,6 +156,59 @@ class ResetStateContextManager:
     ) -> None:
         self.world.state._data[:] = self.state
         self.world.notify_state_change()
+
+
+@dataclass
+class WorldStateBatchContextManager:
+    """
+    Context manager collapsing many state changes of a `World` into a single
+    notification.
+
+    Writing a whole configuration one degree of freedom at a time otherwise recomputes
+    the forward kinematics and notifies every observer once per degree of freedom, which
+    turns one logical change into a burst of individual ones.
+
+    A batch interrupted by an error still announces what it wrote before the error,
+    because that state is already live and staying silent would leave the forward
+    kinematics and every observer stale.
+    """
+
+    publish_changes: bool = True
+    """
+    Whether the single notification of this batch publishes the changes it collected.
+    """
+
+    world: World = field(kw_only=True, repr=False)
+    """
+    The world whose state changes are collected.
+    """
+
+    def __enter__(self) -> WorldStateBatchContextManager:
+        if self.world._state_change_batch_depth == 0:
+            self.world._state_change_batch_publishes_changes = self.publish_changes
+        elif self.world._state_change_batch_publishes_changes != self.publish_changes:
+            raise MismatchingPublishChangesAttribute(
+                self.world._state_change_batch_publishes_changes, self.publish_changes
+            )
+        self.world._state_change_batch_depth += 1
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[Exception],
+        exc_tb: Optional[type],
+    ) -> None:
+        self.world._state_change_batch_depth -= 1
+        if self.world._state_change_batch_depth > 0:
+            return
+        has_collected_change = self.world._state_change_batch_has_collected_change
+        publish_changes = self.world._state_change_batch_publishes_changes
+        self.world._state_change_batch_has_collected_change = False
+        self.world._state_change_batch_publishes_changes = True
+        if not has_collected_change:
+            return
+        self.world.notify_state_change(publish_changes=publish_changes)
 
 
 @dataclass
@@ -260,12 +314,16 @@ class WorldModelUpdateContextManager:
                 self.world.world_is_being_modified = False
                 model_manager._current_modifications_will_be_published = None
         finally:
-            # keep outside the if block, as it needs to be released as many times as it was acquired
-            self.world._world_lock.release()
-            # Flush deferred publications only after the lock is fully released, so a synchronous
-            # publish does not block the receiving executor that needs the lock to apply/acknowledge.
-            if run_pending_publications:
-                self.world._model_manager.flush_pending_publications()
+            # Claim the turn of this modification in the stream of publications before the
+            # world lock is released, so that a thread waiting for that lock cannot publish
+            # what it then reads before this modification has published its own changes.
+            with self.world._model_manager.publishing_in_order():
+                # keep outside the if block, as it needs to be released as many times as it was acquired
+                self.world._world_lock.release()
+                # Flush deferred publications only after the lock is fully released, so that
+                # the modification they describe is complete and readable by whoever reacts to them.
+                if run_pending_publications:
+                    self.world._model_manager.flush_pending_publications()
 
 
 def atomic_world_modification(func=None, modification: Type[WorldModification] = None):
@@ -388,10 +446,31 @@ class WorldModelManager:
     """
     Network publications deferred while the world is being modified.
 
-    They are flushed (executed) only after ``_world_lock`` has been released, so that a
-    synchronous publish waiting for acknowledgments never blocks the receiving executor
-    that must acquire the lock to apply/ack.
+    They are flushed (executed) only after ``_world_lock`` has been released, so that
+    what they describe is complete by the time it leaves this process.
     """
+
+    _publication_order_lock: threading.RLock = field(
+        init=False, default_factory=threading.RLock, repr=False
+    )
+    """
+    Serializes the publications leaving this world.
+
+    Reentrant, because flushing the deferred publications holds it while each of them
+    publishes.
+    """
+
+    @contextmanager
+    def publishing_in_order(self) -> Iterator[None]:
+        """
+        Claim the turn of the caller in the stream of publications of this world.
+
+        A modification claims its turn before it releases ``_world_lock``, so a thread
+        that was waiting for that lock cannot announce the state it then reads before
+        the model change it belongs to has been published.
+        """
+        with self._publication_order_lock:
+            yield
 
     def update_model_version_and_notify_callbacks(self, **kwargs) -> None:
         """
@@ -408,9 +487,8 @@ class WorldModelManager:
         Execute and clear all publications that were deferred during a world
         modification.
 
-        Must be called *after* ``_world_lock`` is released so that publishing (and, in
-        synchronous mode, waiting for acknowledgments) does not happen while holding the
-        lock.
+        Must be called *after* ``_world_lock`` is released, so that the modification the
+        publications describe is complete.
         """
         pending = self.pending_publications
         self.pending_publications = []
@@ -467,6 +545,25 @@ class World(HasSimulatorProperties):
     world_is_being_modified: bool = False
     """
     Is set to True, when a world.modify_world context is used.
+    """
+
+    _state_change_batch_depth: int = field(default=0, init=False, repr=False)
+    """
+    How many nested :meth:`batch_state_changes` contexts are currently open.
+    """
+
+    _state_change_batch_has_collected_change: bool = field(
+        default=False, init=False, repr=False
+    )
+    """
+    Whether a state change was notified while the current batch is open.
+    """
+
+    _state_change_batch_publishes_changes: bool = field(
+        default=True, init=False, repr=False
+    )
+    """
+    The ``publish_changes`` the currently open batch was entered with.
     """
 
     name: Optional[str] = None
@@ -546,13 +643,16 @@ class World(HasSimulatorProperties):
         self.collision_manager.add_to_world(self)
 
     @classmethod
-    def create_with_root_body(cls, root_body_name: str = "map") -> World:
+    def create_with_root_body(
+        cls, root_body_name: str = "map", prefix: Optional[str] = None
+    ) -> World:
         """
         Creates a new instance of the World class with a root body.
 
-        :param root_body_name: The unprefixed name of the root body.
+        :param root_body_name: The root body's name.
+        :param prefix: Optional namespace prefix for the root body's name.
         """
-        root_body = Body(name=PrefixedName(root_body_name))
+        root_body = Body(name=PrefixedName(root_body_name, prefix))
         world = World()
         with world.modify_world():
             world.add_body(root_body)
@@ -1004,6 +1104,10 @@ class World(HasSimulatorProperties):
 
         Might create disconnected entities, so make sure to add a new connection or delete the child kinematic_structure_entity.
 
+        Removing a connection this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of a connection
+        nothing added.
+
         :param connection: The connection to be removed
 
         .. warning::
@@ -1013,8 +1117,11 @@ class World(HasSimulatorProperties):
             if we want to remove the parent or child from the world, before removing the connection from the world.
             In that case, rustworkx automatically removes the edge representing the connection, which results in
             self.is_connection_in_world returning False, even though we have not cleaned up the connection properly on
-            our side.
+            our side. The ownership the connection itself records survives that,
+            which is what makes it usable as the check here.
         """
+        if connection._world is not self:
+            return
         self._remove_connection(connection)
 
     @atomic_world_modification(modification=RemoveConnectionModification)
@@ -1624,6 +1731,9 @@ class World(HasSimulatorProperties):
         :param branch_root: The root of the branch to be moved.
         :param new_parent: The new parent of the branch.
         """
+        # Ensure FK is up to date before computing the relative pose, since this may be
+        # called mid-block, e.g. from a mount strategy inside a still-open modify_world block.
+        self.update_forward_kinematics()
         new_parent_T_child = self.compute_forward_kinematics(new_parent, branch_root)
         self.remove_connection(branch_root.parent_connection)
         self.add_connection(
@@ -1701,10 +1811,12 @@ class World(HasSimulatorProperties):
         and the branch keeps its world pose. No-op if ``branch_root`` is already a child
         of ``new_parent``.
 
-        A :class:`Connection6DoF` carries its pose in its degrees of freedom, so it is recreated with
-        fresh DOFs whose origin is set to the world-preserving pose. Every other connection keeps its
-        degree of freedom and only its parent offset is recomputed
-        (see :meth:`~...world_entity.Connection.copy_with_new_parent`).
+        Every connection keeps its degrees of freedom
+        (see :meth:`~...world_entity.Connection.copy_with_new_parent`), so the world state
+        layout is unchanged and memory views bound to it stay valid. A
+        :class:`Connection6DoF` carries its pose in those degrees of freedom, so instead of
+        recomputing a parent offset its origin is set to the world-preserving pose and its
+        derivatives are cleared.
 
         :param branch_root: The root of the branch to be moved.
         :param new_parent: The new parent of the branch.
@@ -1730,8 +1842,10 @@ class World(HasSimulatorProperties):
             new_parent_T_branch_root = self.compute_forward_kinematics(
                 new_parent, branch_root, enable_unsafe_inside_world_block
             )
-            new_connection = Connection6DoF.create_with_dofs(
-                parent=new_parent, child=branch_root, world=self
+            # The pose lives entirely in the degrees of freedom, so the connection sits
+            # right on the new parent and the offset below is set from it afterwards.
+            new_connection = old_connection.copy_with_new_parent(
+                new_parent, HomogeneousTransformationMatrix()
             )
         else:
             # Relocate the connection frame so the branch keeps its world pose, then let the connection
@@ -1755,6 +1869,13 @@ class World(HasSimulatorProperties):
 
         if isinstance(old_connection, Connection6DoF):
             new_connection.origin = new_parent_T_branch_root
+            # The re-used degrees of freedom describe the pose relative to the old parent,
+            # so any motion they still carry is meaningless under the new one.
+            for degree_of_freedom in new_connection.passive_dofs:
+                self.state[degree_of_freedom.id].velocity = 0
+                self.state[degree_of_freedom.id].acceleration = 0
+                self.state[degree_of_freedom.id].jerk = 0
+            self.notify_state_change()
 
     def move_branch_to_new_world(self, new_root: KinematicStructureEntity) -> World:
         """
@@ -1791,12 +1912,21 @@ class World(HasSimulatorProperties):
             for dof in child_body_dofs:
                 self.remove_degree_of_freedom(dof)
                 new_world.add_degree_of_freedom(dof)
-            for connection in child_body_parent_connections:
-                self.remove_kinematic_structure_entity(connection.parent)
-                self.remove_kinematic_structure_entity(connection.child)
-                new_world.remove_connection(connection)
-                new_world.add_connection(connection)
+
+            # connections must be removed before the kinematic structure entities:
+            # removing a node makes rustworkx silently drop its edges, so a
+            # connection removed afterwards is recorded against entities its own
+            # history has already dropped, and can no longer be replayed
             self.remove_connection(root_connection)
+            for connection in child_body_parent_connections:
+                self.remove_connection(connection)
+
+            self.remove_kinematic_structure_entity(new_root)
+            for child_body in child_bodies:
+                self.remove_kinematic_structure_entity(child_body)
+
+            for connection in child_body_parent_connections:
+                new_world.add_connection(connection)
 
         return new_world
 
@@ -1805,7 +1935,15 @@ class World(HasSimulatorProperties):
         """
         If you have changed the state of the world, call this function to trigger
         necessary events and increase the state version.
+
+        Inside a :meth:`batch_state_changes` context the notification is collected and
+        emitted once when that context ends, with the ``publish_changes`` of that
+        context: the setters that write the state cannot know they are part of a batch,
+        so the batch is what decides whether its changes are published.
         """
+        if self._state_change_batch_depth > 0:
+            self._state_change_batch_has_collected_change = True
+            return
         if not self.is_empty():
             self._forward_kinematic_manager.recompute()
         self.state._notify_state_change(publish_changes=publish_changes, **kwargs)
@@ -2406,6 +2544,22 @@ class World(HasSimulatorProperties):
             world=self, publish_changes=publish_changes
         )
 
+    def batch_state_changes(
+        self, publish_changes: bool = True
+    ) -> WorldStateBatchContextManager:
+        """
+        Collect the state changes made inside the context into a single notification.
+
+        Use this when writing several degrees of freedom that belong to one logical
+        change, such as a whole configuration.
+
+        :param publish_changes: Whether the resulting notification publishes the
+            changes.
+        """
+        return WorldStateBatchContextManager(
+            world=self, publish_changes=publish_changes
+        )
+
     def reset_state_context(self) -> ResetStateContextManager:
         return ResetStateContextManager(self)
 
@@ -2442,14 +2596,4 @@ class World(HasSimulatorProperties):
                     connection.update_state(dt)
                 case _:
                     pass
-        self.notify_state_change()
-
-    def set_positions_1DOF_connection(
-        self, new_state: Dict[ActiveConnection1DOF, float]
-    ) -> None:
-        """
-        Set the positions of 1DOF connections and notify the world of the state change.
-        """
-        for connection, value in new_state.items():
-            connection.position = value
         self.notify_state_change()
