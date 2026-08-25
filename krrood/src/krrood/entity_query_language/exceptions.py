@@ -908,7 +908,7 @@ class SelectiveBackendCannotResolveEllipsisMatch(DataclassException):
 class BackendCannotEvaluateCause(DataclassException):
     """
     Raised when a match with a :class:`~krrood.entity_query_language.operators.causal.Cause`
-    (``cause()``) intervention is evaluated with a backend that has no notion of a
+    (``cause``) intervention is evaluated with a backend that has no notion of a
     causal graph to search over, and that backend was configured (via
     ``raise_on_unresolvable_cause=True``) to fail loudly instead of warning and treating
     the intervention as an ordinary unspecified field.
@@ -926,7 +926,7 @@ class BackendCannotEvaluateCause(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"{self.match} contains a cause() intervention, which {self.backend_type.__name__} "
+            f"{self.match} contains a cause intervention, which {self.backend_type.__name__} "
             f"cannot evaluate causally: it has no notion of a causal graph to intervene on."
         )
 
@@ -1009,7 +1009,7 @@ class CausesEffectRequiresEqualityComparator(UsageError):
 @dataclass
 class NoCausesEffectConditionForCause(DataclassException):
     """
-    Raised when a :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause()``)
+    Raised when a :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause``)
     is present in a match but no
     :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` condition
     declares which variable it should optimize for.
@@ -1022,7 +1022,7 @@ class NoCausesEffectConditionForCause(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"{self.expression} has a cause() intervention but no causes_effect(...) "
+            f"{self.expression} has a cause intervention but no causes_effect(...) "
             f"condition, so there is nothing to search for the best intervention region "
             f"against."
         )
@@ -1040,7 +1040,7 @@ class NoCauseVariablesForRanking(DataclassException):
     Raised when
     :meth:`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes` is
     called on a match with no :class:`~krrood.entity_query_language.operators.causal.Cause`
-    (``cause()``) fields to rank.
+    (``cause``) fields to rank.
     """
 
     expression: Query
@@ -1049,10 +1049,10 @@ class NoCauseVariablesForRanking(DataclassException):
     """
 
     def error_message(self) -> str:
-        return f"{self.expression} has no cause() fields, so there is nothing to rank."
+        return f"{self.expression} has no cause fields, so there is nothing to rank."
 
     def suggest_correction(self) -> str:
-        return "Mark at least one field with cause() before calling rank_causes()."
+        return "Mark at least one field with cause before calling rank_causes()."
 
 
 @dataclass

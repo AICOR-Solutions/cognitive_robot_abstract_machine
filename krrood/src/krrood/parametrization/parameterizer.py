@@ -107,7 +107,7 @@ class UnderspecifiedParameters:
         init=False, default_factory=list
     )
     """
-    Variables assigned a `Cause` (`cause()`) marker: the do()-intervention targets
+    Variables assigned a `Cause` (`cause`) marker: the do()-intervention targets
     `ProbabilisticBackend` should search over.
     """
 
@@ -115,7 +115,7 @@ class UnderspecifiedParameters:
         init=False, default_factory=list
     )
     """
-    Variables assigned a `Confounder` (`CONFOUNDER`) marker: Pearl's backdoor-criterion
+    Variables assigned a `Confounder` (`confounder`) marker: Pearl's backdoor-criterion
     adjustment set `ProbabilisticBackend` should sum out of each cause candidate's
     interventional probability, so it is not left baked into the correlation between
     cause and effect.
@@ -204,7 +204,7 @@ class UnderspecifiedParameters:
     ) -> dict[str, random_events.variable.Variable]:
         """
         Handle attribute matches assigned a
-        :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause()``) marker:
+        :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause``) marker:
         register the variable to search over, the same way a free ``...`` field would
         be, and record it as a cause variable for
         :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`'s
@@ -230,7 +230,7 @@ class UnderspecifiedParameters:
         """
         Handle attribute matches assigned a
         :class:`~krrood.entity_query_language.operators.causal.Confounder`
-        (``CONFOUNDER``) marker: register the variable to search over, the same way a
+        (``confounder``) marker: register the variable to search over, the same way a
         free ``...`` field would be, and record it as an adjustment variable for
         :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`'s
         interventional search.

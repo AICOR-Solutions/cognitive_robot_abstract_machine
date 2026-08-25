@@ -22,7 +22,7 @@ argued the two are different questions whenever two fields share a hidden common
 -- conditioning picks up the confounding correlation, intervention cuts it
 {cite:t}`pearl2009causality`.
 
-{py:func}`~krrood.entity_query_language.factories.cause` and
+{py:data}`~krrood.entity_query_language.factories.cause` and
 {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect` route a query
 through
 {py:class}`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`'s
@@ -123,7 +123,7 @@ interventional.probability(high_drowning.fill_missing_variables_pure(interventio
 ```
 
 Conditioning and intervention give different answers on the exact same model -- that is
-the distinction `cause()` and `causes_effect()` exist to make queryable.
+the distinction `cause` and `causes_effect()` exist to make queryable.
 
 ```{note}
 Neither number here is *"if I specifically forced ice cream sales to be high, what would
@@ -134,7 +134,7 @@ back out rather than left baked into the correlation. Without an explicit adjust
 variable, a *narrowed* intervention query cannot be told apart from conditioning; only
 the *unnarrowed* one (shown above) is meaningful. See
 [Adjusting for a confounder](#adjusting-for-a-confounder) below for exactly this, done
-through EQL's `cause()`/`causes_effect()`/`CONFOUNDER` instead of calling
+through EQL's `cause`/`causes_effect()`/`confounder` instead of calling
 `backdoor_adjustment` directly.
 ```
 
@@ -171,42 +171,42 @@ sum(r.drowning_incidents == DrowningLevel.HIGH for r in results) / len(results)
 # average()/count() aggregation is not supported against ProbabilisticBackend.
 ```
 
-The intervention half is where the note above matters: `cause()`/`causes_effect()`
+The intervention half is where the note above matters: `cause`/`causes_effect()`
 would search for the `ice_cream_sales` region that best explains high drowning on this
 same, unadjusted model -- and, for exactly the reason given above, would find the same
 confounded answer conditioning already gives, unless `season` is also marked
-`CONFOUNDER`. See the next section for exactly that.
+`confounder`. See the next section for exactly that.
 
 (adjusting-for-a-confounder)=
 
 ### Adjusting for a confounder
 
-`cause()` fields are searched with an empty adjustment set by default -- fine when
+`cause` fields are searched with an empty adjustment set by default -- fine when
 nothing confounds the candidate and the effect, wrong otherwise. Mark a known
-confounder with `CONFOUNDER` (or the equivalent `confounder()` call) and it is passed
-to `backdoor_adjustment` as its adjustment set, the same `Z` from the formula above --
+confounder with `confounder` and it is passed to `backdoor_adjustment` as its
+adjustment set, the same `Z` from the formula above --
 on the very same `SummerStatistics` model used above, this time through
 {py:class}`~krrood.parametrization.model_registries.CausalCircuitRegistry`, which hands
 the query the already-built `causal_circuit` directly instead of a plain
 `ProbabilisticCircuit`:
 
 ```python
-from krrood.entity_query_language.factories import a, CAUSE, CONFOUNDER
+from krrood.entity_query_language.factories import a, cause, confounder
 from krrood.parametrization.model_registries import CausalCircuitRegistry
 
 backend = ProbabilisticBackend(
     model_registry=CausalCircuitRegistry({SummerStatistics: causal_circuit})
 )
 
-# Without CONFOUNDER: the search can't separate the confound from the effect.
-naive = (n := a(SummerStatistics)(season=..., ice_cream_sales=CAUSE, drowning_incidents=...)).causes_effect(
+# Without confounder: the search can't separate the confound from the effect.
+naive = (n := a(SummerStatistics)(season=..., ice_cream_sales=cause, drowning_incidents=...)).causes_effect(
     n.variable.drowning_incidents == DrowningLevel.HIGH
 )
 backend.rank_causes(naive)[0].effect_probability_given_region
 # 0.7 -- spurious, the same number plain conditioning on ice_cream_sales gave above.
 
-# With CONFOUNDER: season is summed back out, recovering the causal truth.
-adjusted = (adj := a(SummerStatistics)(season=CONFOUNDER, ice_cream_sales=CAUSE, drowning_incidents=...)).causes_effect(
+# With confounder: season is summed back out, recovering the causal truth.
+adjusted = (adj := a(SummerStatistics)(season=confounder, ice_cream_sales=cause, drowning_incidents=...)).causes_effect(
     adj.variable.drowning_incidents == DrowningLevel.HIGH
 )
 backend.rank_causes(adjusted)[0].effect_probability_given_region
@@ -215,7 +215,7 @@ backend.rank_causes(adjusted)[0].effect_probability_given_region
 ```
 
 ```{important}
-`CONFOUNDER` only reliably deconfounds when the marked variable's own distribution
+`confounder` only reliably deconfounds when the marked variable's own distribution
 *overlaps* across the confounder's states -- as `ice_cream_sales` does here (both
 `HIGH` and `LOW` ranges occur, with different probabilities, in both seasons). A cause
 variable whose value is deterministically tied to which branch it came from (no
@@ -226,15 +226,15 @@ overlap) has nothing for an adjustment set to correct, the same as an empty one.
 
 ## Declaring a causal query
 
-`cause()` and `causes_effect()` are always used together: `cause()` marks the field to
+`cause` and `causes_effect()` are always used together: `cause` marks the field to
 search an intervention over, `causes_effect()` declares the condition that intervention
 should explain.
 
 ```python
-from krrood.entity_query_language.factories import a, CAUSE
+from krrood.entity_query_language.factories import a, cause
 from krrood.entity_query_language.verbalization.pipeline import verbalize_expression
 
-pick = (match := a(Pick)(arm=CAUSE, success=...)).causes_effect(
+pick = (match := a(Pick)(arm=cause, success=...)).causes_effect(
     match.variable.success == Status.SUCCESS
 )
 verbalize_expression(pick)
@@ -242,29 +242,25 @@ verbalize_expression(pick)
 #  success to be SUCCESS'
 ```
 
-### `cause()`
+### `cause`
 
-`cause()` takes no arguments: it always means *find the value of this field whose
-intervention (`do(arm=value)`) best explains the declared effect*. To pin a known value
-instead -- an ordinary conditioning assignment, not a causal one -- use a plain literal
-kwarg (`arm=0.3`).
-
-{py:data}`~krrood.entity_query_language.operators.causal.CAUSE` is the same marker
-without the parentheses -- `arm=CAUSE` and `arm=cause()` are interchangeable.
+`cause` always means *find the value of this field whose intervention (`do(arm=value)`)
+best explains the declared effect*. To pin a known value instead -- an ordinary
+conditioning assignment, not a causal one -- use a plain literal kwarg (`arm=0.3`).
 
 ```{important}
-`cause()` needs a declared effect to search *for* -- see `causes_effect()` below.
-Using `cause()` with no `causes_effect(...)` condition anywhere in the query raises
+`cause` needs a declared effect to search *for* -- see `causes_effect()` below.
+Using `cause` with no `causes_effect(...)` condition anywhere in the query raises
 {py:class}`~krrood.entity_query_language.exceptions.NoCausesEffectConditionForCause`.
 Declare exactly one effect per query;
 {py:class}`~krrood.parametrization.exceptions.MultipleEffectVariablesNotSupported`
 raises otherwise -- there is no multi-effect form of the underlying interventional
-computation to route several through. Multiple `cause()` fields are fine: each candidate
+computation to route several through. Multiple `cause` fields are fine: each candidate
 is searched independently and the one that best explains the effect becomes the primary
 cause -- see
 {py:meth}`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes`
 below to see every candidate's score, not just the primary one. Mark a known
-confounder with `CONFOUNDER` to have it summed out of every candidate's score --
+confounder with `confounder` to have it summed out of every candidate's score --
 see [Adjusting for a confounder](#adjusting-for-a-confounder) above.
 ```
 
@@ -301,15 +297,15 @@ assert all(r.success == Status.SUCCESS for r in results)
 ```
 
 If the registry resolves anything other than a `CausalCircuit` for a query containing
-`cause()`, the backend raises
+`cause`, the backend raises
 {py:class}`~krrood.parametrization.exceptions.DoRequiresCausalCircuitModel` --
-`cause()` needs a registered causal graph to know what to cut when intervening; there
+`cause` needs a registered causal graph to know what to cut when intervening; there
 is no fallback to plain conditioning. Confounder adjustment is configured on however
 the registered `CausalCircuit` itself was built, not from the query.
 
 #### Ranking every candidate
 
-`evaluate()` only ever narrows to the single best-scoring `cause()` candidate. When more
+`evaluate()` only ever narrows to the single best-scoring `cause` candidate. When more
 than one field is plausibly responsible -- a pick failure that could trace back to
 either `arm` or `grip` -- and how the candidates compare matters, not just which one
 wins,
@@ -317,7 +313,7 @@ wins,
 returns every candidate's score instead:
 
 ```python
-match = a(Pick)(arm=CAUSE, grip=CAUSE, success=...)
+match = a(Pick)(arm=cause, grip=cause, success=...)
 match.causes_effect(match.variable.success == Status.SUCCESS)
 
 ranking = backend.rank_causes(match)
@@ -336,22 +332,22 @@ intervening on several of them together would.
 ### Selective backends and `EntityQueryLanguageGenerativeBackend`
 
 Neither has a notion of a causal graph. Rather than failing the whole query, they
-**warn** (via `krrood.logger`) and treat `cause()` exactly like an ordinary
+**warn** (via `krrood.logger`) and treat `cause` exactly like an ordinary
 unspecified field (`...`) -- a selective backend naturally selects nothing (nothing
-equals `cause()`'s wrapped `Ellipsis`), and the generative backend enumerates it if the
+equals `cause`'s wrapped `Ellipsis`), and the generative backend enumerates it if the
 field is an enum, or raises the same
 {py:class}`~krrood.entity_query_language.exceptions.UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration`
 a bare `...` on a non-enum field already raises. Pass
 `raise_on_unresolvable_cause=True` to a backend's constructor to fail loudly instead --
-useful in tests that want to catch accidental `cause()` misuse against a non-causal
+useful in tests that want to catch accidental `cause` misuse against a non-causal
 backend.
 
 ---
 
 ## API Reference
 
-- {py:func}`~krrood.entity_query_language.factories.cause`
-- {py:data}`~krrood.entity_query_language.operators.causal.CAUSE`
+- {py:data}`~krrood.entity_query_language.factories.cause`
+- {py:data}`~krrood.entity_query_language.operators.causal.cause`
 - {py:class}`~krrood.entity_query_language.operators.causal.Cause`
 - {py:meth}`~krrood.entity_query_language.query.match.Match.causes_effect`
 - {py:class}`~krrood.entity_query_language.operators.causal.CausesEffect`
@@ -362,6 +358,6 @@ backend.
 - {py:class}`~krrood.entity_query_language.exceptions.NoCausesEffectConditionForCause`
 - {py:meth}`~krrood.entity_query_language.backends.ProbabilisticBackend.rank_causes`
 - {py:class}`~krrood.entity_query_language.exceptions.NoCauseVariablesForRanking`
-- {py:func}`~krrood.entity_query_language.factories.confounder`
-- {py:data}`~krrood.entity_query_language.operators.causal.CONFOUNDER`
+- {py:data}`~krrood.entity_query_language.factories.confounder`
+- {py:data}`~krrood.entity_query_language.operators.causal.confounder`
 - {py:class}`~krrood.entity_query_language.operators.causal.Confounder`

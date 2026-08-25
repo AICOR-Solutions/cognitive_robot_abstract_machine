@@ -28,10 +28,8 @@ from krrood.entity_query_language.core.base_expressions import (
     OperationResult,
 )
 from krrood.entity_query_language.operators.causal import (
-    CAUSE,
-    CauseSentinel,
-    CONFOUNDER,
-    ConfounderSentinel,
+    cause,
+    confounder,
 )
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
@@ -176,37 +174,9 @@ def variable_from(
 
 # %% Causal Constructs
 
-
-def cause() -> CauseSentinel:
-    """
-    Mark a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as
-    a ``do()``-intervention target to search for, e.g. ``a(Pick)(arm=cause())``.
-    Equivalent to writing the
-    :data:`~krrood.entity_query_language.operators.causal.CAUSE` constant directly
-    (``arm=CAUSE``) -- this spelling exists for parity with the other field-marking
-    factories, which are all calls.
-
-    Pair with :meth:`~krrood.entity_query_language.query.match.Match.causes_effect` to
-    declare which condition is the effect the intervention should optimize for.
-
-    :return: The :data:`~krrood.entity_query_language.operators.causal.CAUSE` sentinel.
-    """
-    return CAUSE
-
-
-def confounder() -> ConfounderSentinel:
-    """
-    Mark a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as
-    a variable to adjust for when searching a ``cause()`` intervention, e.g.
-    ``a(Trial)(treatment=cause(), season=confounder())``. Equivalent to writing the
-    :data:`~krrood.entity_query_language.operators.causal.CONFOUNDER` constant directly
-    (``season=CONFOUNDER``) -- see :func:`cause` for why both spellings exist.
-
-    :return: The :data:`~krrood.entity_query_language.operators.causal.CONFOUNDER`
-        sentinel.
-    """
-    return CONFOUNDER
-
+# `cause` and `confounder` (see operators/causal.py) are re-exported here so query-
+# building imports can come from this one module, alongside `a`, `an`, `set_of`, and
+# the rest of this file's factories.
 
 # %% Operators on Variables
 

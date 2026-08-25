@@ -27,7 +27,7 @@ Canonical class list (the single source of truth;
   ``WeakLoveBird``
 * Containers (deep-nesting rule trees) — ``Handle``, ``Container``, ``FixedConnection``,
   ``PrismaticConnection``, ``Drawer``, ``Cabinet``
-* Causal queries (``cause()`` / ``causes_effect()``) — ``Pick``
+* Causal queries (``cause`` / ``causes_effect()``) — ``Pick``
 """
 
 from __future__ import annotations

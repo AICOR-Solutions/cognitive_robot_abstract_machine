@@ -83,12 +83,12 @@ class QueryBackend(ABC):
 
     raise_on_unresolvable_cause: bool = field(default=False, kw_only=True)
     """
-    Whether to raise instead of warning when an expression contains a `Cause`
-    (`cause()`) intervention this backend cannot resolve causally.
+    Whether to raise instead of warning when an expression contains a `Cause` (`cause`)
+    intervention this backend cannot resolve causally.
 
     Defaults to ``False``: the `Cause` is then treated as an ordinary unspecified field
     (a warning is logged explaining why) rather than failing the query. Set ``True`` to
-    fail loudly instead -- for example in tests that want to catch accidental `cause()`
+    fail loudly instead -- for example in tests that want to catch accidental `cause`
     misuse against a non-causal backend. Read only by :class:`SelectiveBackend` and
     :class:`EntityQueryLanguageGenerativeBackend`; :class:`ProbabilisticBackend` always
     raises when it cannot resolve a causal model, regardless of this flag.
@@ -232,7 +232,7 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
 
         :param attribute_match: The attribute match to check.
         :raises UnderspecifiedStatementInfeasibleForEntityQueryLanguageGeneration: If a
-            non-enum leaf is left fully unspecified (``...`` or ``cause()``), which
+            non-enum leaf is left fully unspecified (``...`` or ``cause``), which
             deterministic generation cannot enumerate (use the
             :class:`ProbabilisticBackend` instead).
         """
@@ -249,7 +249,7 @@ class EntityQueryLanguageGenerativeBackend(GenerativeBackend):
     ) -> Selectable:
         """
         Convert an attribute match into a variable to enumerate, handling ellipsis (and,
-        identically, ``cause()``) assignments for enum fields and concrete values.
+        identically, ``cause``) assignments for enum fields and concrete values.
 
         :param attribute_match: The attribute match to convert.
         :return: A variable (or symbolic expression) representing the attribute match.
@@ -378,7 +378,7 @@ class ProbabilisticBackend(GenerativeBackend):
         parameters: UnderspecifiedParameters, expression: Match[T]
     ) -> CauseEffectVariables:
         """
-        Resolve the cause candidates and the single effect variable a ``cause()`` search
+        Resolve the cause candidates and the single effect variable a ``cause`` search
         optimizes for.
 
         Any number of cause candidates is fine -- each is searched independently (see
@@ -436,7 +436,7 @@ class ProbabilisticBackend(GenerativeBackend):
             translates to, used to narrow each candidate's interventional joint to the
             effect before ranking its regions.
         :param expression: The match being evaluated, for error reporting.
-        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+        :param confounder_variables: Variables marked ``confounder`` in the query,
             passed through to ``backdoor_adjustment`` as its adjustment set.
         :raises NoSolutionFound: If no candidate has a region with positive probability.
         :return: The highest-scoring candidate.
@@ -476,7 +476,7 @@ class ProbabilisticBackend(GenerativeBackend):
         :param effect_truncation_event: The event the declared effect condition
             translates to, used to narrow each candidate's interventional joint to the
             effect before ranking its regions.
-        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+        :param confounder_variables: Variables marked ``confounder`` in the query,
             passed through to ``backdoor_adjustment`` as its adjustment set for every
             candidate.
         :return: Every candidate with a region of positive probability and a positive
@@ -504,25 +504,25 @@ class ProbabilisticBackend(GenerativeBackend):
 
     def rank_causes(self, expression: Match[T]) -> List[ScoredIntervention]:
         """
-        Rank every ``cause()`` candidate in *expression* by how well its intervention
+        Rank every ``cause`` candidate in *expression* by how well its intervention
         explains the declared effect.
 
         Runs the same per-candidate search :meth:`_evaluate` uses internally for a
-        multi-``cause()`` query, but returns every scoreable candidate instead of only
+        multi-``cause`` query, but returns every scoreable candidate instead of only
         the primary one :meth:`_evaluate` picks -- useful when several plausible causes
         exist and how they compare matters, not just which one wins (for example, both
         ``arm`` and ``force`` scoring high for a pick failure). Leaves
         :meth:`_evaluate` and the primary-cause search it uses entirely unchanged; this
         is an additional, independent read of the same candidates.
 
-        Any field marked ``CONFOUNDER`` is passed to every candidate's search as
+        Any field marked ``confounder`` is passed to every candidate's search as
         ``backdoor_adjustment``'s adjustment set, so a variable that drives both a
         candidate and the effect does not inflate that candidate's score with mere
         correlation.
 
-        :param expression: A match with one or more ``cause()`` fields and a
+        :param expression: A match with one or more ``cause`` fields and a
             ``causes_effect(...)`` condition.
-        :raises NoCauseVariablesForRanking: If *expression* has no ``cause()`` fields.
+        :raises NoCauseVariablesForRanking: If *expression* has no ``cause`` fields.
         :raises NoCausesEffectConditionForCause: If no ``causes_effect(...)`` condition
             declared an effect.
         :raises MultipleEffectVariablesNotSupported: If more than one effect variable
@@ -584,7 +584,7 @@ class ProbabilisticBackend(GenerativeBackend):
         :param effect_variable: The declared effect variable.
         :param effect_truncation_event: The event the declared effect condition
             translates to.
-        :param confounder_variables: Variables marked ``CONFOUNDER`` in the query,
+        :param confounder_variables: Variables marked ``confounder`` in the query,
             passed through to ``backdoor_adjustment`` as its adjustment set.
         :return: The scored candidate, or ``None`` if it has no region with positive
             probability, or the effect has zero probability within that region.

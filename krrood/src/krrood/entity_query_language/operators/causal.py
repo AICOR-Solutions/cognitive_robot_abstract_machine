@@ -40,7 +40,7 @@ class Cause(Literal):
     a ``do()``-intervention target searched for by the query, rather than an observed
     value.
 
-    ``arm=CAUSE`` means: find the value of ``arm`` whose intervention (Pearl's
+    ``arm=cause`` means: find the value of ``arm`` whose intervention (Pearl's
     ``do(arm=value)``) best explains the effect declared via
     :meth:`~krrood.entity_query_language.query.match.Match.causes_effect`. Always wraps
     ``Ellipsis`` -- there is no pinned-value form; pin a value with a plain assignment
@@ -52,7 +52,7 @@ class Cause(Literal):
 
 class CauseSentinel:
     """
-    Type of :data:`CAUSE`.
+    Type of :data:`cause`.
 
     A *sentinel* here means a fixed marker value whose only job is to be recognised and
     swapped out later, the same role ``Ellipsis`` (``...``) already plays for a plain
@@ -61,11 +61,10 @@ class CauseSentinel:
     A distinct type -- not ``Cause`` itself -- because unlike a plain literal kwarg
     (``arm=0.3``), whose ``Literal`` wrapper :meth:`AttributeMatch.assigned_variable
     <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>` builds
-    fresh, on the spot, once the attribute it belongs to is known, a bare
-    ``cause()``/``CAUSE`` is a fully-built value the *caller* supplies before any
-    attribute is known. If ``CAUSE`` were itself a ``Cause`` instance, every field
-    marked with it would share that one object; the second field's type backfill (see
-    :meth:`AttributeMatch.assigned_variable
+    fresh, on the spot, once the attribute it belongs to is known, ``cause`` is a
+    fully-built value the *caller* supplies before any attribute is known. If ``cause``
+    were itself a ``Cause`` instance, every field marked with it would share that one
+    object; the second field's type backfill (see :meth:`AttributeMatch.assigned_variable
     <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`) would
     then silently overwrite the first's. :meth:`~krrood.entity_query_language.query.match.Match.resolve`
     avoids this by replacing each occurrence of the sentinel with its own fresh
@@ -73,20 +72,13 @@ class CauseSentinel:
     """
 
     def __repr__(self) -> str:
-        return "CAUSE"
+        return "cause"
 
 
-CAUSE = CauseSentinel()
+cause = CauseSentinel()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
-``do()``-intervention target, without the parentheses of
-:func:`~krrood.entity_query_language.factories.cause` (``arm=CAUSE`` instead of
-``arm=cause()``).
-
-The two are fully equivalent at runtime; ``cause()`` exists only so
-this marker reads the same way as the query's other field-marking factories, which are
-all calls (e.g. :func:`~krrood.entity_query_language.factories.set_of`) -- pick
-whichever spelling reads better in a given query.
+``do()``-intervention target searched for by the query (``arm=cause``).
 """
 
 
@@ -98,7 +90,7 @@ class Confounder(Literal):
     backdoor-criterion adjustment set Z in
     ``P(effect | do(cause=v)) = sum_z P(effect | cause=v, Z=z) * P(Z=z)``.
 
-    ``season=CONFOUNDER`` means: season is a common cause of the searched
+    ``season=confounder`` means: season is a common cause of the searched
     :class:`Cause` and the declared effect, and must be summed back out rather than
     left baked into the correlation between them. Always wraps ``Ellipsis``, the same
     as :class:`Cause`.
@@ -109,16 +101,16 @@ class Confounder(Literal):
 
 class ConfounderSentinel:
     """
-    Type of :data:`CONFOUNDER` -- the :class:`Confounder` counterpart of
+    Type of :data:`confounder` -- the :class:`Confounder` counterpart of
     :class:`CauseSentinel`, for the same reason: each field it marks needs its own fresh
     :class:`Confounder` rather than sharing one instance.
     """
 
     def __repr__(self) -> str:
-        return "CONFOUNDER"
+        return "confounder"
 
 
-CONFOUNDER = ConfounderSentinel()
+confounder = ConfounderSentinel()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 variable to adjust for when searching a :class:`Cause` intervention -- see
@@ -160,12 +152,12 @@ class CausesEffect(LogicalOperator, UnaryExpression):
 @dataclass
 class CauseEffectVariables:
     """
-    The cause candidates and effect variable a ``cause()`` search resolves to.
+    The cause candidates and effect variable a ``cause`` search resolves to.
     """
 
     cause_variables: List[random_events.variable.Variable]
     """
-    The variable(s) a ``cause()`` intervention is searched over.
+    The variable(s) a ``cause`` intervention is searched over.
 
     When there is more than one, each is tried independently -- there is no joint,
     multi-variable intervention -- and the one with the highest
@@ -181,12 +173,12 @@ class CauseEffectVariables:
 
     confounder_variables: List[random_events.variable.Variable]
     """
-    Variables assigned a ``CONFOUNDER`` marker: Pearl's backdoor-criterion adjustment
+    Variables assigned a ``confounder`` marker: Pearl's backdoor-criterion adjustment
     set, summed back out of each cause candidate's interventional probability so it is
     not left baked into the correlation between cause and effect.
 
     Empty for a query with no confounders declared -- the interventional search then
-    falls back to an empty adjustment set, exactly as before ``CONFOUNDER`` existed.
+    falls back to an empty adjustment set, exactly as before ``confounder`` existed.
     """
 
 
@@ -194,7 +186,7 @@ class CauseEffectVariables:
 class ScoredIntervention:
     """
     One cause candidate's best-region search result, scored for comparison against the
-    other candidates when a query has more than one ``cause()`` field.
+    other candidates when a query has more than one ``cause`` field.
     """
 
     cause_variable: random_events.variable.Variable

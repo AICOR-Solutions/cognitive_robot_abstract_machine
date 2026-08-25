@@ -85,11 +85,11 @@ class InvalidEllipsis(InputError):
 @dataclass
 class DoRequiresCausalCircuitModel(DataclassException):
     """
-    Raised when a match has a ``cause()`` intervention but the model registry resolved a
+    Raised when a match has a ``cause`` intervention but the model registry resolved a
     model that is not a
     :class:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit`.
 
-    ``cause()`` needs a registered causal graph to know what to cut when intervening; a
+    ``cause`` needs a registered causal graph to know what to cut when intervening; a
     plain (non-causal) probabilistic model has no such graph.
     """
 
@@ -97,8 +97,8 @@ class DoRequiresCausalCircuitModel(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"A cause() intervention was used, but the model registry returned "
-            f"{type(self.resolved_model).__name__}, not a CausalCircuit. cause() needs a "
+            f"A cause intervention was used, but the model registry returned "
+            f"{type(self.resolved_model).__name__}, not a CausalCircuit. cause needs a "
             f"registered causal graph to know what to cut when intervening."
         )
 
@@ -115,7 +115,7 @@ class MultipleEffectVariablesNotSupported(DataclassException):
     :meth:`~probabilistic_model.probabilistic_circuit.causal.causal_circuit.CausalCircuit.backdoor_adjustment`
     takes exactly one effect variable -- there is no multi-effect form of the
     interventional computation to route a query with several through. Multiple
-    ``cause()`` fields are fine: each candidate is searched independently and the one
+    ``cause`` fields are fine: each candidate is searched independently and the one
     that best explains the effect becomes the primary cause.
     """
 

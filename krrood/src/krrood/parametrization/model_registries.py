@@ -85,7 +85,7 @@ class RelationalCircuitRegistry(ModelRegistry):
 class CausalCircuitRegistry(ModelRegistry):
     """
     A registry that maps target classes directly to pre-built causal circuits, so a
-    ``cause()``/``causes_effect()`` query can be routed through that circuit's
+    ``cause``/``causes_effect()`` query can be routed through that circuit's
     ``backdoor_adjustment`` method.
 
     See

@@ -329,7 +329,7 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         self.update_fields(variable, parent)
         for attr_name, attr_assigned_value in self.kwargs.items():
             if isinstance(attr_assigned_value, CauseSentinel):
-                # Give this field its own Cause() rather than sharing the CAUSE
+                # Give this field its own Cause() rather than sharing the cause
                 # sentinel itself -- see CauseSentinel's docstring for why.
                 attr_assigned_value = Cause()
             elif isinstance(attr_assigned_value, ConfounderSentinel):
@@ -509,13 +509,13 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
     def causes_effect(self, *conditions: ConditionType) -> Match[T]:
         """
         Mark condition(s) as the effect side of a causal query, e.g.
-        ``a(Pick)(arm=cause()).causes_effect(pick.variable.action.status == SUCCESS)``.
+        ``a(Pick)(arm=cause).causes_effect(pick.variable.action.status == SUCCESS)``.
 
         Sugar for ``self.where(CausesEffect(and_(*conditions)))``: semantically identical
         to an ordinary ``.where()`` under every backend except
         :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`, which reads
         the wrapped condition to find which variable(s) a
-        :func:`~krrood.entity_query_language.factories.cause` search should optimize for.
+        :data:`~krrood.entity_query_language.factories.cause` search should optimize for.
 
         :param conditions: One literal comparator, or several combined with AND.
         :return: This match, for chaining.
@@ -653,8 +653,8 @@ class AttributeMatch(AbstractMatchExpression[T]):
             isinstance(self.assigned_value, (Cause, Confounder))
             and self.assigned_value._type_ is None
         ):
-            # A `Cause`/`Confounder` is built by the user as a bare `cause()`/
-            # `CONFOUNDER` marker before it is ever matched to an attribute, so unlike
+            # A `Cause`/`Confounder` is built by the user as a bare `cause`/
+            # `confounder` marker before it is ever matched to an attribute, so unlike
             # a plain literal (whose `Literal` wrapper is created right here, with
             # `_type_=self.type`), it has no declared type of its own yet. Backfill it
             # now that the attribute this marker was assigned to is known, so code
