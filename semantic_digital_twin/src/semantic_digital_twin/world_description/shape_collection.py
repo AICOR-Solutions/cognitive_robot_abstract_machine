@@ -14,7 +14,12 @@ from typing_extensions import TYPE_CHECKING
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from semantic_digital_twin.exceptions import MismatchingWorld
-from semantic_digital_twin.world_description.geometry import Shape, BoundingBox, Color
+from semantic_digital_twin.world_description.geometry import (
+    Shape,
+    BoundingBox,
+    BoundingBox2D,
+    Color,
+)
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 
@@ -409,5 +414,166 @@ class BoundingBoxCollection(ShapeCollection):
             max(all_x),
             max(all_y),
             max(all_z),
+            HomogeneousTransformationMatrix(reference_frame=self.reference_frame),
+        )
+
+
+@dataclass
+class BoundingBoxCollection2D:
+    """
+    A collection of planar (x-y only) bounding boxes, sharing one reference frame.
+
+    The planar counterpart to :class:`BoundingBoxCollection`. Not a
+    :class:`ShapeCollection`: a :class:`BoundingBox2D` has no mesh or collision meaning,
+    so this only exposes what a graph of convex sets needs to build and combine floor-
+    plan regions.
+    """
+
+    shapes: List[BoundingBox2D]
+    """
+    The bounding boxes contained in this collection.
+    """
+
+    reference_frame: KinematicStructureEntity
+    """
+    The reference frame every bounding box in this collection is expressed in.
+    """
+
+    def __post_init__(self):
+        if not self.reference_frame:
+            raise ValueError("BoundingBoxCollection2D must have a reference frame.")
+        for box in self.bounding_boxes:
+            assert (
+                box.origin.reference_frame == self.reference_frame
+            ), "All bounding boxes must have the same reference frame."
+
+    def __iter__(self) -> Iterator[BoundingBox2D]:
+        return iter(self.bounding_boxes)
+
+    def __len__(self) -> int:
+        return len(self.shapes)
+
+    def __getitem__(self, index: int) -> BoundingBox2D:
+        return self.shapes[index]
+
+    @property
+    def bounding_boxes(self) -> List[BoundingBox2D]:
+        return self.shapes
+
+    @property
+    def event(self) -> Event:
+        """
+        :return: The bounding boxes as a random event.
+        """
+        return Event.from_simple_sets(
+            *[box.simple_event for box in self.bounding_boxes]
+        )
+
+    def merge(self, other: BoundingBoxCollection2D) -> BoundingBoxCollection2D:
+        """
+        Merge another bounding box collection into this one.
+
+        :param other: The other bounding box collection.
+        :return: The merged bounding box collection.
+        """
+        assert (
+            self.reference_frame == other.reference_frame
+        ), "The reference frames of the bounding box collections must be the same."
+        return BoundingBoxCollection2D(
+            reference_frame=self.reference_frame,
+            shapes=self.bounding_boxes + other.bounding_boxes,
+        )
+
+    def bloat(
+        self, x_amount: float = 0.0, y_amount: float = 0.0
+    ) -> BoundingBoxCollection2D:
+        """
+        Enlarges all bounding boxes in the collection by a given amount in both
+        dimensions.
+
+        :param x_amount: The amount to adjust the x-coordinates
+        :param y_amount: The amount to adjust the y-coordinates
+        :return: The enlarged bounding box collection
+        """
+        return BoundingBoxCollection2D(
+            [box.bloat(x_amount, y_amount) for box in self.bounding_boxes],
+            self.reference_frame,
+        )
+
+    @classmethod
+    def from_simple_event(
+        cls,
+        reference_frame: KinematicStructureEntity,
+        simple_event: SimpleEvent,
+        keep_surface: bool = False,
+    ) -> BoundingBoxCollection2D:
+        """
+        Create a list of bounding boxes from a simple random event.
+
+        :param reference_frame: The reference frame of the bounding boxes.
+        :param simple_event: The random event.
+        :param keep_surface: Whether to keep events that are infinitely thin
+        :return: The list of bounding boxes.
+        """
+        result = []
+        for x, y in itertools.product(
+            simple_event[SpatialVariables.x.value].simple_sets,
+            simple_event[SpatialVariables.y.value].simple_sets,
+        ):
+            origin_x = x.center()
+            origin_y = y.center()
+
+            bb = BoundingBox2D(
+                x.lower - origin_x,
+                y.lower - origin_y,
+                x.upper - origin_x,
+                y.upper - origin_y,
+                HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                    point=Point3(origin_x, origin_y, 0),
+                    reference_frame=reference_frame,
+                ),
+            )
+            if not keep_surface and (bb.depth == 0 or bb.width == 0):
+                continue
+            result.append(bb)
+        return BoundingBoxCollection2D(result, reference_frame)
+
+    @classmethod
+    def from_event(
+        cls, reference_frame: KinematicStructureEntity, event: Event
+    ) -> Self:
+        """
+        Create a list of bounding boxes from a random event.
+
+        :param reference_frame: The reference frame of the bounding boxes.
+        :param event: The random event.
+        :return: The list of bounding boxes.
+        """
+        return cls(
+            [
+                box
+                for simple_event in event.simple_sets
+                for box in cls.from_simple_event(reference_frame, simple_event)
+            ],
+            reference_frame,
+        )
+
+    def bounding_box(self) -> BoundingBox2D:
+        """
+        Get the box that contains all bounding boxes in the collection.
+
+        :return: The enclosing bounding box.
+        """
+        all_x = [bb.min_x for bb in self.bounding_boxes] + [
+            bb.max_x for bb in self.bounding_boxes
+        ]
+        all_y = [bb.min_y for bb in self.bounding_boxes] + [
+            bb.max_y for bb in self.bounding_boxes
+        ]
+        return BoundingBox2D(
+            min(all_x),
+            min(all_y),
+            max(all_x),
+            max(all_y),
             HomogeneousTransformationMatrix(reference_frame=self.reference_frame),
         )

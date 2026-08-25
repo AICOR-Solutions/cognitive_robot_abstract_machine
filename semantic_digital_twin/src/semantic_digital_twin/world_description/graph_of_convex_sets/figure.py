@@ -37,10 +37,10 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from typing_extensions import Iterable, List, Optional, Sequence, Self
+from typing_extensions import Iterable, List, Optional, Sequence, Self, Union
 
-from semantic_digital_twin.spatial_types import Point3
-from semantic_digital_twin.world_description.geometry import BoundingBox
+from semantic_digital_twin.spatial_types import Point3, Pose2D
+from semantic_digital_twin.world_description.geometry import BoundingBox, BoundingBox2D
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
 )
@@ -164,8 +164,9 @@ class FigurePalette:
 
 class Theme(enum.Enum):
     """
-    The surface a figure is rendered for. Its value is the palette stepped for that
-    surface, so that a new theme is added as a member rather than as a branch.
+    The surface a figure is rendered for.
+
+    Its value is the palette stepped for that surface, so that a new theme is added as a member rather than as a branch.
 
     Kept distinct from :class:`FigurePalette` rather than exposing the palette itself as
     the picker: a theme is a closed choice between exactly two designed variants, where
@@ -210,7 +211,7 @@ class Footprint:
     """
 
     @classmethod
-    def of(cls, bounding_box: BoundingBox) -> Self:
+    def of(cls, bounding_box: Union[BoundingBox, BoundingBox2D]) -> Self:
         """
         :param bounding_box: The bounding box to project.
         :return: The projection of that box onto the x-y plane.
@@ -271,7 +272,7 @@ class NavigationPath:
     instead of recomputing it from a bare list.
     """
 
-    waypoints: List[Point3]
+    waypoints: List[Union[Point3, Pose2D]]
     """
     The points to navigate to, starting at the query's start and ending at its goal.
     """
@@ -282,7 +283,14 @@ class NavigationPath:
         :return: The distance travelled along the path.
         """
         return sum(
-            float(current.euclidean_distance(following))
+            float(
+                (
+                    (following.x - current.x) ** 2
+                    + (following.y - current.y) ** 2
+                    + (following.z - current.z) ** 2
+                )
+                ** 0.5
+            )
             for current, following in zip(self.waypoints, self.waypoints[1:])
         )
 
@@ -326,17 +334,17 @@ class ConvexSetAdjacency:
     convex set, through the portal the two sets share, to the center of the other.
     """
 
-    source_center: Point3
+    source_center: Union[Point3, Pose2D]
     """
     The center of the convex set the edge starts at.
     """
 
-    portal_center: Point3
+    portal_center: Union[Point3, Pose2D]
     """
     The center of the region where the two convex sets overlap.
     """
 
-    target_center: Point3
+    target_center: Union[Point3, Pose2D]
     """
     The center of the convex set the edge ends at.
     """
@@ -443,7 +451,7 @@ class NavigationScene:
         return Footprint.of(self.search_space.bounding_box())
 
     @property
-    def convex_sets(self) -> List[BoundingBox]:
+    def convex_sets(self) -> List[Union[BoundingBox, BoundingBox2D]]:
         """
         :return: The convex sets partitioning free space.
         """
@@ -729,7 +737,7 @@ class EndpointsLayer(SceneLayer):
     def _draw_endpoint(
         self,
         axes: Axes,
-        endpoint: Point3,
+        endpoint: Union[Point3, Pose2D],
         label: str,
         marker: str,
         color: str,
@@ -1054,6 +1062,7 @@ class GraphOfConvexSetsFigure:
     """
     The panels to draw, left to right or top to bottom.
     """
+
     dots_per_inch: int = 300
     """
     Resolution of the rendered raster image.

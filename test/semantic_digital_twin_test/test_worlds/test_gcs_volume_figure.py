@@ -22,7 +22,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    GraphOfBoundingBoxes,
+    VolumetricGraphOfBoundingBoxes,
     hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
@@ -168,7 +168,9 @@ def barrier_search_space_of(world: World) -> BoundingBoxCollection:
     )
 
 
-def navigation_scene_of(graph: GraphOfBoundingBoxes, world: World) -> NavigationScene:
+def navigation_scene_of(
+    graph: VolumetricGraphOfBoundingBoxes, world: World
+) -> NavigationScene:
     """
     :param graph: The already-decomposed graph of convex sets.
     :param world: The world the graph was built from, to draw the true obstacles of.
@@ -194,7 +196,7 @@ def barrier_scene(barrier_world: World) -> NavigationScene:
     """
     The volumetric scene of the barrier world.
     """
-    graph = GraphOfBoundingBoxes.free_space_from_world(
+    graph = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         world=barrier_world,
         search_space=barrier_search_space_of(barrier_world),
         bloat_obstacles=CLEARANCE,
@@ -260,7 +262,7 @@ def test_the_third_dimension_connects_what_a_shallow_search_space_leaves_apart(
         ],
         barrier_world.root,
     )
-    shallow_graph = GraphOfBoundingBoxes.free_space_from_world(
+    shallow_graph = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         world=barrier_world,
         search_space=shallow_search_space,
         bloat_obstacles=CLEARANCE,

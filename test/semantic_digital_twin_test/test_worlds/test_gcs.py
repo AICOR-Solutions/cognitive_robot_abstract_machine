@@ -13,21 +13,28 @@ from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
-from semantic_digital_twin.spatial_types import Point3, Pose
+from semantic_digital_twin.spatial_types import Point3, Pose, Pose2D
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import BoundingBox, Box, Scale
+from semantic_digital_twin.world_description.geometry import (
+    BoundingBox,
+    BoundingBox2D,
+    Box,
+    Scale,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     create_reference_frame_with_only_yaw_from_body,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    GraphOfBoundingBoxes,
+    PlanarGraphOfBoundingBoxes,
+    VolumetricGraphOfBoundingBoxes,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    BoundingBoxCollection2D,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -43,25 +50,25 @@ MJCF_DIR = os.path.join(
 
 
 @dataclass
-class GraphOfBoundingBoxesFixture:
+class VolumetricGraphOfBoundingBoxesFixture:
     """
     Data class for Graph of Convex Sets test fixture.
     """
 
     world: World
-    graph_of_convex_sets: GraphOfBoundingBoxes
+    graph_of_convex_sets: VolumetricGraphOfBoundingBoxes
 
 
 @pytest.fixture
-def graph_of_convex_sets_unit_box() -> GraphOfBoundingBoxesFixture:
+def graph_of_convex_sets_unit_box() -> VolumetricGraphOfBoundingBoxesFixture:
     """
-    Create a GraphOfBoundingBoxes for navigation around a unit box.
+    Create a VolumetricGraphOfBoundingBoxes for navigation around a unit box.
     """
     world = World()
     with world.modify_world():
         world.add_kinematic_structure_entity(Body())
 
-    graph_of_convex_sets = GraphOfBoundingBoxes(world)
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
     obstacle = BoundingBox(0, 0, 0, 1, 1, 1, world.root.global_pose)
 
@@ -83,10 +90,12 @@ def graph_of_convex_sets_unit_box() -> GraphOfBoundingBoxesFixture:
         graph_of_convex_sets.add_node(bounding_box)
 
     graph_of_convex_sets.calculate_connectivity()
-    return GraphOfBoundingBoxesFixture(world, graph_of_convex_sets)
+    return VolumetricGraphOfBoundingBoxesFixture(world, graph_of_convex_sets)
 
 
-def test_reachability(graph_of_convex_sets_unit_box: GraphOfBoundingBoxesFixture):
+def test_reachability(
+    graph_of_convex_sets_unit_box: VolumetricGraphOfBoundingBoxesFixture,
+):
     """
     Verify if a path can be found around the unit box.
     """
@@ -105,7 +114,7 @@ def test_reachability(graph_of_convex_sets_unit_box: GraphOfBoundingBoxesFixture
     assert len(path) == 3
 
 
-def test_plot(graph_of_convex_sets_unit_box: GraphOfBoundingBoxesFixture):
+def test_plot(graph_of_convex_sets_unit_box: VolumetricGraphOfBoundingBoxesFixture):
     """
     Verify if the free and occupied space can be plotted.
     """
@@ -139,7 +148,7 @@ def test_from_world(table_world: World):
         ],
         table_world.root,
     )
-    graph_of_convex_sets = GraphOfBoundingBoxes.free_space_from_world(
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         table_world, search_space=search_space
     )
     assert graph_of_convex_sets is not None
@@ -180,11 +189,57 @@ def test_navigation_map_from_world(table_world: World):
         ],
         table_world.root,
     )
-    graph_of_convex_sets = GraphOfBoundingBoxes.navigation_map_from_world(
+    graph_of_convex_sets = PlanarGraphOfBoundingBoxes.navigation_map_from_world(
         table_world, search_space=search_space
     )
     assert len(graph_of_convex_sets.graph.nodes()) > 0
     assert len(graph_of_convex_sets.graph.edges()) > 0
+
+    # Regression test for the z-reinflation hack this class replaces: the
+    # decomposition never touches z, so its nodes and search space are genuinely
+    # two-dimensional rather than 3-D boxes with a fake z=reals() extent.
+    assert all(
+        isinstance(node, BoundingBox2D) for node in graph_of_convex_sets.graph.nodes()
+    )
+    assert isinstance(graph_of_convex_sets.search_space, BoundingBoxCollection2D)
+
+
+def test_navigation_map_path_returns_pose2d_waypoints(table_world: World):
+    """
+    A planar GCS's path is expressed in Pose2D, not Point3: there is no z to report, and
+    interior waypoints (portals between boxes) carry no meaningful orientation.
+    """
+    search_space = BoundingBoxCollection(
+        [
+            BoundingBox(
+                min_x=-5,
+                max_x=-2,
+                min_y=-1,
+                max_y=2,
+                min_z=0,
+                max_z=2,
+                origin=HomogeneousTransformationMatrix(
+                    reference_frame=table_world.root
+                ),
+            )
+        ],
+        table_world.root,
+    )
+    graph_of_convex_sets = PlanarGraphOfBoundingBoxes.navigation_map_from_world(
+        table_world, search_space=search_space
+    )
+
+    start = Pose2D(-4.5, -0.5, reference_frame=table_world.root)
+    goal = Pose2D(-2.5, 1.5, reference_frame=table_world.root)
+    path = graph_of_convex_sets.path_from_to(start, goal)
+
+    assert path is not None
+    assert len(path) > 1
+    for waypoint in path:
+        assert isinstance(waypoint, Pose2D)
+        assert float(waypoint.z) == 0.0
+    for waypoint in path[1:-1]:
+        assert float(waypoint.yaw) == 0.0
 
 
 def test_from_world_with_rotated_box():
@@ -242,7 +297,7 @@ def test_from_world_with_rotated_box():
         reference_frame=vertical_stabilized_base,
     )
 
-    graph_of_convex_sets = GraphOfBoundingBoxes.free_space_from_world(
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         world, search_space=search_space
     )
 
@@ -280,7 +335,7 @@ def test_path_from_to_prefers_shorter_distance_over_fewer_hops():
     with world.modify_world():
         world.add_kinematic_structure_entity(Body())
 
-    graph_of_convex_sets = GraphOfBoundingBoxes(world)
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
     origin = world.root.global_pose
     start_box = BoundingBox(0, 0, 0, 1, 1, 1, origin)
@@ -327,7 +382,7 @@ def test_path_from_to_shortcuts_redundant_waypoints():
     with world.modify_world():
         world.add_kinematic_structure_entity(Body())
 
-    graph_of_convex_sets = GraphOfBoundingBoxes(world)
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
     origin = world.root.global_pose
     start_box = BoundingBox(0, 0, 0, 1, 1, 1, origin)
@@ -374,7 +429,7 @@ def test_path_from_to_scales_to_a_real_apartment_scene():
         ],
         world.root,
     )
-    graph_of_convex_sets = GraphOfBoundingBoxes.free_space_from_world(
+    graph_of_convex_sets = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         world, search_space=search_space, bloat_obstacles=0.06
     )
     # Confirms this is a genuinely large graph, not an accidentally-trivial one.

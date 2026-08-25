@@ -13,8 +13,9 @@ from krrood.entity_query_language.operators.core_logical_operators import (
 from random_events.interval import Interval, SimpleInterval, Bound
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import List, Optional
+from typing_extensions import Generic, List, Optional, TypeVar
 
+from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Agent
@@ -30,9 +31,23 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
 )
 
+PointT = TypeVar("PointT")
+"""
+The point/pose type a :class:`GraphOfConvexSets` subclass queries and returns paths
+in -- :class:`~semantic_digital_twin.spatial_types.Point3` for a graph that plans in
+three dimensions, :class:`~semantic_digital_twin.spatial_types.Pose2D` for one that plans
+on a single plane.
+"""
+
+SearchSpaceT = TypeVar("SearchSpaceT")
+"""
+The search-space representation a :class:`GraphOfConvexSets` subclass is built within --
+a three-dimensional :class:`BoundingBoxCollection` or its planar counterpart.
+"""
+
 
 @dataclass
-class GraphOfConvexSets(ABC):
+class GraphOfConvexSets(Generic[PointT, SearchSpaceT], SubClassSafeGeneric, ABC):
     """
     Abstract base for planning graphs whose nodes are convex sets of free space.
 
@@ -49,12 +64,13 @@ class GraphOfConvexSets(ABC):
     The world that the graph is based on.
     """
 
-    search_space: Optional[BoundingBoxCollection] = None
+    search_space: Optional[SearchSpaceT] = None
     """
     The bounding box of the search space.
 
-    Pass ``None`` to default to the entire three-dimensional space; ``__post_init__``
-    resolves that default, so this attribute is never ``None`` once the object exists.
+    Pass ``None`` to default to the entire search space :meth:`_default_search_space`
+    describes; ``__post_init__`` resolves that default, so this attribute is never
+    ``None`` once the object exists.
     """
 
     def __post_init__(self):
@@ -62,7 +78,7 @@ class GraphOfConvexSets(ABC):
             self.search_space = self._default_search_space()
 
     @abstractmethod
-    def path_from_to(self, start: Point3, goal: Point3) -> Optional[List[Point3]]:
+    def path_from_to(self, start: PointT, goal: PointT) -> Optional[List[PointT]]:
         """
         Calculate a connected path from a start pose to a goal pose.
 

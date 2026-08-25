@@ -1,8 +1,7 @@
 """
 Writes the volume figure of a URDF environment (``--environment``) or of one or more
-Sage10k scenes (``--sage10k``) rendered by
-:class:`~semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure.GraphOfConvexSetsVolumeFigure`
-to disk.
+Sage10k scenes (``--sage10k``) rendered by :class:`~semantic_digital_twin.world_descript
+ion.graph_of_convex_sets.volume_figure.GraphOfConvexSetsVolumeFigure` to disk.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    GraphOfBoundingBoxes,
+    VolumetricGraphOfBoundingBoxes,
     hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
@@ -108,7 +107,7 @@ def navigation_scene_of(
     :raises UnreachableGoalError: If the graph contains no path for its own query.
     """
     search_space = search_space_of(world, floor_level)
-    graph = GraphOfBoundingBoxes.free_space_from_world(
+    graph = VolumetricGraphOfBoundingBoxes.free_space_from_world(
         world=world, search_space=search_space, bloat_obstacles=clearance
     )
     query = hardest_path_query(graph)

@@ -24,7 +24,8 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    GraphOfBoundingBoxes,
+    PlanarGraphOfBoundingBoxes,
+    VolumetricGraphOfBoundingBoxes,
     hardest_path_query,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
@@ -156,7 +157,7 @@ def room_scene_of(world: World, clearance: float = CLEARANCE) -> NavigationScene
         ],
         world.root,
     )
-    graph = GraphOfBoundingBoxes.navigation_map_from_world(
+    graph = PlanarGraphOfBoundingBoxes.navigation_map_from_world(
         world=world, search_space=search_space, bloat_obstacles=clearance
     )
     query = hardest_path_query(graph)
@@ -187,7 +188,7 @@ class BoxRowFixture:
     by construction.
     """
 
-    graph: GraphOfBoundingBoxes
+    graph: VolumetricGraphOfBoundingBoxes
     boxes: list[BoundingBox]
 
 
@@ -200,7 +201,7 @@ def box_row() -> BoxRowFixture:
     with world.modify_world():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
 
-    graph = GraphOfBoundingBoxes(world)
+    graph = VolumetricGraphOfBoundingBoxes(world)
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     boxes = [
         BoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin)
@@ -284,7 +285,7 @@ def test_a_graph_with_no_connected_pair_has_nothing_to_plan_between():
     with world.modify_world():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
 
-    graph = GraphOfBoundingBoxes(world)
+    graph = VolumetricGraphOfBoundingBoxes(world)
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     for offset in (0.0, 10.0):
         graph.add_node(BoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin))
@@ -333,7 +334,7 @@ def test_query_measures_distance_along_the_graph_not_across_it():
     with world.modify_world():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
 
-    graph = GraphOfBoundingBoxes(world)
+    graph = VolumetricGraphOfBoundingBoxes(world)
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     # A U of unit boxes: the two tips face each other one meter apart, but reaching one
     # tip from the other means walking around the whole U.
@@ -408,9 +409,11 @@ def test_path_detours_around_the_pillar(room_scene: NavigationScene):
         if pillar_footprint.min_x < float(waypoint.x) < pillar_footprint.max_x
         and pillar_footprint.min_y < float(waypoint.y) < pillar_footprint.max_y
     ]
-    assert room_scene.path.length > float(
-        waypoints[0].euclidean_distance(waypoints[-1])
-    )
+    straight_line_distance = (
+        (float(waypoints[-1].x) - float(waypoints[0].x)) ** 2
+        + (float(waypoints[-1].y) - float(waypoints[0].y)) ** 2
+    ) ** 0.5
+    assert room_scene.path.length > straight_line_distance
 
 
 # %% the figure

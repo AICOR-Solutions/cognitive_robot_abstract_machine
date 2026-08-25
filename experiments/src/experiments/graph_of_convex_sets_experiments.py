@@ -22,7 +22,7 @@ the scene, widened by 1 m in x and y (see
 For every environment, both GCS implementations are benchmarked and compared against
 a mesh-accurate free-space ground truth:
 
-  * :class:`GraphOfBoundingBoxes` exhaustively partitions free space into disjoint
+  * :class:`VolumetricGraphOfBoundingBoxes` exhaustively partitions free space into disjoint
     axis-aligned boxes; its own volume is an exact, always-valid lower bound on the
     true free volume (obstacle bounding boxes only ever over-approximate the real
     geometry).
@@ -79,7 +79,7 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import BoundingBox, Shape
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    GraphOfBoundingBoxes,
+    VolumetricGraphOfBoundingBoxes,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.polygons import (
     GraphOfConvexPolygons,
@@ -154,8 +154,9 @@ class GraphOfConvexSetsFreespaceExperimentResult(ExperimentResult):
 
     box_construction_duration: MeanAndStandardDeviation
     """
-    Time to build a complete, query-ready :class:`GraphOfBoundingBoxes` from an already-
-    loaded world via ``GraphOfBoundingBoxes.free_space_from_world`` (mean ± standard
+    Time to build a complete, query-ready :class:`VolumetricGraphOfBoundingBoxes` from
+    an already- loaded world via
+    ``VolumetricGraphOfBoundingBoxes.free_space_from_world`` (mean ± standard
     deviation).
 
     World loading is excluded: by the time a navigation goal arrives, the world is
@@ -180,8 +181,8 @@ class GraphOfConvexSetsFreespaceExperimentResult(ExperimentResult):
 
     box_free_space_volume: float
     """
-    Volume of :class:`GraphOfBoundingBoxes`'s own free-space partition (the sum of its
-    disjoint box volumes).
+    Volume of :class:`VolumetricGraphOfBoundingBoxes`'s own free-space partition (the
+    sum of its disjoint box volumes).
 
     Also a valid, exact lower bound on the true free volume, since obstacle bounding
     boxes only ever over-approximate the real obstacle geometry.
@@ -387,7 +388,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
         )
 
         def _compute_connectivity():
-            graph_of_convex_sets = GraphOfBoundingBoxes(
+            graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(
                 world=world, search_space=search_space
             )
             for bounding_box in free_space_collection:
@@ -400,7 +401,9 @@ class GraphOfConvexSetsFreespaceBenchmark:
         )
 
         def _construct_box_graph_from_loaded_world():
-            return GraphOfBoundingBoxes.free_space_from_world(world, search_space)
+            return VolumetricGraphOfBoundingBoxes.free_space_from_world(
+                world, search_space
+            )
 
         _, box_construction_elapsed = self._measure(
             _construct_box_graph_from_loaded_world, repetitions=3

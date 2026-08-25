@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from functools import reduce
 from operator import or_
@@ -10,13 +11,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import rustworkx as rx
-from random_events.interval import reals, closed, Interval
+from random_events.interval import closed, Interval
 from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
 from rtree import index
-from sortedcontainers import SortedSet
-from typing_extensions import List, Optional, Dict, Sequence, Self
+from typing_extensions import Generic, List, Optional, Dict, Sequence, Self, TypeVar
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
@@ -27,18 +27,27 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
+    Pose2D,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import BoundingBox, Bounds, Color
+from semantic_digital_twin.world_description.geometry import (
+    BoundingBox,
+    BoundingBox2D,
+    Bounds,
+    Color,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     GraphOfConvexSets,
+    PointT,
+    SearchSpaceT,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     UnconnectedGraphError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    BoundingBoxCollection2D,
 )
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
@@ -48,15 +57,22 @@ from semantic_digital_twin.world_description.world_entity import (
 
 logger = logging.getLogger(__name__)
 
+BoxT = TypeVar("BoxT")
+"""
+The bounding-box type a :class:`GraphOfBoundingBoxes` subclass decomposes free space
+into -- :class:`BoundingBox` for a volumetric decomposition,
+:class:`BoundingBox2D` for a planar one.
+"""
+
 
 @dataclass
-class BoundingBoxAdjacency:
+class BoundingBoxAdjacency(Generic[BoxT]):
     """
     Edge payload connecting two adjacent bounding boxes in a
     :class:`GraphOfBoundingBoxes`.
     """
 
-    intersection: BoundingBox
+    intersection: BoxT
     """
     The region where the two adjacent boxes overlap or touch.
     """
@@ -71,43 +87,53 @@ class BoundingBoxAdjacency:
 
 
 @dataclass(frozen=True)
-class PathQuery:
+class PathQuery(Generic[PointT]):
     """
     A start and a goal to plan a path between.
     """
 
-    start: Point3
+    start: PointT
     """
     Where the path begins.
     """
 
-    goal: Point3
+    goal: PointT
     """
     Where the path ends.
     """
 
 
 @dataclass
-class GraphOfBoundingBoxes(GraphOfConvexSets):
+class GraphOfBoundingBoxes(
+    Generic[BoxT, PointT, SearchSpaceT],
+    GraphOfConvexSets[PointT, SearchSpaceT],
+):
     """
-    A graph of convex sets whose nodes are axis-aligned bounding boxes.
+    Abstract base for graphs of convex sets whose nodes are axis-aligned bounding boxes.
 
     Free space is decomposed into an exact, exhaustive partition of boxes via the
     `random_events` product algebra (obstacles subtracted from the search space). Every
-    node is a box; every edge represents the adjacency between two boxes.
+    node is a box; every edge represents the adjacency between two boxes. Concrete
+    subclasses differ in how many dimensions that decomposition happens in --
+    :class:`VolumetricGraphOfBoundingBoxes` partitions all three,
+    :class:`PlanarGraphOfBoundingBoxes` partitions the floor plane only.
     """
 
-    graph: rx.PyGraph[BoundingBox, BoundingBoxAdjacency] = field(
+    graph: rx.PyGraph[BoxT, BoundingBoxAdjacency[BoxT]] = field(
         default_factory=lambda: rx.PyGraph(multigraph=False)
     )
     """
     The connectivity graph of the convex sets.
     """
 
-    box_to_index_map: Dict[BoundingBox, int] = field(default_factory=dict)
+    box_to_index_map: Dict[BoxT, int] = field(default_factory=dict)
     """
     A mapping from bounding boxes to their indices in the graph.
     """
+
+    @abstractmethod
+    def _default_search_space(self) -> SearchSpaceT:
+        raise NotImplementedError
 
     def create_subgraph(self, nodes: Sequence[int]) -> Self:
         """
@@ -116,17 +142,17 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         :param nodes: The nodes to include in the subgraph.
         :return: The subgraph.
         """
-        subgraph = GraphOfBoundingBoxes(self.world, self.search_space)
+        subgraph = type(self)(self.world, self.search_space)
         subgraph.graph = self.graph.subgraph(nodes)
         subgraph.box_to_index_map = {
             box: index for box, index in self.box_to_index_map.items() if index in nodes
         }
         return subgraph
 
-    def add_node(self, box: BoundingBox):
+    def add_node(self, box: BoxT):
         self.box_to_index_map[box] = self.graph.add_node(box)
 
-    def calculate_connectivity(self, tolerance=0.001):
+    def calculate_connectivity(self, tolerance: float = 0.001):
         """
         Calculate the connectivity of the graph by checking for intersections between
         the bounding boxes of the nodes. This uses an R-tree for efficient spatial
@@ -139,63 +165,47 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         """
 
         def _overlap(a_min, a_max, b_min, b_max) -> bool:
-            return (
-                a_min[0] <= b_max[0]
-                and b_min[0] <= a_max[0]
-                and a_min[1] <= b_max[1]
-                and b_min[1] <= a_max[1]
-                and a_min[2] <= b_max[2]
-                and b_min[2] <= a_max[2]
-            )
-
-        def _intersection_box(a_min, a_max, b_min, b_max):
-            return BoundingBox(
-                max(a_min[0], b_min[0]),
-                max(a_min[1], b_min[1]),
-                max(a_min[2], b_min[2]),
-                min(a_max[0], b_max[0]),
-                min(a_max[1], b_max[1]),
-                min(a_max[2], b_max[2]),
-                HomogeneousTransformationMatrix(reference_frame=self.world.root),
-            )
-
-        # Build a 3-D R-tree
-        prop = index.Property()
-        prop.dimension = 3
-        rtree_idx = index.Index(properties=prop)
+            return bool(np.all(a_min <= b_max) and np.all(b_min <= a_max))
 
         node_list = list(self.graph.nodes())
-        orig_mins, orig_maxs, expanded, centers = [], [], [], []
+        if not node_list:
+            return
 
-        # Record every node once, insert it into the index
-        for n in node_list:
-            mn = (n.x_interval.lower, n.y_interval.lower, n.z_interval.lower)
-            mx = (n.x_interval.upper, n.y_interval.upper, n.z_interval.upper)
-            ex = (
-                mn[0] - tolerance,
-                mn[1] - tolerance,
-                mn[2] - tolerance,
-                mx[0] + tolerance,
-                mx[1] + tolerance,
-                mx[2] + tolerance,
-            )
+        # BoundingBox.x_interval/y_interval/z_interval (and their planar counterparts)
+        # recompute symbolic arithmetic on every access, so every node's bounds are read
+        # as plain floats exactly once here rather than once per pair below.
+        bounds_list = [node.to_array_bounds() for node in node_list]
+        dimensionality = len(bounds_list[0].lower)
+        centers = [(bounds.lower + bounds.upper) / 2 for bounds in bounds_list]
+        expanded = [
+            tuple(bounds.lower - tolerance) + tuple(bounds.upper + tolerance)
+            for bounds in bounds_list
+        ]
 
-            orig_mins.append(mn)
-            orig_maxs.append(mx)
-            expanded.append(ex)
-            centers.append(n.center)
-            rtree_idx.insert(len(orig_mins) - 1, ex)
+        prop = index.Property()
+        prop.dimension = dimensionality
+        rtree_idx = index.Index(properties=prop)
+        for i, box_expansion in enumerate(expanded):
+            rtree_idx.insert(i, box_expansion)
 
         # Query & link, skip self-loops and symmetric pairs
-        for i, (mn_i, mx_i, ex_i) in enumerate(zip(orig_mins, orig_maxs, expanded)):
-            for j in rtree_idx.intersection(ex_i):
+        for i, bounds_i in enumerate(bounds_list):
+            for j in rtree_idx.intersection(expanded[i]):
                 if j <= i:  # symmetry → skip
                     continue
-                mn_j, mx_j = orig_mins[j], orig_maxs[j]
-                if not _overlap(mn_i, mx_i, mn_j, mx_j):
+                bounds_j = bounds_list[j]
+                if not _overlap(
+                    bounds_i.lower, bounds_i.upper, bounds_j.lower, bounds_j.upper
+                ):
                     continue  # no true overlap
-                box = _intersection_box(mn_i, mx_i, mn_j, mx_j)
-                distance = float(centers[i].euclidean_distance(centers[j]))
+                lower = np.maximum(bounds_i.lower, bounds_j.lower)
+                upper = np.minimum(bounds_i.upper, bounds_j.upper)
+                box = type(node_list[i]).from_array_bounds(
+                    lower,
+                    upper,
+                    HomogeneousTransformationMatrix(reference_frame=self.world.root),
+                )
+                distance = float(np.linalg.norm(centers[i] - centers[j]))
 
                 # Map from the local list positions back to the graph node indices
                 u = self.box_to_index_map[node_list[i]]
@@ -209,7 +219,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         rustworkx.visualization.mpl_draw(self.graph)
         plt.show()
 
-    def plot_free_space(self) -> List[go.Mesh3d]:
+    def plot_free_space(self) -> List[go.BaseTraceType]:
         """
         Plot the free space of the environment in blue.
 
@@ -222,7 +232,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
 
         go.Figure(self.plot_free_space()).show()
 
-    def plot_occupied_space(self) -> List[go.Mesh3d]:
+    def plot_occupied_space(self) -> List[go.BaseTraceType]:
         """
         Plot the occupied space of the environment in red.
 
@@ -239,7 +249,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
 
         go.Figure(self.plot_occupied_space()).show()
 
-    def node_of_point(self, point: Point3) -> Optional[BoundingBox]:
+    def node_of_point(self, point: PointT) -> Optional[BoxT]:
         """
         Find the node that contains a point.
 
@@ -250,7 +260,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
                 return node
         return None
 
-    def path_from_to(self, start: Point3, goal: Point3) -> Optional[List[Point3]]:
+    def path_from_to(self, start: PointT, goal: PointT) -> Optional[List[PointT]]:
         """
         Calculate a connected path from a start pose to a goal pose.
 
@@ -307,14 +317,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
 
         for source, target in zip(path, path[1:]):
             intersection = self.graph.get_edge_data(source, target).intersection
-            waypoints.append(
-                Point3(
-                    intersection.x_interval.center(),
-                    intersection.y_interval.center(),
-                    intersection.z_interval.center(),
-                    reference_frame=reference_frame,
-                )
-            )
+            waypoints.append(intersection.center)
 
         waypoints.append(self.world.transform(goal, reference_frame))
         waypoints = self._shortcut_waypoints(waypoints)
@@ -324,7 +327,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         result.append(goal)
         return result
 
-    def _shortcut_waypoints(self, waypoints: List[Point3]) -> List[Point3]:
+    def _shortcut_waypoints(self, waypoints: List[PointT]) -> List[PointT]:
         """
         Drop waypoints that a straight line can bypass without leaving free space.
 
@@ -341,9 +344,6 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         if len(waypoints) <= 2:
             return list(waypoints)
 
-        # BoundingBox.x_interval/y_interval/z_interval recompute symbolic arithmetic
-        # on every access, so every node's bounds are read as plain floats exactly
-        # once here rather than once per collision check below.
         node_bounds = [node.to_array_bounds() for node in self.graph.nodes()]
 
         result = [waypoints[0]]
@@ -358,7 +358,7 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         return result
 
     def _segment_is_collision_free(
-        self, start: Point3, end: Point3, node_bounds: List[Bounds[np.ndarray]]
+        self, start: PointT, end: PointT, node_bounds: List[Bounds[np.ndarray]]
     ) -> bool:
         """
         Check whether a straight-line segment stays entirely within free space.
@@ -370,9 +370,10 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         :return: True if the segment never leaves the union of the graph's bounding-box
             nodes.
         """
-        direction = end - start
-        coordinates = np.array([float(start.x), float(start.y), float(start.z)])
-        deltas = np.array([float(direction.x), float(direction.y), float(direction.z)])
+        dimensionality = len(node_bounds[0].lower)
+        coordinates = np.asarray(start.to_np()[:dimensionality], dtype=float)
+        end_coordinates = np.asarray(end.to_np()[:dimensionality], dtype=float)
+        deltas = end_coordinates - coordinates
         covered_intervals = [
             interval
             for bounds in node_bounds
@@ -383,6 +384,44 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         covered = Interval.from_simple_sets(*covered_intervals).make_disjoint()
         return (closed(0.0, 1.0) - covered).is_empty()
 
+    @property
+    def free_space_event(self) -> Event:
+        return Event.from_simple_sets(
+            *[node.simple_event for node in self.graph.nodes()]
+        )
+
+
+@dataclass
+class VolumetricGraphOfBoundingBoxes(
+    GraphOfBoundingBoxes[BoundingBox, Point3, BoundingBoxCollection]
+):
+    """
+    A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
+    free space in all three dimensions.
+    """
+
+    def _default_search_space(self) -> BoundingBoxCollection:
+        """
+        :return: A search space spanning the entire three-dimensional space around
+            ``self.world.root``.
+        """
+        return BoundingBoxCollection(
+            shapes=[
+                BoundingBox(
+                    min_x=-np.inf,
+                    min_y=-np.inf,
+                    min_z=-np.inf,
+                    max_x=np.inf,
+                    max_y=np.inf,
+                    max_z=np.inf,
+                    origin=HomogeneousTransformationMatrix(
+                        reference_frame=self.world.root
+                    ),
+                )
+            ],
+            reference_frame=self.world.root,
+        )
+
     @classmethod
     def obstacles_from_semantic_annotations(
         cls,
@@ -391,10 +430,9 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         semantic_wall_annotation: Optional[SemanticAnnotation] = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
-        keep_z=True,
-    ) -> Event:
+    ) -> Optional[Event]:
         """
-        Create a connectivity graph from a list of semantic annotations.
+        Create an event representing the obstacles in a list of semantic annotations.
 
         :param search_space: The search space for the connectivity graph.
         :param semantic_obstacle_annotation: The semantic annotation to create the
@@ -403,8 +441,6 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
             walls to be considered as obstacles.
         :param bloat_obstacles: The amount to bloat the obstacles.
         :param bloat_walls: The amount to bloat the walls.
-        :param keep_z: If True, the z-axis is kept in the resulting event. Default is
-            True.
         :return: An event representing the obstacles in the search space.
         """
         bloated_obstacles = cls._build_bloated_obstacle_collection(
@@ -414,42 +450,27 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
             bloat_obstacles,
             bloat_walls,
         )
-        return cls.obstacles_from_bounding_boxes(
-            bloated_obstacles, search_space.event, keep_z
-        )
+        return cls.obstacles_from_bounding_boxes(bloated_obstacles, search_space.event)
 
     @classmethod
     def obstacles_from_bounding_boxes(
         cls,
         bounding_boxes: BoundingBoxCollection,
         search_space_event: Event,
-        keep_z: bool = True,
     ) -> Optional[Event]:
         """
-        Create a connectivity graph from a list of bounding boxes.
+        Create an event representing the obstacles from a list of bounding boxes.
 
-        :param bounding_boxes: The list of bounding boxes to create the connectivity
-            graph from.
-        :param search_space_event: The search space event to limit the connectivity
-            graph to.
-        :param keep_z: If True, the z-axis is kept in the resulting event. Default is
-            True.
+        :param bounding_boxes: The list of bounding boxes to create the event from.
+        :param search_space_event: The search space event to limit the event to.
         :return: An event representing the obstacles in the search space, or None if no
             obstacles are found.
         """
-        if not keep_z:
-            search_space_event = search_space_event.marginal(SpatialVariables.xy)
-
         events = (
             bb.simple_event.as_composite_set() & search_space_event
             for bb in bounding_boxes
         )
-
-        # skip bbs outside the search space
         events = (event for event in events if not event.is_empty())
-
-        if not keep_z:
-            events = (event.marginal(SpatialVariables.xy) for event in events)
 
         try:
             return reduce(or_, events)
@@ -464,7 +485,6 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         cls,
         bounding_boxes: BoundingBoxCollection,
         search_space_event: Event,
-        keep_z: bool = True,
     ) -> Event:
         """
         Compute the free space by subtracting each obstacle bounding box from the search
@@ -480,17 +500,11 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
 
         :param bounding_boxes: The obstacle bounding boxes to subtract.
         :param search_space_event: The search space; the result is always a subset of this.
-        :param keep_z: If True, the z-axis is kept. Default is True.
         :return: The free space as a disjoint Event.
         """
-        if not keep_z:
-            search_space_event = search_space_event.marginal(SpatialVariables.xy)
-
         free_space = search_space_event
         for bounding_box in bounding_boxes:
             obstacle = bounding_box.simple_event.as_composite_set()
-            if not keep_z:
-                obstacle = obstacle.marginal(SpatialVariables.xy)
             obstacle_in_search = obstacle & search_space_event
             if not obstacle_in_search.is_empty():
                 free_space = free_space.subtract_disjoint(obstacle_in_search)
@@ -614,118 +628,6 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
             bloat_obstacles=bloat_obstacles,
         )
 
-    @classmethod
-    def navigation_map_from_semantic_annotation(
-        cls,
-        search_space: BoundingBoxCollection,
-        semantic_obstacle_annotation: SemanticAnnotation,
-        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
-        tolerance=0.001,
-        bloat_obstacles: float = 0.0,
-        bloat_walls: float = 0.0,
-    ) -> Self:
-        """
-        Create a GCS from the free space in the belief state of the robot for
-        navigation. The resulting GCS describes the paths for navigation, meaning that
-        changing the z-axis position is not possible. Furthermore, it is taken into
-        account that the robot has to fit through the entire space and not just through
-        the floor level obstacles.
-
-        :param search_space: The search space for the connectivity graph.
-        :param semantic_obstacle_annotation: The semantic annotation containing the
-            obstacles.
-        :param semantic_wall_annotation: An optional semantic annotation containing
-            walls to be considered as obstacles.
-        :param tolerance: The tolerance for the intersection when calculating the
-            connectivity.
-        :param bloat_obstacles: The amount to bloat the obstacles.
-        :param bloat_walls: The amount to bloat the walls.
-        :return: The connectivity graph. If no obstacles are found, an empty graph is
-            returned.
-        """
-        nav_obstacles = cls._build_bloated_obstacle_collection(
-            search_space,
-            semantic_obstacle_annotation,
-            semantic_wall_annotation,
-            bloat_obstacles,
-            bloat_walls,
-        )
-
-        if not nav_obstacles:
-            return cls(
-                world=search_space.reference_frame._world, search_space=search_space
-            )
-
-        # Remove the z-axis so free-space is computed on the 2-D floor plane.
-        full_search_event = search_space.event
-        search_event = full_search_event.marginal(SpatialVariables.xy)
-
-        free_space = cls.free_space_from_bounding_boxes(
-            nav_obstacles, full_search_event, keep_z=False
-        )
-
-        SimpleEvent.from_data({SpatialVariables.z.value: reals()})
-        # create floor level
-        z_event = SimpleEvent.from_data(
-            {SpatialVariables.z.value: reals()}
-        ).as_composite_set()
-        z_event.fill_missing_variables(SpatialVariables.xy)
-        free_space.fill_missing_variables(SortedSet([SpatialVariables.z.value]))
-        free_space &= z_event
-        free_space &= full_search_event
-
-        # create a connectivity graph from the free space and calculate the edges
-        result = cls(
-            world=search_space.reference_frame._world,
-            search_space=search_space,
-        )
-        free_space_boxes = BoundingBoxCollection.from_event(
-            search_space.reference_frame, free_space
-        )
-        [result.add_node(bounding_box) for bounding_box in free_space_boxes]
-        result.calculate_connectivity(tolerance)
-
-        return result
-
-    @classmethod
-    def navigation_map_from_world(
-        cls,
-        world: World,
-        tolerance=0.001,
-        search_space: Optional[BoundingBoxCollection] = None,
-        bloat_obstacles: float = 0.0,
-    ) -> Self:
-        """
-        Create a GCS from the free space in the belief state of the robot for
-        navigation. The resulting GCS describes the paths for navigation, meaning that
-        changing the z-axis position is not possible. Furthermore, it is taken into
-        account that the robot has to fit through the entire space and not just through
-        the floor level obstacles.
-
-        :param world: The belief state.
-        :param search_space: The search space for the connectivity graph.
-        :param tolerance: The tolerance for the intersection when calculating the
-            connectivity.
-        :param bloat_obstacles: The amount to bloat the obstacles.
-        :return: The connectivity graph.
-        """
-        semantic_annotation = SemanticEnvironmentAnnotation(
-            root=world.root, _world=world
-        )
-
-        return cls.navigation_map_from_semantic_annotation(
-            search_space,
-            semantic_annotation,
-            tolerance=tolerance,
-            bloat_obstacles=bloat_obstacles,
-        )
-
-    @property
-    def free_space_event(self) -> Event:
-        return Event.from_simple_sets(
-            *[node.simple_event for node in self.graph.nodes()]
-        )
-
     def create_as_region(
         self,
         name: Optional[PrefixedName] = None,
@@ -764,7 +666,317 @@ class GraphOfBoundingBoxes(GraphOfConvexSets):
         return region
 
 
-def hardest_path_query(graph: GraphOfBoundingBoxes) -> PathQuery:
+@dataclass
+class PlanarGraphOfBoundingBoxes(
+    GraphOfBoundingBoxes[BoundingBox2D, Pose2D, BoundingBoxCollection2D]
+):
+    """
+    A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
+    free space on a single navigable plane.
+
+    Built for base navigation: the z-axis never enters the decomposition, so a query
+    only has to answer whether an x,y footprint is free -- and an obstacle blocks a
+    footprint at every height, since the robot has to fit through the entire column of
+    space above it, not just its floor-level silhouette.
+    """
+
+    def _default_search_space(self) -> BoundingBoxCollection2D:
+        """
+        :return: A search space spanning the entire two-dimensional plane around
+            ``self.world.root``.
+        """
+        return BoundingBoxCollection2D(
+            shapes=[
+                BoundingBox2D(
+                    min_x=-np.inf,
+                    min_y=-np.inf,
+                    max_x=np.inf,
+                    max_y=np.inf,
+                    origin=HomogeneousTransformationMatrix(
+                        reference_frame=self.world.root
+                    ),
+                )
+            ],
+            reference_frame=self.world.root,
+        )
+
+    @classmethod
+    def obstacles_from_semantic_annotations(
+        cls,
+        search_space: BoundingBoxCollection,
+        semantic_obstacle_annotation: SemanticAnnotation,
+        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        bloat_obstacles: float = 0.0,
+        bloat_walls: float = 0.0,
+    ) -> Optional[Event]:
+        """
+        Create an event representing the obstacles' floor footprint in a list of
+        semantic annotations.
+
+        :param search_space: The three-dimensional search space for the connectivity
+            graph -- its height range bounds which obstacles count as blocking.
+        :param semantic_obstacle_annotation: The semantic annotation to create the
+            connectivity graph from.
+        :param semantic_wall_annotation: An optional semantic annotation containing
+            walls to be considered as obstacles.
+        :param bloat_obstacles: The amount to bloat the obstacles.
+        :param bloat_walls: The amount to bloat the walls.
+        :return: An event representing the obstacles' floor footprint in the search
+            space.
+        """
+        bloated_obstacles = cls._build_bloated_obstacle_collection(
+            search_space,
+            semantic_obstacle_annotation,
+            semantic_wall_annotation,
+            bloat_obstacles,
+            bloat_walls,
+        )
+        return cls.obstacles_from_bounding_boxes(bloated_obstacles, search_space.event)
+
+    @classmethod
+    def obstacles_from_bounding_boxes(
+        cls,
+        bounding_boxes: BoundingBoxCollection,
+        search_space_event: Event,
+    ) -> Optional[Event]:
+        """
+        Create an event representing the obstacles' floor footprint from a list of
+        bounding boxes.
+
+        :param bounding_boxes: The list of bounding boxes to create the event from.
+        :param search_space_event: The three-dimensional search space event to limit
+            the event to before flattening onto the floor plane.
+        :return: An event representing the obstacles' floor footprint in the search
+            space, or None if no obstacles are found.
+        """
+        search_space_event = search_space_event.marginal(SpatialVariables.xy)
+        events = (
+            bb.simple_event.as_composite_set().marginal(SpatialVariables.xy)
+            & search_space_event
+            for bb in bounding_boxes
+        )
+        events = (event for event in events if not event.is_empty())
+
+        try:
+            return reduce(or_, events)
+        except TypeError:
+            logger.warning(
+                "No obstacles found in the given semantic annotations. Returning None."
+            )
+            return None
+
+    @classmethod
+    def free_space_from_bounding_boxes(
+        cls,
+        bounding_boxes: BoundingBoxCollection,
+        search_space_event: Event,
+    ) -> Event:
+        """
+        Compute the floor-plan free space by subtracting each obstacle's floor
+        footprint from the search space's floor footprint incrementally
+        (subtract_disjoint), the same way :meth:`VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes`
+        does in three dimensions, but marginalized onto the x,y plane first: an
+        obstacle blocks a footprint at every height, since the robot has to fit
+        through the entire column of space above it, not just its floor-level
+        silhouette.
+
+        :param bounding_boxes: The obstacle bounding boxes to subtract.
+        :param search_space_event: The three-dimensional search space; the result is
+            always a subset of its floor footprint.
+        :return: The floor-plan free space as a disjoint, two-dimensional Event.
+        """
+        free_space = search_space_event.marginal(SpatialVariables.xy)
+        for bounding_box in bounding_boxes:
+            obstacle = bounding_box.simple_event.as_composite_set().marginal(
+                SpatialVariables.xy
+            )
+            obstacle_in_search = obstacle & free_space
+            if not obstacle_in_search.is_empty():
+                free_space = free_space.subtract_disjoint(obstacle_in_search)
+            if free_space.is_empty():
+                break
+        return free_space
+
+    @classmethod
+    def obstacles_from_world(
+        cls,
+        world: World,
+        search_space: BoundingBoxCollection,
+        bloat_obstacles: float = 0.0,
+    ) -> Optional[Event]:
+        """
+        Create an event representing the obstacles' floor footprint in the belief
+        state of the robot.
+
+        :param world: The belief state.
+        :param search_space: The three-dimensional search space for the connectivity
+            graph.
+        :param bloat_obstacles: The amount to bloat the obstacles.
+        :return: An event representing the obstacles' floor footprint in the search
+            space.
+        """
+        view = SemanticEnvironmentAnnotation(root=world.root, _world=world)
+
+        return cls.obstacles_from_semantic_annotations(
+            search_space=search_space,
+            semantic_obstacle_annotation=view,
+            bloat_obstacles=bloat_obstacles,
+        )
+
+    @classmethod
+    def navigation_map_from_semantic_annotation(
+        cls,
+        search_space: BoundingBoxCollection,
+        semantic_obstacle_annotation: SemanticAnnotation,
+        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        tolerance=0.001,
+        bloat_obstacles: float = 0.0,
+        bloat_walls: float = 0.0,
+    ) -> Self:
+        """
+        Create a GCS from the free space in the belief state of the robot for
+        navigation. The resulting GCS describes the paths for navigation, meaning that
+        changing the z-axis position is not possible. Furthermore, it is taken into
+        account that the robot has to fit through the entire space and not just through
+        the floor level obstacles.
+
+        :param search_space: The three-dimensional search space for the connectivity
+            graph -- its height range bounds which obstacles count as blocking, since
+            the robot has to fit through the entire space, not just the floor-level
+            obstacles. The graph's own :attr:`search_space` is this volume's floor
+            footprint.
+        :param semantic_obstacle_annotation: The semantic annotation containing the
+            obstacles.
+        :param semantic_wall_annotation: An optional semantic annotation containing
+            walls to be considered as obstacles.
+        :param tolerance: The tolerance for the intersection when calculating the
+            connectivity.
+        :param bloat_obstacles: The amount to bloat the obstacles.
+        :param bloat_walls: The amount to bloat the walls.
+        :return: The connectivity graph. If no obstacles are found, an empty graph is
+            returned.
+        """
+        world = search_space.reference_frame._world
+        floor_search_space = BoundingBoxCollection2D.from_event(
+            search_space.reference_frame,
+            search_space.event.marginal(SpatialVariables.xy),
+        )
+
+        nav_obstacles = cls._build_bloated_obstacle_collection(
+            search_space,
+            semantic_obstacle_annotation,
+            semantic_wall_annotation,
+            bloat_obstacles,
+            bloat_walls,
+        )
+
+        if not nav_obstacles:
+            return cls(world=world, search_space=floor_search_space)
+
+        free_space = cls.free_space_from_bounding_boxes(
+            nav_obstacles, search_space.event
+        )
+
+        # create a connectivity graph from the free space and calculate the edges
+        result = cls(world=world, search_space=floor_search_space)
+        free_space_boxes = BoundingBoxCollection2D.from_event(
+            search_space.reference_frame, free_space
+        )
+        [result.add_node(bounding_box) for bounding_box in free_space_boxes]
+        result.calculate_connectivity(tolerance)
+
+        return result
+
+    @classmethod
+    def navigation_map_from_world(
+        cls,
+        world: World,
+        tolerance=0.001,
+        search_space: Optional[BoundingBoxCollection] = None,
+        bloat_obstacles: float = 0.0,
+    ) -> Self:
+        """
+        Create a GCS from the free space in the belief state of the robot for
+        navigation. The resulting GCS describes the paths for navigation, meaning that
+        changing the z-axis position is not possible. Furthermore, it is taken into
+        account that the robot has to fit through the entire space and not just through
+        the floor level obstacles.
+
+        :param world: The belief state.
+        :param search_space: The three-dimensional search space for the connectivity
+            graph.
+        :param tolerance: The tolerance for the intersection when calculating the
+            connectivity.
+        :param bloat_obstacles: The amount to bloat the obstacles.
+        :return: The connectivity graph.
+        """
+        semantic_annotation = SemanticEnvironmentAnnotation(
+            root=world.root, _world=world
+        )
+
+        return cls.navigation_map_from_semantic_annotation(
+            search_space,
+            semantic_annotation,
+            tolerance=tolerance,
+            bloat_obstacles=bloat_obstacles,
+        )
+
+    def create_as_region(
+        self,
+        slab_height: float,
+        name: Optional[PrefixedName] = None,
+        color: Color = Color(0.5, 1.0, 0.5, 0.5),
+    ) -> Region:
+        """
+        Spawn the GCS as a region (world_entity) connected with a fixed connection with
+        the root of the GCS search space. Since a floor-plan box has no z-extent of its
+        own to spawn, each one is extruded into a thin 3D slab of ``slab_height``,
+        centered on the plane the boxes were built on.
+
+        :param slab_height: The thickness of the spawned slab.
+        :param name: The name of the region.
+        :param color: The color of the region.
+        :return: The region.
+        """
+        if name is None:
+            name = PrefixedName("gcs_region")
+
+        half_height = slab_height / 2
+        bbox_collection = BoundingBoxCollection(
+            shapes=[
+                BoundingBox(
+                    box.min_x,
+                    box.min_y,
+                    -half_height,
+                    box.max_x,
+                    box.max_y,
+                    half_height,
+                    box.origin,
+                )
+                for box in self.graph.nodes()
+            ],
+            reference_frame=self.search_space.reference_frame,
+        )
+
+        shapes = bbox_collection.as_shapes()
+        shapes.dye_shapes(color)
+        region = Region.from_shape_collection(name, shapes)
+
+        with self.world.modify_world():
+            self.world.add_region(region)
+
+            self.world.add_connection(
+                FixedConnection(
+                    parent=self.search_space.reference_frame,
+                    child=region,
+                )
+            )
+        return region
+
+
+def hardest_path_query(
+    graph: GraphOfBoundingBoxes[BoxT, PointT, SearchSpaceT],
+) -> PathQuery[PointT]:
     """
     Pick the query that is hardest to answer: the two convex set centers whose shortest
     path through the graph is the longest one it holds.
@@ -818,12 +1030,13 @@ def hardest_path_query(graph: GraphOfBoundingBoxes) -> PathQuery:
 
 
 def _coordinates_of(
-    graph: GraphOfBoundingBoxes, index: int
+    graph: GraphOfBoundingBoxes[BoxT, PointT, SearchSpaceT], index: int
 ) -> tuple[float, float, float]:
     """
     :param graph: The graph holding the convex set.
     :param index: The index of the convex set in that graph.
-    :return: The center of the convex set, as plain floats to compare by.
+    :return: The center of the convex set, as plain floats to compare by. The third
+        coordinate reads as 0 for a planar graph, whose centers have no z.
     """
     center = graph.graph[index].center
     return float(center.x), float(center.y), float(center.z)
@@ -835,7 +1048,7 @@ def navigation_map_at_target(
     search_range_y: float = 2.0,
     max_height: float = 2.0,
     bloat_obstacles: float = 0.02,
-) -> GraphOfBoundingBoxes:
+) -> PlanarGraphOfBoundingBoxes:
     """
     Create a navigation map around the target.
 
@@ -867,7 +1080,6 @@ def navigation_map_at_target(
         ),
     )
 
-    graph_of_bounding_boxes = GraphOfBoundingBoxes.navigation_map_from_world(
+    return PlanarGraphOfBoundingBoxes.navigation_map_from_world(
         world=target._world, search_space=search_space, bloat_obstacles=bloat_obstacles
     )
-    return graph_of_bounding_boxes

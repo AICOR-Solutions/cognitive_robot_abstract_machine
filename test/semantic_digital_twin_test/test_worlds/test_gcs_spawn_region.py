@@ -55,8 +55,9 @@ def test_spawn_as_region(simple_world):
     # Create navigation map at target
     gcs = navigation_map_at_target(target=target)
 
-    # Spawn GCS as region
-    region = gcs.create_as_region()
+    # Spawn GCS as region, extruded into a slab since the GCS's own boxes are 2D
+    slab_height = 0.1
+    region = gcs.create_as_region(slab_height=slab_height)
 
     assert isinstance(region, Region)
     assert region in world.regions
@@ -73,9 +74,10 @@ def test_spawn_as_region(simple_world):
 
     expected_center_x = box.x_interval.center()
     expected_center_y = box.y_interval.center()
-    expected_center_z = box.z_interval.center()
+    expected_center_z = box.origin.z
 
     # Shape origin relative to region
     assert np.allclose(shape.origin.x, expected_center_x)
     assert np.allclose(shape.origin.y, expected_center_y)
     assert np.allclose(shape.origin.z, expected_center_z)
+    assert np.isclose(shape.scale.z, slab_height)
