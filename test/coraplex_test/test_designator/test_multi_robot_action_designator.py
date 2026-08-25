@@ -59,7 +59,10 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Milk,
+    Spoon,
+)
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -308,7 +311,8 @@ def test_reach_action_multi(immutable_multiple_robot_apartment):
         VerticalAlignment.NoAlignment,
         left_arm.end_effector,
     )
-    milk_body = world.get_body_by_name("milk.stl")
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    milk_body = milk.root
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -2, 0.8, reference_frame=world.root
     )
@@ -324,7 +328,7 @@ def test_reach_action_multi(immutable_multiple_robot_apartment):
                 target_pose=Pose(
                     Point3.from_iterable([1, -2, 0.8]), reference_frame=world.root
                 ),
-                object_designator=milk_body,
+                object_designator=milk,
                 arm=Arms.LEFT,
                 grasp_description=grasp_description,
             ),
@@ -467,7 +471,9 @@ def test_pick_up_multi(mutable_multiple_robot_apartment, rclpy_node):
         [
             ParkArmsAction(Arms.BOTH),
             PickUpAction(
-                world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+                world.get_semantic_annotations_by_type(Milk)[0],
+                Arms.LEFT,
+                grasp_description,
             ),
         ],
         context,
@@ -517,7 +523,9 @@ def test_place_multi(mutable_multiple_robot_apartment):
         [
             ParkArmsAction(Arms.BOTH),
             PickUpAction(
-                world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+                world.get_semantic_annotations_by_type(Milk)[0],
+                Arms.LEFT,
+                grasp_description,
             ),
             PlaceAction(
                 world.get_body_by_name("milk.stl"),
@@ -675,7 +683,7 @@ def test_transport(mutable_multiple_robot_apartment, rclpy_node):
     world, robot, context = mutable_multiple_robot_apartment
 
     description = TransportAction(
-        object_designator=world.get_body_by_name("milk.stl"),
+        object_designator=world.get_semantic_annotations_by_type(Milk)[0],
         target_location=Pose(
             Point3.from_iterable([3.1, 2.2, 0.95]),
             Quaternion.from_iterable([0.0, 0.0, 1.0, 0.0]),
@@ -725,7 +733,7 @@ def test_transport_open_container(mutable_multiple_robot_apartment, rclpy_node):
     if isinstance(robot, HSRB):
         return
     description = TransportAction(
-        object_designator=world.get_body_by_name("spoon.stl"),
+        object_designator=world.get_semantic_annotations_by_type(Spoon)[0],
         target_location=Pose.from_xyz_rpy(
             5.1, 3.3, 0.75, yaw=1.57, reference_frame=world.root
         ),

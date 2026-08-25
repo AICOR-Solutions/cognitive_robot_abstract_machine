@@ -188,6 +188,7 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
         [body] = self.world.get_bodies_by_global_position(
             self.world_P_object_of_interest, 0.1
         )
+        object_of_interest = body.get_semantic_annotations_by_type(HasRootBody)[0]
 
         plan = sequential(
             [
@@ -203,7 +204,7 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
                     Pose.from_xyz_rpy(0, 0.8, reference_frame=self.world.root)
                 ),
                 MoveAndPickUpAction(
-                    object_designator=body,
+                    object_designator=object_of_interest,
                     standing_position=self.pickup_navigation_pose,
                     arm=arm,
                     grasp_description=grasp_description,
@@ -234,7 +235,7 @@ class Sage10kTVStudioDemo(Sage10kAbstractDemoHSRB):
         return Pose.from_xyz_rpy(x=12.5, y=3, z=0, reference_frame=self.world.root)
 
     @property
-    def book_to_pick(self) -> Body:
+    def book_to_pick(self) -> NaturalLanguageWithTypeDescription:
         @symbolic_function
         def closes_to_border(target) -> float:
             return self.world.transform(target.global_pose, couch_table.root).y
@@ -265,8 +266,7 @@ class Sage10kTVStudioDemo(Sage10kAbstractDemoHSRB):
                 descending=False,
             )
         )
-        book = target.first()
-        return book.root
+        return target.first()
 
     @property
     def plan(self) -> Plan:
@@ -318,7 +318,7 @@ class Sage10kCraftsmanLobbyDemo(Sage10kAbstractDemoHSRB):
         )
 
     @property
-    def book_to_pick(self) -> Body:
+    def book_to_pick(self) -> NaturalLanguageWithTypeDescription:
         @symbolic_function
         def closes_to_border(target) -> float:
             return self.world.transform(target.global_pose, couch_table.root).y
@@ -349,8 +349,7 @@ class Sage10kCraftsmanLobbyDemo(Sage10kAbstractDemoHSRB):
                 descending=False,
             )
         )
-        book = target.first()
-        return book.root
+        return target.first()
 
     @property
     def plan(self):
@@ -375,7 +374,7 @@ class Sage10kCraftsmanLobbyDemo(Sage10kAbstractDemoHSRB):
             standing_position=Pose.from_xyz_rpy(
                 x=5.48, y=6.96, reference_frame=self.world.root
             ),
-            object_designator=self.book_to_pick,
+            object_designator=self.book_to_pick.root,
             target_location=target_pose,
             arm=Arms.LEFT,
         )
@@ -402,7 +401,7 @@ class Sage10kTropicalWarehouse(Sage10kAbstractDemoHSRB):
         )
 
     @property
-    def target_to_pick(self) -> Body:
+    def target_to_pick(self) -> NaturalLanguageWithTypeDescription:
 
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
@@ -424,7 +423,7 @@ class Sage10kTropicalWarehouse(Sage10kAbstractDemoHSRB):
             )
             .first()
         )
-        return target.root
+        return target
 
     @property
     def plan(self) -> Plan:
@@ -481,7 +480,7 @@ class Sage10kVaporwave(Sage10kAbstractDemoHSRB):
         )
 
     @property
-    def target_to_pick(self) -> Body:
+    def target_to_pick(self) -> NaturalLanguageWithTypeDescription:
 
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
@@ -495,7 +494,7 @@ class Sage10kVaporwave(Sage10kAbstractDemoHSRB):
             self.world.semantic_annotations,
         )
         target = (
-            an(entity(target_v.root))
+            an(entity(target_v))
             .ordered_by(
                 variable=target_v,
                 key=lambda x: planar_distance(x.root.global_pose.position, point_guess),
@@ -531,7 +530,7 @@ class Sage10kVaporwave(Sage10kAbstractDemoHSRB):
                 x=0.605, y=2.115, yaw=-1.5708, reference_frame=self.world.root
             ),
             target_location=place_target_pose,
-            object_designator=self.target_to_pick,
+            object_designator=self.target_to_pick.root,
             arm=Arms.LEFT,
         )
 
@@ -562,7 +561,7 @@ class Sage10kEclecticResidence(Sage10kAbstractDemoHSRB):
         )
 
     @property
-    def target_to_pick(self) -> Body:
+    def target_to_pick(self) -> NaturalLanguageWithTypeDescription:
 
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
@@ -576,7 +575,7 @@ class Sage10kEclecticResidence(Sage10kAbstractDemoHSRB):
             self.world.semantic_annotations,
         )
         target = (
-            an(entity(target_v.root))
+            an(entity(target_v))
             .ordered_by(
                 variable=target_v,
                 key=lambda x: planar_distance(x.root.global_pose.position, point_guess),
@@ -651,7 +650,7 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
                     )
                 ),
                 MoveAndPickUpAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest,
                     standing_position=self.pickup_navigation_pose,
                     arm=arm,
                     grasp_description=grasp_description,
@@ -663,7 +662,7 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
                     )
                 ),
                 MoveAndPlaceAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest.root,
                     standing_position=self.place_navigation_pose,
                     arm=arm,
                     target_location=self.place_pose,
@@ -680,7 +679,7 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
         return plan
 
     @property
-    def world_P_object_of_interest(self):
+    def object_of_interest(self) -> NaturalLanguageWithTypeDescription:
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
             return point1.euclidean_distance(point2)
@@ -700,7 +699,7 @@ class Sage10kSouthwesternStoreDemo(Sage10kAbstractDemoHSRB):
             )
         ).first()
 
-        return bottle.root
+        return bottle
 
     @property
     def robot_starting_pose(self):
@@ -775,14 +774,14 @@ class Sage10kBrutalistStoreDemo(Sage10kAbstractDemoHSRB):
                     )
                 ),
                 MoveAndPickUpAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest,
                     standing_position=self.pickup_navigation_pose,
                     arm=arm,
                     grasp_description=grasp_description,
                 ),
                 ParkArmsAction(Arms.BOTH),
                 MoveAndPlaceAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest.root,
                     standing_position=self.place_navigation_pose,
                     arm=arm,
                     target_location=self.place_pose,
@@ -798,7 +797,7 @@ class Sage10kBrutalistStoreDemo(Sage10kAbstractDemoHSRB):
         return plan
 
     @property
-    def world_P_object_of_interest(self):
+    def object_of_interest(self) -> NaturalLanguageWithTypeDescription:
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
             return point1.euclidean_distance(point2)
@@ -818,7 +817,7 @@ class Sage10kBrutalistStoreDemo(Sage10kAbstractDemoHSRB):
             )
         ).first()
 
-        return bottle.root
+        return bottle
 
     @property
     def robot_starting_pose(self):
@@ -877,7 +876,7 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
                 open_door,
                 ParkArmsAction(Arms.BOTH),
                 MoveAndPickUpAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest,
                     standing_position=self.pickup_navigation_pose,
                     arm=arm,
                     grasp_description=grasp_description,
@@ -885,7 +884,7 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(target_location=navigate),
                 MoveAndPlaceAction(
-                    object_designator=self.world_P_object_of_interest,
+                    object_designator=self.object_of_interest.root,
                     standing_position=self.place_navigation_pose,
                     arm=arm,
                     target_location=self.place_pose,
@@ -900,7 +899,7 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
         return Pose.from_xyz_rpy(5.45, 13.00, reference_frame=self.world.root)
 
     @property
-    def world_P_object_of_interest(self) -> Body:
+    def object_of_interest(self) -> NaturalLanguageWithTypeDescription:
         @symbolic_function
         def planar_distance(point1: Point3, point2: Point3):
             return point1.euclidean_distance(point2)
@@ -925,7 +924,7 @@ class Sage10kAmericanBuffetDemo(Sage10kAbstractDemoHSRB):
                 is_supported_by(v_cup.root, table.root, 0.05),
             )
         ).first()
-        return cup.root
+        return cup
 
     @property
     def pickup_navigation_pose(self) -> Pose:

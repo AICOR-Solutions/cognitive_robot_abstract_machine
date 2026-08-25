@@ -402,7 +402,8 @@ def test_detection_corrects_a_grasp_planned_before_it(immutable_model_world):
     Without this, a wrong prior in the world silently aims the reach at empty space.
     """
     world, view, context = immutable_model_world
-    milk_body = world.get_body_by_name("milk.stl")
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    milk_body = milk.root
     wrong_prior = (1.0, 1.0, 1.0)
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         *wrong_prior, reference_frame=world.root
@@ -410,7 +411,7 @@ def test_detection_corrects_a_grasp_planned_before_it(immutable_model_world):
 
     plan = execute_single(
         PickUpAction(
-            milk_body,
+            milk,
             Arms.RIGHT,
             GraspDescription(
                 ApproachDirection.FRONT,

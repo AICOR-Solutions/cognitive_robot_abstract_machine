@@ -40,6 +40,7 @@ from giskardpy.motion_statechart.tasks.pointing import Pointing
 from semantic_digital_twin.datastructures.definitions import GripperState, TorsoState
 from semantic_digital_twin.spatial_types import Point3, Quaternion
 from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 try:
     from coraplex.alternative_motion_mappings.hsrb_motion_mapping import *
@@ -62,7 +63,9 @@ def test_pick_up_motion(immutable_model_world):
         view.left_arm.end_effector,
     )
     pick_up = PickUpAction(
-        test_world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+        test_world.get_semantic_annotations_by_type(Milk)[0],
+        Arms.LEFT,
+        grasp_description,
     )
 
     root = sequential(
@@ -338,7 +341,7 @@ def test_pick_up_action_close_motion_stall_tolerance_defaults_to_false(
         view.left_arm.end_effector,
     )
     pick_up = PickUpAction(
-        world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+        world.get_semantic_annotations_by_type(Milk)[0], Arms.LEFT, grasp_description
     )
     sequential([pick_up], context=context)
 
@@ -364,7 +367,7 @@ def test_pick_up_action_close_motion_tolerates_stall_when_enabled(
         view.left_arm.end_effector,
     )
     pick_up = PickUpAction(
-        world.get_body_by_name("milk.stl"),
+        world.get_semantic_annotations_by_type(Milk)[0],
         Arms.LEFT,
         grasp_description,
         tolerate_grasp_stall=True,
@@ -393,7 +396,7 @@ def test_pick_up_action_velocity_fields_default_to_none(immutable_model_world):
     )
 
     pick_up = PickUpAction(
-        world.get_body_by_name("milk.stl"), Arms.LEFT, grasp_description
+        world.get_semantic_annotations_by_type(Milk)[0], Arms.LEFT, grasp_description
     )
 
     assert pick_up.pre_approach_linear_velocity is None

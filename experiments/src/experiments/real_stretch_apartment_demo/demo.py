@@ -169,7 +169,8 @@ class StretchApartmentDemonstration(RobotDemonstration):
             ViewManager.get_arm_view(Arms.LEFT, context.robot).end_effector,
         )
 
-        cereal_body = world.get_body_by_name(CEREAL_NAME)
+        cereal = world.get_semantic_annotations_by_type(CheezeIt)[0]
+        cereal_body = cereal.root
         shelf_layer_body = world.get_body_by_name(CEREAL_SHELF_LAYER_NAME)
         bedside_table_body = world.get_body_by_name("bedside_table.dae")
         CEREAL_SHELF_LAYER_T_CEREAL.reference_frame = shelf_layer_body
@@ -196,7 +197,9 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     trust_detected_orientation=True,
                     accept_first_if_multiple=True,
                 ),
-                PickUpAction(cereal_body, Arms.LEFT, grasp_description),
+                PickUpAction(
+                    cereal, Arms.LEFT, grasp_description, perceive_before_grasp=True
+                ),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
                     Pose.from_xyz_rpy(
@@ -234,9 +237,10 @@ class StretchApartmentDemonstration(RobotDemonstration):
                     accept_first_if_multiple=True,
                 ),
                 a(PickUpAction)(
-                    object_designator=cereal_body,
+                    object_designator=cereal,
                     arm=Arms.LEFT,
                     grasp_description=grasp_description,
+                    perceive_before_grasp=True,
                 ),
                 ParkArmsAction(Arms.BOTH),
                 NavigateAction(
