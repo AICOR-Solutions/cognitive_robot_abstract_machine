@@ -50,13 +50,13 @@ class Cause(Literal):
     _value_: Any = field(default=Ellipsis, init=False)
 
 
-class CauseSentinel:
+class CauseMarker:
     """
     Type of :data:`cause`.
 
-    A *sentinel* here means a fixed marker value whose only job is to be recognised and
-    swapped out later, the same role ``Ellipsis`` (``...``) already plays for a plain
-    underspecified field.
+    A *marker* here means a fixed value whose only job is to flag a field for special
+    handling and be swapped out later, the same role ``Ellipsis`` (``...``) already
+    plays for a plain underspecified field.
 
     A distinct type -- not ``Cause`` itself -- because unlike a plain literal kwarg
     (``arm=0.3``), whose ``Literal`` wrapper :meth:`AttributeMatch.assigned_variable
@@ -67,7 +67,7 @@ class CauseSentinel:
     object; the second field's type backfill (see :meth:`AttributeMatch.assigned_variable
     <krrood.entity_query_language.query.match.AttributeMatch.assigned_variable>`) would
     then silently overwrite the first's. :meth:`~krrood.entity_query_language.query.match.Match.resolve`
-    avoids this by replacing each occurrence of the sentinel with its own fresh
+    avoids this by replacing each occurrence of the marker with its own fresh
     :class:`Cause` when it walks the kwargs.
     """
 
@@ -75,7 +75,7 @@ class CauseSentinel:
         return "cause"
 
 
-cause = CauseSentinel()
+cause = CauseMarker()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 ``do()``-intervention target searched for by the query (``arm=cause``).
@@ -99,10 +99,10 @@ class Confounder(Literal):
     _value_: Any = field(default=Ellipsis, init=False)
 
 
-class ConfounderSentinel:
+class ConfounderMarker:
     """
     Type of :data:`confounder` -- the :class:`Confounder` counterpart of
-    :class:`CauseSentinel`, for the same reason: each field it marks needs its own fresh
+    :class:`CauseMarker`, for the same reason: each field it marks needs its own fresh
     :class:`Confounder` rather than sharing one instance.
     """
 
@@ -110,7 +110,7 @@ class ConfounderSentinel:
         return "confounder"
 
 
-confounder = ConfounderSentinel()
+confounder = ConfounderMarker()
 """
 Marks a :class:`~krrood.entity_query_language.query.match.Match` keyword argument as a
 variable to adjust for when searching a :class:`Cause` intervention -- see

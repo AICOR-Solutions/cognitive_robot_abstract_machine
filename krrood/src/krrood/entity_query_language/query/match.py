@@ -34,10 +34,10 @@ from krrood.entity_query_language.core.base_expressions import (
 )
 from krrood.entity_query_language.operators.causal import (
     Cause,
-    CauseSentinel,
+    CauseMarker,
     CausesEffect,
     Confounder,
-    ConfounderSentinel,
+    ConfounderMarker,
 )
 from krrood.entity_query_language.core.helpers import _resolve_domain
 from krrood.entity_query_language.core.mapped_variable import (
@@ -328,11 +328,11 @@ class Match(Evaluable, AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
         parent = parent or self
         self.update_fields(variable, parent)
         for attr_name, attr_assigned_value in self.kwargs.items():
-            if isinstance(attr_assigned_value, CauseSentinel):
+            if isinstance(attr_assigned_value, CauseMarker):
                 # Give this field its own Cause() rather than sharing the cause
-                # sentinel itself -- see CauseSentinel's docstring for why.
+                # marker itself -- see CauseMarker's docstring for why.
                 attr_assigned_value = Cause()
-            elif isinstance(attr_assigned_value, ConfounderSentinel):
+            elif isinstance(attr_assigned_value, ConfounderMarker):
                 attr_assigned_value = Confounder()
             if isinstance(attr_assigned_value, (list, tuple)) and any(
                 isinstance(element, AbstractMatchExpression)

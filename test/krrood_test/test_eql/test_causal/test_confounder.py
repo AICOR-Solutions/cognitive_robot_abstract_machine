@@ -1,17 +1,17 @@
 from dataclasses import dataclass
 
-from krrood.entity_query_language.operators.causal import Confounder, ConfounderSentinel
+from krrood.entity_query_language.operators.causal import Confounder, ConfounderMarker
 from krrood.entity_query_language.factories import a, confounder
 
 # %% construction
 
 
-def test_confounder_sentinel_is_not_itself_a_confounder_instance():
+def test_confounder_marker_is_not_itself_a_confounder_instance():
     # confounder must stay a distinct type so each attribute it marks gets its own
-    # fresh Confounder() during match resolution -- see ConfounderSentinel's
+    # fresh Confounder() during match resolution -- see ConfounderMarker's
     # docstring for why.
     assert not isinstance(confounder, Confounder)
-    assert isinstance(confounder, ConfounderSentinel)
+    assert isinstance(confounder, ConfounderMarker)
 
 
 # %% flowing through Match (converted to a fresh Confounder() per attribute on

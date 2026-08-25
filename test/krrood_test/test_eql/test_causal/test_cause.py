@@ -1,16 +1,16 @@
 from dataclasses import dataclass
 
-from krrood.entity_query_language.operators.causal import Cause, CauseSentinel
+from krrood.entity_query_language.operators.causal import Cause, CauseMarker
 from krrood.entity_query_language.factories import a, cause
 
 # %% construction
 
 
-def test_cause_sentinel_is_not_itself_a_cause_instance():
+def test_cause_marker_is_not_itself_a_cause_instance():
     # cause must stay a distinct type so each attribute it marks gets its own fresh
-    # Cause() during match resolution -- see CauseSentinel's docstring for why.
+    # Cause() during match resolution -- see CauseMarker's docstring for why.
     assert not isinstance(cause, Cause)
-    assert isinstance(cause, CauseSentinel)
+    assert isinstance(cause, CauseMarker)
 
 
 # %% flowing through Match (converted to a fresh Cause() per attribute on resolution)
