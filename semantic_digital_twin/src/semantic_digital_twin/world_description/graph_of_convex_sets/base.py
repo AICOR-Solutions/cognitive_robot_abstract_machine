@@ -7,12 +7,16 @@ import numpy as np
 from random_events.interval import Interval, SimpleInterval
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import Generic, List, Optional, TypeVar
+from typing_extensions import Generic, List, Optional, TypeVar, Union
 
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
+from semantic_digital_twin.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point2D,
+    Point3,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import BoundingBox
@@ -21,12 +25,12 @@ from semantic_digital_twin.world_description.shape_collection import (
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
-PointT = TypeVar("PointT")
+PointT = TypeVar("PointT", bound=Union[Point3, Point2D])
 """
-The point/pose type a :class:`GraphOfConvexSets` subclass queries and returns paths
-in -- :class:`~semantic_digital_twin.spatial_types.Point3` for a graph that plans in
-three dimensions, :class:`~semantic_digital_twin.spatial_types.Pose2D` for one that plans
-on a single plane.
+The point type a :class:`GraphOfConvexSets` subclass queries and returns paths in --
+:class:`~semantic_digital_twin.spatial_types.Point3` for a graph that plans in three
+dimensions, :class:`~semantic_digital_twin.spatial_types.Point2D` for one that plans on
+a single plane.
 """
 
 SearchSpaceT = TypeVar("SearchSpaceT")

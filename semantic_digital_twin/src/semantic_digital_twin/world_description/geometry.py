@@ -1231,9 +1231,21 @@ class AxisAlignedBox(ABC):
         """
         raise NotImplementedError
 
+    @classmethod
+    def dimensionality(cls) -> int:
+        """
+        :return: The number of spatial axes this box type is expressed over.
+        """
+        return len(cls.axes())
+
     @abstractmethod
     def get_points(self) -> List[Point3]:
         """
+        Always ``Point3`` -- even for :class:`BoundingBox2D` -- so that
+        :meth:`transform_to_origin`'s corner-transform math stays a single
+        implementation shared by every box type, rather than branching on
+        dimensionality.
+
         :return: This box's corners, as ``Point3`` instances in its own local frame.
         """
         raise NotImplementedError
@@ -1267,6 +1279,11 @@ class AxisAlignedBox(ABC):
     def to_array_bounds(self) -> Bounds[npt.NDArray[np.float64]]:
         """
         Express this bounding box's lower and upper corners as plain-float vectors.
+
+        Array-based, not ``Point3``-based, for the same reason as
+        :meth:`from_array_bounds`: :meth:`~semantic_digital_twin.world_description.graph_of_convex_sets.boxes.GraphOfBoundingBoxes.calculate_connectivity`
+        reads these generically across dimensionality, and a 2D box has no ``Point3``
+        corners of its own.
 
         :return: The corners, in the same frame as ``origin``.
         """
@@ -1303,6 +1320,9 @@ class AxisAlignedBox(ABC):
     ) -> Self:
         """
         Transform the bounding box to a different reference frame.
+
+        :param reference_T_new_origin: The origin to express the box relative to.
+        :return: The box, re-expressed relative to ``reference_T_new_origin``.
         """
         reference_T_new_origin = HomogeneousTransformationMatrix(
             data=reference_T_new_origin.to_np(),
@@ -1824,7 +1844,9 @@ class BoundingBox2D(AxisAlignedBox):
 
     def get_points(self) -> List[Point3]:
         """
-        Get the 4 corners of the bounding box as Point3 objects, at z=0.
+        Get the 4 corners of the bounding box as ``Point3`` objects at z=0, in the box's
+        own local frame -- see :meth:`AxisAlignedBox.get_points` for why a 2D box still
+        returns ``Point3`` rather than ``Point2D``.
 
         :return: A list of Point3 objects representing the corners of the bounding box.
         """

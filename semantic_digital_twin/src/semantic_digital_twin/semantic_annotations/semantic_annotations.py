@@ -1478,11 +1478,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
             agent_entities.update(agent.kinematic_structure_entities)
 
         return [
-            entity
-            for entity in self.kinematic_structure_entities
-            if isinstance(entity, Body)
-            and entity.has_collision()
-            and entity not in agent_entities
+            body for body in self.bodies_with_collision if body not in agent_entities
         ]
 
     def build_bloated_obstacle_collection(
@@ -1511,18 +1507,15 @@ class SemanticEnvironmentAnnotation(HasRootBody):
 
         entities_to_consider = self.obstacle_entities(search_space)
 
-        collections = [
+        collections = (
             entity.collision.as_bounding_box_collection_at_origin(
                 HomogeneousTransformationMatrix(reference_frame=world_root)
             )
             for entity in entities_to_consider
-        ]
-
-        obstacle_bounding_boxes = BoundingBoxCollection([], world_root)
-        for bounding_box_collection in collections:
-            obstacle_bounding_boxes = obstacle_bounding_boxes.merge(
-                bounding_box_collection
-            )
+        )
+        obstacle_bounding_boxes = BoundingBoxCollection.merge_all(
+            collections, world_root
+        )
 
         bloated_obstacles = BoundingBoxCollection(
             [
@@ -1546,7 +1539,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
                 ],
                 world_root,
             )
-            bloated_obstacles.merge(bloated_walls)
+            bloated_obstacles = bloated_obstacles.merge(bloated_walls)
 
         return bloated_obstacles
 

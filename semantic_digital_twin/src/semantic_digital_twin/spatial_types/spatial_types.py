@@ -1172,8 +1172,9 @@ class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     Represents a 2D point with reference frame handling.
 
     Stored as a bare 2×1 symbolic vector ``[x, y]``, with no homogeneous augmentation --
-    the same convention :class:`Pose2D` uses. :meth:`to_point3` converts to the
-    equivalent 3D :class:`Point3` whenever a 3D calculation is required.
+    the same convention :class:`Pose2D` uses. The point always lies on its reference
+    frame's own x-y plane (z=0 relative to that frame); :meth:`to_point3` converts to
+    the equivalent 3D :class:`Point3` whenever a 3D calculation is required.
     """
 
     def __init__(
@@ -1249,7 +1250,11 @@ class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     @property
     def z(self) -> float:
         """
-        :return: Always 0 -- a 2D point has no height of its own.
+        Always 0, since a 2D point has no height of its own -- lets code that handles
+        both 2D and 3D points (e.g. path plotting) read ``.z`` uniformly instead of
+        branching by type.
+
+        :return: 0.
         """
         return 0
 

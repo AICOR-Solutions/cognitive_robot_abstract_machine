@@ -15,6 +15,7 @@ from typing_extensions import (
     Self,
     Optional,
     List,
+    Iterable,
     Iterator,
     Generic,
     Type,
@@ -260,7 +261,7 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
     a :class:`BoundingBox` collection.
     """
 
-    shapes: List[BoxT]
+    shapes: List[BoxT] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.reference_frame:
@@ -300,6 +301,25 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
             reference_frame=self.reference_frame,
             shapes=self.bounding_boxes + other.bounding_boxes,
         )
+
+    @classmethod
+    def merge_all(
+        cls,
+        collections: Iterable[BoundingBoxCollection[BoxT]],
+        reference_frame: KinematicStructureEntity,
+    ) -> BoundingBoxCollection[BoxT]:
+        """
+        Merge a sequence of bounding box collections into one.
+
+        :param collections: The collections to merge, in the given ``reference_frame``.
+        :param reference_frame: The reference frame of the result, and of every
+            collection in ``collections``.
+        :return: The merged collection, empty if ``collections`` is empty.
+        """
+        result = cls([], reference_frame)
+        for collection in collections:
+            result = result.merge(collection)
+        return result
 
     @classmethod
     def from_simple_event(

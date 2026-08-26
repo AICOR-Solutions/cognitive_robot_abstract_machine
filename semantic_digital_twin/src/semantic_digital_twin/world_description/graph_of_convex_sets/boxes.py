@@ -62,6 +62,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     AmbiguousSelectedVariableError,
+    InconsistentBoxDimensionalityError,
     MissingFloatLikeFieldError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
@@ -135,6 +136,13 @@ class GraphOfBoundingBoxes(
     def _default_search_space(self) -> SearchSpaceT:
         raise NotImplementedError
 
+    @property
+    def dimensionality(self) -> int:
+        """
+        :return: The number of spatial axes this graph's boxes are expressed over.
+        """
+        return type(self.search_space.bounding_boxes[0]).dimensionality()
+
     def create_subgraph(self, nodes: Sequence[int]) -> Self:
         """
         Create a subgraph of the current graph containing only the given nodes.
@@ -150,6 +158,13 @@ class GraphOfBoundingBoxes(
         return subgraph
 
     def add_node(self, box: BoxT):
+        """
+        :param box: The box to add as a node.
+        :raises InconsistentBoxDimensionalityError: If ``box`` is expressed over a
+            different number of spatial axes than this graph's other boxes.
+        """
+        if box.dimensionality() != self.dimensionality:
+            raise InconsistentBoxDimensionalityError(box, self.dimensionality)
         self.box_to_index_map[box] = self.graph.add_node(box)
 
     def calculate_connectivity(self, tolerance: float = 0.001):
@@ -175,7 +190,7 @@ class GraphOfBoundingBoxes(
         # recompute symbolic arithmetic on every access, so every node's bounds are read
         # as plain floats exactly once here rather than once per pair below.
         bounds_list = [node.to_array_bounds() for node in node_list]
-        dimensionality = len(bounds_list[0].lower)
+        dimensionality = self.dimensionality
         centers = [(bounds.lower + bounds.upper) / 2 for bounds in bounds_list]
         expanded = [
             tuple(bounds.lower - tolerance) + tuple(bounds.upper + tolerance)
@@ -370,7 +385,7 @@ class GraphOfBoundingBoxes(
         :return: True if the segment never leaves the union of the graph's bounding-box
             nodes.
         """
-        dimensionality = len(node_bounds[0].lower)
+        dimensionality = self.dimensionality
         coordinates = np.asarray(start.to_np()[:dimensionality], dtype=float)
         end_coordinates = np.asarray(end.to_np()[:dimensionality], dtype=float)
         deltas = end_coordinates - coordinates
