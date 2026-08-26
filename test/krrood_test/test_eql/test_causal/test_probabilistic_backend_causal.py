@@ -495,6 +495,12 @@ def test_rank_causes_rejects_a_match_with_no_cause_fields():
 # %% whole-query verbalization
 
 
+@dataclass
+class CalibrationAttempt:
+    setting: float
+    calibrated: bool
+
+
 def test_a_causal_query_verbalizes_the_causes_effect_clause_in_context():
     match = a(Pick)(arm=cause, outcome=...)
     match.causes_effect(match.variable.outcome == Outcome.SUCCESS)
@@ -514,6 +520,19 @@ def test_causes_effect_verbalizes_correctly_alongside_an_unrelated_where_conditi
         "Generate a PickAttempt and predict its arm, grip, and outcome values "
         "where its grip is greater than 0.5, and its arm causes its outcome to "
         "be SUCCESS"
+    )
+
+
+def test_causes_effect_verbalizes_a_boolean_effect_naturally():
+    # A boolean effect must not fall through the generic "<attribute> to be <value>"
+    # template (that reads as a broken double clause, e.g. "a Pick is grasped to be
+    # True") -- it reads as "<navigation> to be <predicate>" instead.
+    match = a(CalibrationAttempt)(setting=cause, calibrated=...)
+    match.causes_effect(match.variable.calibrated == True)
+
+    assert verbalize_expression(match) == (
+        "Generate a CalibrationAttempt and predict its setting and calibrated "
+        "values where its setting causes the CalibrationAttempt to be calibrated"
     )
 
 

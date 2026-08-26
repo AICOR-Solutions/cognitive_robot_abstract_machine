@@ -16,6 +16,9 @@ from krrood.entity_query_language.operators.core_logical_operators import (
     flatten_operands,
 )
 from krrood.entity_query_language.operators.logical_quantifiers import Exists, ForAll
+from krrood.entity_query_language.verbalization.attribute_predicates import (
+    resolve_boolean_predicate,
+)
 from krrood.entity_query_language.verbalization.fragments.base import (
     flatten_fragment_to_plain_text,
     VerbalizationFragment,
@@ -687,13 +690,14 @@ def _causal_effect_clause(
     condition: SymbolicExpression, context: RuleContext
 ) -> VerbalizationFragment:
     """
-    Render *condition* as one or more *"<attribute> to be <value>"* clauses, joined with
-    an Oxford comma for a conjunction, for :class:`CausesEffectRule` to prefix with
-    *"what causes"*.
+    Render *condition* as one or more effect clauses, joined with an Oxford comma for a
+    conjunction, for :class:`CausesEffectRule` to prefix with the cause.
 
     *condition* is an equality comparator, or an AND of them -- the only shapes
     :meth:`~krrood.entity_query_language.operators.causal.CausesEffect.__post_init__`
-    allows.
+    allows. A boolean-attribute equality reads as *"<navigation> to [not] be grasped"*
+    (see :func:`_boolean_causal_effect_clause`); every other equality reads as the
+    generic *"<attribute> to be <value>"*.
     """
     if isinstance(condition, AND):
         parts = [
@@ -701,6 +705,8 @@ def _causal_effect_clause(
             for operand in flatten_operands(condition, AND)
         ]
         return oxford_comma(parts, Conjunctions.AND.as_fragment(), pair_comma=True)
+    if is_boolean_attribute_chain(condition.left):
+        return _boolean_causal_effect_clause(condition, context)
     return PhraseFragment(
         parts=[
             context.child(condition.left),
@@ -708,6 +714,38 @@ def _causal_effect_clause(
             context.child(condition.right, as_value=True),
         ]
     )
+
+
+def _boolean_causal_effect_clause(
+    condition: Comparator, context: RuleContext
+) -> VerbalizationFragment:
+    """
+    Render a boolean-attribute equality as *"<navigation> to [not] <predicate>"* --
+    *"the Pick to be grasped"*, *"the Animal to not have milk"*, *"a Cow to produce
+    milk"* -- instead of forcing the generic *"<attribute> to be <value>"* template
+    onto it, which reads as a broken double clause (*"a Pick is grasped to be True"*:
+    the attribute's own predicative reading, *"is grasped"*, left stranded before *"to
+    be True"*).
+
+    *<navigation>* is the chain up to (not including) the boolean attribute itself.
+    *<predicate>* is the field's own declared
+    :class:`~krrood.entity_query_language.verbalization.boolean_predicate.BooleanPredicate`,
+    in its bare infinitive form -- whichever surface form (adjectival/possessive/verbal)
+    the field declares, so the clause reads naturally regardless of which one it is.
+    """
+    terminal = condition.left
+    predicate = resolve_boolean_predicate(terminal)
+    parts = [
+        context.child(terminal._child_, inline=True),
+        Prepositions.TO.as_fragment(),
+    ]
+    if not condition.right._value_:
+        parts.append(Logicals.NOT.as_fragment())
+    parts.append(predicate.bare_head())
+    predicate_object = predicate.predicate_object(terminal)
+    if predicate_object is not None:
+        parts.append(predicate_object)
+    return PhraseFragment(parts=parts)
 
 
 class CausesEffectRule(PhraseRule):
@@ -720,8 +758,8 @@ class CausesEffectRule(PhraseRule):
     recognisable from its verbalization alone rather than reading as a vague *"what"*.
 
     >>> pick = variable(Pick, [])
-    >>> verbalize_expression(CausesEffect(pick.duration == 0.3, cause_attributes=[pick.arm]))
-    'the arm of a Pick causes the duration of the Pick to be 0.3'
+    >>> verbalize_expression(CausesEffect(pick.grasped == True, cause_attributes=[pick.arm]))
+    'the arm of a Pick causes the Pick to be grasped'
     """
 
     construct = CausesEffect
@@ -729,8 +767,8 @@ class CausesEffectRule(PhraseRule):
     def build(self, node: CausesEffect, context: RuleContext) -> VerbalizationFragment:
         """
         Prefix the effect condition with *"<cause attribute> causes"*, rendering each
-        equality comparator as *"<attribute> to be <value>"* instead of *"<attribute> is
-        <value>"*.
+        equality comparator through :func:`_causal_effect_clause` -- *"<attribute> to be
+        <value>"*, or for a boolean attribute, *"<navigation> to [not] <predicate>"*.
 
         Falls back to the generic *"what causes"* when built without any
         ``cause_attributes`` (a :class:`CausesEffect` constructed directly rather than

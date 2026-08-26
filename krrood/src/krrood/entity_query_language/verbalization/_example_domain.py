@@ -455,11 +455,6 @@ class Pick:
     The arm's position at the time of the attempt.
     """
 
-    duration: float
-    """
-    How long the attempt took, in seconds.
-    """
-
     grasped: bool
     """
     Whether the attempt succeeded.
