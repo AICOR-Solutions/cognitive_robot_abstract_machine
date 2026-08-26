@@ -1154,18 +1154,27 @@ class WorldNamespaceIsImmutableError(UsageError):
     The namespace the world was built with, if it was built with one.
     """
 
-    rejected_namespace: str
+    rejected_namespace: Optional[str]
     """
     The namespace that was assigned to the already constructed world.
     """
 
     def error_message(self) -> str:
-        return (
-            f"The world was built in namespace '{self.current_namespace}' and cannot be "
-            f"moved to '{self.rejected_namespace}' afterwards."
+        built = (
+            "without a namespace"
+            if self.current_namespace is None
+            else f"in namespace '{self.current_namespace}'"
         )
+        rejected = (
+            "taken out of it"
+            if self.rejected_namespace is None
+            else f"moved to '{self.rejected_namespace}'"
+        )
+        return f"The world was built {built} and cannot be {rejected} afterwards."
 
     def suggest_correction(self) -> str:
+        if self.rejected_namespace is None:
+            return "build a world without a namespace and merge this world's content into it."
         return (
             f"build the world in it, World(namespace='{self.rejected_namespace}'), and "
             f"merge existing content into that world."

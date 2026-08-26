@@ -665,7 +665,10 @@ class World(HasSimulatorProperties):
         self._entity_id_source = Random(self.namespace)
 
     def __setattr__(self, attribute: str, value: Any) -> None:
-        if attribute == "namespace":
+        # The constructor writes the namespace once, and that write is what puts it in
+        # the instance dictionary; the field's default lives on the class until then.
+        # Every assignment after it is therefore a move between namespaces.
+        if attribute == "namespace" and "namespace" in self.__dict__:
             raise WorldNamespaceIsImmutableError(self.namespace, value)
         super().__setattr__(attribute, value)
 
