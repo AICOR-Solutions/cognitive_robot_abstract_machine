@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import plotly.graph_objects as go
 from numpy import testing
-from random_events.interval import closed, closed_open
+from random_events.interval import closed, closed_open, Bound
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from random_events.variable import Continuous
 from scipy.special import logsumexp
@@ -323,6 +323,94 @@ class FittedNygaDistributionTestCase(unittest.TestCase):
         )
         self.assertEqual(likelihood.shape, (1000,))
         self.assertGreater(likelihood.min(), -np.inf)
+
+
+class SafeExtremePointTestCase(unittest.TestCase):
+    """
+    Tests for `NygaInduction.safe_extreme_point`, which bounds how far an extreme point
+    of a Nyga distribution's support may be widened by `tolerance_at_extremes` without
+    entering a given forbidden region.
+    """
+
+    variable: Continuous = Continuous("x")
+    model: NygaInduction
+
+    def setUp(self) -> None:
+        self.model = NygaInduction(self.variable)
+
+    def test_lower_bound_uses_full_tolerance_when_no_forbidden_region(self):
+        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
+            5.0, -1, None
+        )
+        self.assertEqual(new_bound, 5.0 - self.model.tolerance_at_extremes)
+        self.assertFalse(touches_forbidden_region)
+
+    def test_upper_bound_uses_full_tolerance_when_clear_of_forbidden_region(self):
+        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
+            5.0, 1, closed(10.0, 20.0)
+        )
+        self.assertEqual(new_bound, 5.0 + self.model.tolerance_at_extremes)
+        self.assertFalse(touches_forbidden_region)
+
+    def test_lower_bound_clips_exactly_onto_forbidden_region_edge(self):
+        # unclipped would be 5.0000005 - 1e-6 = 4.9999995, inside the forbidden region
+        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
+            5.0000005, -1, closed(0.0, 5.0)
+        )
+        self.assertEqual(new_bound, 5.0)
+        self.assertTrue(touches_forbidden_region)
+
+    def test_upper_bound_clips_exactly_onto_forbidden_region_edge(self):
+        # unclipped would be 4.9999995 + 1e-6 = 5.0000005, inside the forbidden region
+        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
+            4.9999995, 1, closed(5.0, 10.0)
+        )
+        self.assertEqual(new_bound, 5.0)
+        self.assertTrue(touches_forbidden_region)
+
+
+class AdjustExtremePointsTestCase(unittest.TestCase):
+    """
+    Tests for `NygaInduction.adjust_extreme_points`, which widens a Nyga
+    distribution's support without letting it overlap a given forbidden region - the
+    support already claimed by another leaf for the same variable elsewhere in a
+    larger circuit, as happens when :class:`JointProbabilityTree` mounts one
+    independently fitted distribution per decision-tree leaf.
+    """
+
+    variable: Continuous = Continuous("x")
+
+    def model_with_single_piece(self, lower: float, upper: float) -> NygaInduction:
+        model = NygaInduction(self.variable)
+        root = SumUnit(probabilistic_circuit=model.probabilistic_circuit)
+        leaf_node = leaf(
+            UniformDistribution(
+                variable=self.variable, interval=closed(lower, upper).simple_sets[0]
+            ),
+            model.probabilistic_circuit,
+        )
+        root.add_subcircuit(leaf_node, 0.0)
+        return model
+
+    def test_widens_by_full_tolerance_without_forbidden_region(self):
+        model = self.model_with_single_piece(0.0, 5.0)
+        model.adjust_extreme_points()
+        widened = model.probabilistic_circuit.leaves[0].distribution.interval
+        self.assertEqual(widened.lower, -model.tolerance_at_extremes)
+        self.assertEqual(widened.upper, 5.0 + model.tolerance_at_extremes)
+
+    def test_clips_upper_bound_to_avoid_overlapping_forbidden_region(self):
+        # the raw leaf already sits closer to the neighbor than tolerance_at_extremes
+        model = self.model_with_single_piece(0.0, 4.9999995)
+        forbidden_region = closed(5.0, 10.0)
+        model.adjust_extreme_points(forbidden_region)
+        widened = model.probabilistic_circuit.leaves[0].distribution.interval
+
+        self.assertEqual(widened.upper, 5.0)
+        self.assertEqual(widened.right, Bound.OPEN)
+        self.assertTrue(
+            widened.as_composite_set().intersection_with(forbidden_region).is_empty()
+        )
 
 
 if __name__ == "__main__":

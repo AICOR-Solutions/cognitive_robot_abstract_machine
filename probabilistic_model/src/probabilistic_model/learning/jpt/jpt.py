@@ -8,7 +8,7 @@ import pandas as pd
 from jpt.learning.impurity import Impurity
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
-from random_events.interval import closed
+from random_events.interval import closed, singleton, Interval
 from random_events.product_algebra import VariableMap
 from random_events.variable import Variable, Continuous, Integer, Symbolic
 from typing_extensions import Self
@@ -289,7 +289,10 @@ class JointProbabilityTree(SubclassJSONSerializer):
         if max_gain <= self.min_impurity_improvement:
 
             # create decomposable product node
-            leaf_node = self.create_leaf_node(data[self.indices[start:end]])
+            other_rows = np.concatenate([self.indices[:start], self.indices[end:]])
+            leaf_node = self.create_leaf_node(
+                data[self.indices[start:end]], data[other_rows]
+            )
             weight = number_of_samples / len(data)
             self.root.add_subcircuit(leaf_node, np.log(weight))
 
@@ -309,11 +312,53 @@ class JointProbabilityTree(SubclassJSONSerializer):
         self.c45queue.append((data, start, start + split_pos + 1, new_depth))
         self.c45queue.append((data, start + split_pos + 1, end, new_depth))
 
-    def create_leaf_node(self, data: np.ndarray) -> ProductUnit:
+    @staticmethod
+    def reserved_neighbor_region(
+        own_values: np.ndarray, other_values: np.ndarray
+    ) -> Interval:
+        """
+        The nearest values in `other_values` immediately below and above the range of
+        `own_values`, as a region of one or two singleton points.
+
+        Passed as the `forbidden_region` to :meth:`NygaInduction.fit` for a leaf, so
+        that widening that leaf's support for a variable to account for float
+        instabilities cannot cross into a sibling leaf's raw data for the same
+        variable - which would break the determinism of the tree the leaves are
+        mounted into. Considering only the two nearest points, rather than every
+        point in `other_values`, is sufficient because the widening is bounded by
+        :attr:`NygaInduction.tolerance_at_extremes`, which cannot reach past them.
+
+        :param own_values: The values of one continuous variable, for the rows of the
+            leaf under construction.
+        :param other_values: The values of that variable, for every row outside that
+            leaf.
+        :return: The reserved region, empty if `other_values` is empty.
+        """
+        region = Interval.from_simple_sets()
+        if len(other_values) == 0:
+            return region
+
+        below = other_values[other_values < own_values.min()]
+        if len(below) > 0:
+            region = region.union_with(singleton(float(below.max())))
+
+        above = other_values[other_values > own_values.max()]
+        if len(above) > 0:
+            region = region.union_with(singleton(float(above.min())))
+
+        return region
+
+    def create_leaf_node(
+        self, data: np.ndarray, other_data: Optional[np.ndarray] = None
+    ) -> ProductUnit:
         """
         Create a fully decomposable product node from a 2D data array.
 
-        :param data: The preprocessed data to use for training
+        :param data: The preprocessed data to use for training.
+        :param other_data: The preprocessed data of every row that does not belong to
+            this leaf, used to keep continuous variables' fitted supports from
+            overlapping a sibling leaf's data. If not given, no such reservation is
+            made.
         :return: The leaf node.
         """
         result = ProductUnit(probabilistic_circuit=self.probabilistic_circuit)
@@ -326,7 +371,14 @@ class JointProbabilityTree(SubclassJSONSerializer):
                     min_likelihood_improvement=annotated_variable.min_likelihood_improvement,
                     min_samples_per_quantile=annotated_variable.min_samples_per_quantile,
                 )
-                distribution = distribution.fit(data[:, index])
+                forbidden_region = (
+                    self.reserved_neighbor_region(data[:, index], other_data[:, index])
+                    if other_data is not None
+                    else None
+                )
+                distribution = distribution.fit(
+                    data[:, index], forbidden_region=forbidden_region
+                )
 
                 if isinstance(
                     distribution.root, UnivariateContinuousLeaf

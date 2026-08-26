@@ -7,7 +7,7 @@ from typing import Optional, List, Deque, Tuple, Dict, Any
 import numpy as np
 import numpy.typing as npt
 import random_events
-from random_events.interval import closed, closed_open, SimpleInterval, Bound
+from random_events.interval import closed, closed_open, Interval, SimpleInterval, Bound
 from random_events.product_algebra import SimpleEvent, Event
 from random_events.variable import Continuous
 from typing_extensions import Self
@@ -419,13 +419,21 @@ class NygaInduction:
     """
 
     def fit(
-        self, data: np.ndarray, weights: Optional[np.ndarray] = None
+        self,
+        data: np.ndarray,
+        weights: Optional[np.ndarray] = None,
+        forbidden_region: Optional[Interval] = None,
     ) -> ProbabilisticCircuit:
         """
         Fit the distribution to the data.
 
         :param data: The data to fit the distribution to.
         :param weights: The optional log_weights of the data points.
+        :param forbidden_region: Space that the fitted support must not overlap, for
+            example the already-fitted support of a sibling distribution for the same
+            variable elsewhere in a larger circuit. Only constrains
+            :meth:`adjust_extreme_points`; the induced quantiles themselves are
+            unaffected.
 
         :return: The fitted distribution.
         """
@@ -483,12 +491,18 @@ class NygaInduction:
             induction_steps.extend(new_induction_steps)
 
         self.probabilistic_circuit.normalize()
-        self.adjust_extreme_points()
+        self.adjust_extreme_points(forbidden_region)
         return self.probabilistic_circuit
 
-    def adjust_extreme_points(self):
+    def adjust_extreme_points(self, forbidden_region: Optional[Interval] = None):
         """
-        Applies `epsilon_at_extremes` to the support of the distribution.
+        Applies `tolerance_at_extremes` to the support of the distribution.
+
+        The widening is shrunk wherever it would otherwise enter `forbidden_region`,
+        so that a dense dataset near a boundary shared with another leaf cannot make
+        the two supports overlap and destroy the determinism of the mixture.
+
+        :param forbidden_region: Space this distribution's support must not overlap.
         """
         # skip if this distribution is a dirac delta distribution
         if len(self.probabilistic_circuit.nodes()) == 1:
@@ -499,15 +513,58 @@ class NygaInduction:
             self.probabilistic_circuit.leaves,
             key=lambda leaf: leaf.distribution.interval.lower,
         )
-
-        lowest_leaf.distribution.interval.lower -= self.tolerance_at_extremes
+        lower, touches_forbidden_region = self.safe_extreme_point(
+            lowest_leaf.distribution.interval.lower, -1, forbidden_region
+        )
+        lowest_leaf.distribution.interval.lower = lower
+        if touches_forbidden_region:
+            lowest_leaf.distribution.interval.left = Bound.OPEN
 
         highest_leaf = max(
             self.probabilistic_circuit.leaves,
             key=lambda leaf: leaf.distribution.interval.upper,
         )
+        upper, touches_forbidden_region = self.safe_extreme_point(
+            highest_leaf.distribution.interval.upper, 1, forbidden_region
+        )
+        highest_leaf.distribution.interval.upper = upper
+        if touches_forbidden_region:
+            highest_leaf.distribution.interval.right = Bound.OPEN
 
-        highest_leaf.distribution.interval.upper += self.tolerance_at_extremes
+    def safe_extreme_point(
+        self, boundary: float, direction: int, forbidden_region: Optional[Interval]
+    ) -> Tuple[float, bool]:
+        """
+        Compute how far `boundary` may move by `tolerance_at_extremes` without the
+        swept-over region entering `forbidden_region`.
+
+        :param boundary: The extreme point to widen.
+        :param direction: -1 to shrink the boundary (a lower bound), +1 to grow it
+            (an upper bound).
+        :param forbidden_region: Space the swept-over region must not overlap.
+
+        :return: The new boundary, and whether it had to be clipped exactly onto the
+            edge of `forbidden_region` (in which case the corresponding side of the
+            interval must be opened to avoid a single-point overlap).
+        """
+        unclipped = boundary + direction * self.tolerance_at_extremes
+        if forbidden_region is None or forbidden_region.is_empty():
+            return unclipped, False
+
+        swept_region = (
+            closed(unclipped, boundary)
+            if direction < 0
+            else closed(boundary, unclipped)
+        )
+        intrusion = swept_region.intersection_with(forbidden_region)
+        if intrusion.is_empty():
+            return unclipped, False
+
+        if direction < 0:
+            edge = max(simple_set.upper for simple_set in intrusion.simple_sets)
+        else:
+            edge = min(simple_set.lower for simple_set in intrusion.simple_sets)
+        return edge, True
 
     def empty_copy(self) -> Self:
         return self.__class__(
