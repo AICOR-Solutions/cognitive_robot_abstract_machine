@@ -36,11 +36,7 @@ from krrood.entity_query_language.core.mapped_variable import (
     CanBehaveLikeAVariable,
     MappedVariable,
 )
-from krrood.entity_query_language.operators.core_logical_operators import (
-    AND,
-    OR,
-    chained_logic,
-)
+from krrood.entity_query_language.factories import ConditionType, and_, or_
 from krrood.symbol_graph.helpers import get_field_type_endpoint
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
@@ -393,7 +389,7 @@ class GraphOfBoundingBoxes(
             *[node.simple_event for node in self.graph.nodes()]
         )
 
-    def constrain_to_free_space(self, variable: MappedVariable) -> OR:
+    def constrain_to_free_space(self, variable: MappedVariable) -> ConditionType:
         """
         Add a where condition to ``variable``'s query, restricting it to lie within
         this graph's free space.
@@ -436,24 +432,23 @@ class GraphOfBoundingBoxes(
         }
 
         simple_event_conditions = [
-            chained_logic(
-                AND,
+            and_(
                 *(
                     self._axis_condition(fields[name], simple_event[name].simple_sets)
                     for name in fields
-                ),
+                )
             )
             for simple_event in free_space_event.simple_sets
         ]
 
-        condition = chained_logic(OR, *simple_event_conditions)
+        condition = or_(*simple_event_conditions)
         chain_root.where(condition)
         return condition
 
     @staticmethod
     def _axis_condition(
         field: MappedVariable, intervals: Sequence[SimpleInterval]
-    ) -> OR:
+    ) -> ConditionType:
         """
         Build the condition constraining one coordinate to a union of intervals.
 
@@ -469,11 +464,9 @@ class GraphOfBoundingBoxes(
         :param intervals: The simple intervals the field must lie within one of.
         :return: An OR of one AND(lower bound, upper bound) condition per interval.
         """
-        return chained_logic(
-            OR,
+        return or_(
             *(
-                chained_logic(
-                    AND,
+                and_(
                     (
                         field >= interval.lower
                         if interval.left == Bound.CLOSED
@@ -486,7 +479,7 @@ class GraphOfBoundingBoxes(
                     ),
                 )
                 for interval in intervals
-            ),
+            )
         )
 
     @staticmethod
