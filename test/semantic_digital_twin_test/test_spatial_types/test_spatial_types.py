@@ -2021,3 +2021,48 @@ def test_underspecification_of_transformation():
     q = q.where(q.variable.x > 0)
     t1 = q.construct_instance()
     assert t1.x == 1
+
+
+# %% normalisation of the constant entries
+
+
+class TestConstantEntriesAreNormalised:
+    """
+    The types whose matrices carry fixed entries repair those entries on construction,
+    rather than trusting the data they are handed.
+    """
+
+    @staticmethod
+    def _matrix_with_wrong_constant_entries() -> np.ndarray:
+        data = np.eye(4)
+        data[3, :] = [7.0, 7.0, 7.0, 7.0]
+        data[:3, 3] = [5.0, 5.0, 5.0]
+        return data
+
+    def test_transformation_matrix_repairs_its_bottom_row(self):
+        matrix = HomogeneousTransformationMatrix(
+            data=self._matrix_with_wrong_constant_entries()
+        )
+        np.testing.assert_array_equal(matrix.to_np()[3, :], [0.0, 0.0, 0.0, 1.0])
+
+    def test_transformation_matrix_keeps_its_translation(self):
+        matrix = HomogeneousTransformationMatrix(
+            data=self._matrix_with_wrong_constant_entries()
+        )
+        np.testing.assert_array_equal(matrix.to_np()[:3, 3], [5.0, 5.0, 5.0])
+
+    def test_pose_repairs_its_bottom_row(self):
+        pose = Pose.from_casadi_sx(sm.to_sx(self._matrix_with_wrong_constant_entries()))
+        np.testing.assert_array_equal(pose.to_np()[3, :], [0.0, 0.0, 0.0, 1.0])
+
+    def test_rotation_matrix_repairs_its_bottom_row(self):
+        rotation = RotationMatrix.from_casadi_sx(
+            sm.to_sx(self._matrix_with_wrong_constant_entries())
+        )
+        np.testing.assert_array_equal(rotation.to_np()[3, :], [0.0, 0.0, 0.0, 1.0])
+
+    def test_rotation_matrix_drops_any_translation(self):
+        rotation = RotationMatrix.from_casadi_sx(
+            sm.to_sx(self._matrix_with_wrong_constant_entries())
+        )
+        np.testing.assert_array_equal(rotation.to_np()[:3, 3], [0.0, 0.0, 0.0])
