@@ -269,10 +269,13 @@ def test_pr2_semantic_annotation(rclpy_node, pr2_world_state_reset):
 
 def test_pr2_collision_rules(rclpy_node, pr2_world_state_reset):
     pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+    # The two worlds stand for two processes, so each needs a namespace of its own.
+    pr2_world_state_reset.namespace = "serving_world"
     fetcher = FetchWorldServer(node=rclpy_node, world=pr2_world_state_reset)
 
     pr2_world_copy = fetch_world_from_service(
         rclpy_node,
+        namespace="fetching_world",
     )
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,

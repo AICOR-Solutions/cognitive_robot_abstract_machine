@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 from abc import ABC
 from dataclasses import dataclass, field
+from functools import partial
 
 import numpy as np
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from semantic_digital_twin.orm.utils import semantic_digital_twin_sessionmaker
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
-from semantic_digital_twin.world import World
+from semantic_digital_twin.world import World, WorldNamespace
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     OmniDrive,
@@ -29,7 +30,13 @@ from semantic_digital_twin.world_description.world_entity import (
 
 @dataclass
 class WorldConfig(ABC):
-    world: World = field(default_factory=World)
+    world: World = field(
+        default_factory=partial(World, namespace=WorldNamespace.GISKARD)
+    )
+    """
+    The world this configuration builds, in the namespace giskard hands out identifiers
+    under.
+    """
 
     @abc.abstractmethod
     def setup_world(self, *args, **kwargs):

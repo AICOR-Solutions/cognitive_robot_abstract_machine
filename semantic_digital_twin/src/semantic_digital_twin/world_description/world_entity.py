@@ -9,7 +9,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from dataclasses import fields
 from functools import cached_property
-from functools import cached_property
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -43,6 +42,7 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
+    EntityIdNotAssignedError,
     ReferenceFrameMismatchError,
 )
 from semantic_digital_twin.mixin import HasSimulatorProperties
@@ -97,7 +97,7 @@ class WorldEntity(Symbol):
 
     def __post_init__(self):
         if self.name is None:
-            self.name = PrefixedName(f"{self.__class__.__name__}_{hash(self)}")
+            self.name = PrefixedName(self.__class__.__name__)
         if self._world is not None:
             self.add_to_world(self._world)
 
@@ -107,7 +107,17 @@ class WorldEntity(Symbol):
             # other operand's __eq__, so base_instance == subclass_instance
             # still works when the subclass's strict type check fails
             return NotImplemented
+        if not (self.has_identity and other.has_identity):
+            # An entity that has not joined a world yet stands only for itself.
+            return self is other
         return hash(self) == hash(other)
+
+    @property
+    def has_identity(self) -> bool:
+        """
+        Whether this entity can be hashed and compared yet.
+        """
+        return True
 
     def add_to_world(self, world: World):
         self._world = world
@@ -137,9 +147,13 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
         The WorldEntity class is not meant to be instantiated directly.
     """
 
-    id: UUID = field(default_factory=uuid4, kw_only=True)
+    id: Optional[UUID] = field(default=None, kw_only=True)
     """
     A unique identifier for this world entity.
+
+    The world assigns it when the entity is added, unless it was constructed with one
+    because it already carries an identity from elsewhere, such as a synchronized world
+    or a deserialized model.
     """
 
     @cached_property
@@ -147,12 +161,34 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
         return hash(self.id)
 
     def __hash__(self):
+        if self.id is None:
+            raise EntityIdNotAssignedError(self)
         return self._hash
 
+    @property
+    def has_identity(self) -> bool:
+        return self.id is not None
+
+    def ensure_identifier(self, world: World) -> None:
+        """
+        Give this entity the identifier of a world it is joining, unless it has one.
+
+        An entity that was constructed with an identifier already carries an identity
+        from elsewhere, such as a synchronized world or a deserialized model, and keeps
+        it.
+
+        :param world: The world the entity is joining.
+        """
+        if self.id is None:
+            self.id = world.generate_entity_id()
+
     def add_to_world(self, world: World):
+        self.ensure_identifier(world)
         super().add_to_world(world)
 
     def to_json(self) -> Dict[str, Any]:
+        if self.id is None:
+            raise EntityIdNotAssignedError(self)
         result = super().to_json()
         introspector = DataclassOnlyIntrospector()
         for field_ in introspector.discover(self.__class__):
@@ -985,6 +1021,10 @@ class Connection(WorldEntity, HasSimulatorProperties, SubclassJSONSerializer, AB
 
     def __hash__(self):
         return hash((self.parent, self.child))
+
+    @property
+    def has_identity(self) -> bool:
+        return self.parent.has_identity and self.child.has_identity
 
     @property
     def origin(self) -> HomogeneousTransformationMatrix:

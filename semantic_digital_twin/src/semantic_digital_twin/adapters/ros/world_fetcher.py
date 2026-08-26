@@ -10,7 +10,7 @@ from std_srvs.srv import Trigger
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.world import World
+from semantic_digital_twin.world import World, WorldNamespace
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
 
 
@@ -123,6 +123,7 @@ def fetch_world_from_service(
     node: Node,
     service_suffix: str = "fetch_world",
     timeout_seconds: float = 10.0,
+    namespace: str = WorldNamespace.UNSET,
 ) -> World:
     """
     Fetch a world from any WorldFetcher Service.
@@ -134,6 +135,8 @@ def fetch_world_from_service(
     :param service_suffix: The suffix (last part behind '/') of the WorldFetcher
         services to look for.
     :param timeout_seconds: Maximum time to wait for service availability and response.
+    :param namespace: The namespace of the process fetching the world, needed before the
+        fetched world may be synchronized.
     :return: The fetched modification blocks.
     """
     deadline = time() + timeout_seconds
@@ -170,7 +173,7 @@ def fetch_world_from_service(
         )
 
     # New format is an object {"modifications": [...], "state": {...}}.
-    world = World()
+    world = World(namespace=namespace)
     tracker = WorldEntityWithIDKwargsTracker.from_world(world)
     kwargs = tracker.create_kwargs()
 

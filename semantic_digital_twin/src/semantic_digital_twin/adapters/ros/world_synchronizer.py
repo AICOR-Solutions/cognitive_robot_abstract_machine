@@ -42,8 +42,10 @@ from semantic_digital_twin.exceptions import (
     StateUpdateContainsUnknownDegreesOfFreedomError,
     WorldHasMultipleSynchronizersError,
     WorldHasNoSynchronizerError,
+    WorldWithoutNamespaceCannotSynchronizeError,
+    ConflictingWorldNamespaceError,
 )
-from semantic_digital_twin.world import World
+from semantic_digital_twin.world import World, WorldNamespace
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityWithClassBasedID,
 )
@@ -136,6 +138,8 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     """
 
     def __post_init__(self):
+        if self._world.namespace == WorldNamespace.UNSET:
+            raise WorldWithoutNamespaceCannotSynchronizeError(self._world)
         self.subscriber = self.node.create_subscription(
             std_msgs.msg.String,
             topic=self.topic_name,
@@ -156,6 +160,7 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
             world_id=self._world._id,
             node_name=self.node.get_name(),
             process_id=os.getpid(),
+            world_namespace=self._world.namespace,
         )
 
     def subscription_callback(self, message: std_msgs.msg.String):
@@ -175,6 +180,8 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
 
             if deserialized_message.meta_data == self.meta_data:
                 return
+            if deserialized_message.meta_data.world_namespace == self._world.namespace:
+                raise ConflictingWorldNamespaceError(self._world.namespace)
 
             self._subscription_callback(deserialized_message)
 

@@ -23,6 +23,8 @@ from semantic_digital_twin.exceptions import (
     NonMonotonicTimeError,
     BrokenWorldModificationHistoryError,
     WorldEntityNotFoundError,
+    EntityIdNotAssignedError,
+    WorldNamespaceIsImmutableError,
 )
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
@@ -40,7 +42,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     RotationMatrix,
 )
 from semantic_digital_twin.testing import StateChangeCounter, world_setup
-from semantic_digital_twin.world import World
+from semantic_digital_twin.world import World, WorldNamespace
 from semantic_digital_twin.world_description.connections import (
     PrismaticConnection,
     RevoluteConnection,
@@ -2412,3 +2414,78 @@ def test_column_indices_of_degree_of_freedom_outside_the_state(world_setup):
 
     with pytest.raises(DofNotInWorldStateError):
         world.state.column_indices([DegreeOfFreedom(name=PrefixedName("new_dof"))])
+
+
+# %% deterministic entity identifiers
+
+
+def build_bodies_in(
+    world: World, names: Tuple[str, ...] = ("a", "b", "c")
+) -> list[UUID]:
+    """
+    Attach one body per name to a fresh root and return the identifiers they were given.
+    """
+    root = Body(name=PrefixedName("map"))
+    bodies = [Body(name=PrefixedName(name)) for name in names]
+    with world.modify_world():
+        world.add_body(root)
+        for body in bodies:
+            world.add_connection(FixedConnection(parent=root, child=body))
+    return [body.id for body in bodies]
+
+
+def test_entity_identifiers_repeat_under_the_same_namespace():
+    assert build_bodies_in(World(namespace="giskard")) == build_bodies_in(
+        World(namespace="giskard")
+    )
+
+
+def test_entity_identifiers_differ_between_namespaces():
+    assert build_bodies_in(World(namespace="giskard")) != build_bodies_in(
+        World(namespace="coraplex")
+    )
+
+
+def test_entity_identifiers_differ_without_a_namespace():
+    assert build_bodies_in(World()) != build_bodies_in(World())
+
+
+def test_supplied_entity_identifier_survives_insertion():
+    identifier = uuid4()
+    body = Body(name=PrefixedName("a"), id=identifier)
+    world = World(namespace="giskard")
+
+    with world.modify_world():
+        world.add_body(body)
+
+    assert body.id == identifier
+
+
+def test_entity_has_no_identifier_before_it_joins_a_world():
+    assert Body(name=PrefixedName("a")).id is None
+
+
+def test_hashing_an_entity_without_an_identifier_is_rejected():
+    with pytest.raises(EntityIdNotAssignedError):
+        hash(Body(name=PrefixedName("a")))
+
+
+def test_a_world_outside_a_namespace_can_be_placed_in_one():
+    world = World()
+
+    world.namespace = "giskard"
+
+    assert build_bodies_in(world) == build_bodies_in(World(namespace="giskard"))
+
+
+def test_namespace_cannot_be_replaced_once_set():
+    world = World(namespace="giskard")
+
+    with pytest.raises(WorldNamespaceIsImmutableError):
+        world.namespace = "coraplex"
+
+    assert world.namespace == "giskard"
+
+
+def test_world_without_a_namespace_uses_the_default():
+    assert World().namespace == WorldNamespace.UNSET

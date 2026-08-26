@@ -1,4 +1,5 @@
 import unittest
+from uuid import uuid4
 from copy import deepcopy
 
 import numpy as np
@@ -156,8 +157,10 @@ class ConnectionModificationTestCase(unittest.TestCase):
         w = World()
         with w.modify_world():
             w.add_kinematic_structure_entity(b1 := Body(name=PrefixedName("b1")))
-        v1 = Handle(root=b1)
-        v2 = Door(root=b1, handle=v1)
+        # A modification carries the identity of what it describes, so an annotation
+        # that is turned into one before it joins a world brings its own.
+        v1 = Handle(root=b1, id=uuid4())
+        v2 = Door(root=b1, handle=v1, id=uuid4())
 
         add_v1 = AddSemanticAnnotationModification.from_domain_object(v1)
         add_v2 = AddSemanticAnnotationModification.from_domain_object(v2)

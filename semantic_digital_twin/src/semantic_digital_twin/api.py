@@ -10,7 +10,7 @@ from typing import (
     Any,
     Generic,
 )
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from typing_extensions import Self, TypeVar
 
@@ -1149,16 +1149,9 @@ class RobotSpecification:
         """
         Create the localization body of a single robot.
 
-        Body names are not unique across a world, so the body's own identifier prefixes
-        its name. Identifiers are unique even across processes, which keeps the odom
-        bodies of several robots distinguishable.
-
         :return: The created odom body.
         """
-        identifier = uuid4()
-        return Body(
-            name=PrefixedName(name="odom", prefix=str(identifier)), id=identifier
-        )
+        return Body(name=PrefixedName("odom"))
 
 
 # %% world specifications

@@ -522,7 +522,7 @@ def test_spawn_positional_name(empty_world):
 
 def _odom_bodies(world: World) -> list[Body]:
     """
-    Every odom body of a world, regardless of the prefix disambiguating it.
+    Every odom body of a world, which several robots name alike.
     """
     return [body for body in world.bodies if body.name.name == "odom"]
 
@@ -604,7 +604,9 @@ def test_world_specification_with_several_robots():
 
     odom_bodies = _odom_bodies(world)
     assert len(odom_bodies) == 2
-    assert odom_bodies[0].name != odom_bodies[1].name
+    # Each robot names its own localization body the same; they stay distinct entities.
+    assert odom_bodies[0].name == odom_bodies[1].name
+    assert odom_bodies[0].id != odom_bodies[1].id
     for odom_body in odom_bodies:
         assert isinstance(odom_body.parent_connection, Connection6DoF)
         assert odom_body.parent_connection.parent is world.root

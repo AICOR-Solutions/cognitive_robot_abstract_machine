@@ -1114,6 +1114,116 @@ class WorldEntityNotFoundError(UsageError):
 
 
 @dataclass
+class EntityIdNotAssignedError(UsageError):
+    """
+    Raised when a world entity is hashed or compared before it has an identifier.
+
+    A world assigns the identifier when the entity is added to it, so an entity that has
+    not joined a world yet has no identity to compare against.
+    """
+
+    entity: WorldEntity
+    """
+    The entity that is still without an identifier.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The {type(self.entity).__name__} '{self.entity.name}' has no identifier "
+            f"yet, so it cannot be hashed or compared."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "add the entity to a world first, or construct it with an explicit id if it "
+            "has to carry one from elsewhere."
+        )
+
+
+@dataclass
+class WorldNamespaceIsImmutableError(UsageError):
+    """
+    Raised when a world that is already in a namespace is moved to another one.
+
+    The entities it holds keep the identifiers its current namespace gave them, so it
+    would end up with a mixture of both.
+    """
+
+    current_namespace: str
+    """
+    The namespace the world is already in.
+    """
+
+    rejected_namespace: str
+    """
+    The namespace that was assigned to the already constructed world.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The world is in namespace '{self.current_namespace}' and cannot be moved "
+            f"to '{self.rejected_namespace}'."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"build a world of its own for '{self.rejected_namespace}' instead of "
+            f"renaming this one."
+        )
+
+
+@dataclass
+class WorldWithoutNamespaceCannotSynchronizeError(UsageError):
+    """
+    Raised when a world that was not placed in a namespace is synchronized.
+
+    Worlds sharing a namespace hand out the same entity identifiers, so every world
+    taking part in a synchronization has to say which process it belongs to.
+    """
+
+    world: World
+    """
+    The world that was about to be synchronized.
+    """
+
+    def error_message(self) -> str:
+        return (
+            "Only a world that was placed in a namespace can be synchronized, because "
+            "the entity identifiers of two worlds must not collide."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "construct the world with the namespace of the process it belongs to, for "
+            "example World(namespace=WorldNamespace.GISKARD)."
+        )
+
+
+@dataclass
+class ConflictingWorldNamespaceError(UsageError):
+    """
+    Raised when a synchronized message arrives from a world sharing our namespace.
+
+    Two processes that both answer to one namespace hand out the same entity
+    identifiers, so their models cannot be told apart once they are merged.
+    """
+
+    namespace: str
+    """
+    The namespace both worlds were given.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Another process is synchronizing a world that is also in namespace "
+            f"'{self.namespace}', so both hand out the same entity identifiers."
+        )
+
+    def suggest_correction(self) -> str:
+        return "give each of the two processes a namespace of its own."
+
+
+@dataclass
 class MissingDefaultCameraError(UsageError):
     """
     Raised when trying to access the default camera of a robot that does not have a

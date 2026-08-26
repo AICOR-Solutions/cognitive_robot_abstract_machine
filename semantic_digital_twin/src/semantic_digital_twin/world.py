@@ -2,10 +2,12 @@ from __future__ import absolute_import
 from __future__ import annotations
 
 import difflib
+from enum import StrEnum
 import inspect
 import logging
 import threading
 import uuid
+from random import Random
 from contextlib import contextmanager
 from copy import deepcopy, copy
 from dataclasses import dataclass, field
@@ -50,6 +52,7 @@ from semantic_digital_twin.exceptions import (
     AlreadyBelongsToAWorldError,
     MissingWorldModificationContextError,
     WorldEntityWithIDNotFoundError,
+    WorldNamespaceIsImmutableError,
     MissingReferenceFrameError,
     MismatchingPublishChangesAttribute,
     AtomicWorldModificationNotAtomic,
@@ -499,6 +502,35 @@ class WorldModelManager:
 _LRU_CACHE_SIZE: int = 2048
 
 
+class WorldNamespace(StrEnum):
+    """
+    The processes that run a world of their own.
+
+    A namespace separates the entity identifiers a world hands out from those of every
+    other world, so that two processes exchanging model changes never mean two different
+    entities by one identifier. Any string does; the members are the ones we run
+    ourselves.
+    """
+
+    UNSET = "unnamespaced"
+    """
+    Carried by a world that was not placed in a namespace.
+
+    Its entity identifiers are random rather than reproducible, which is all a process
+    that keeps its world to itself needs. Synchronizing such a world is refused.
+    """
+
+    CORAPLEX = "coraplex"
+    """
+    The process running a plan against a world.
+    """
+
+    GISKARD = "giskard"
+    """
+    The process controlling the robot in a world.
+    """
+
+
 @dataclass
 class World(HasSimulatorProperties):
     """
@@ -564,6 +596,26 @@ class World(HasSimulatorProperties):
     )
     """
     The ``publish_changes`` the currently open batch was entered with.
+    """
+
+    namespace: str = field(default=WorldNamespace.UNSET, kw_only=True)
+    """
+    Name of the process this world belongs to, such as ``giskard`` or ``coraplex``.
+
+    Entity identifiers are derived from it, which is what keeps the identifiers of two
+    worlds apart. Unlike :attr:`name`, which names the model the world holds, this names
+    its owner.
+
+    Worlds sharing a namespace would hand out colliding identifiers, so a synchronizer
+    refuses to run on a world that still carries :attr:`WorldNamespace.UNSET`. A world
+    may be placed in a namespace afterwards, which is what that refusal asks for, but it
+    cannot be moved to a different one: the entities it already holds keep the
+    identifiers its first namespace gave them.
+    """
+
+    _entity_id_source: Random = field(init=False, repr=False)
+    """
+    Hands out the identifiers of entities that join this world without one.
     """
 
     name: Optional[str] = None
@@ -641,6 +693,37 @@ class World(HasSimulatorProperties):
             ),
         )
         self.collision_manager.add_to_world(self)
+        self._seed_entity_id_source()
+
+    def __setattr__(self, attribute: str, value: Any) -> None:
+        if attribute == "namespace" and self.namespace not in (
+            WorldNamespace.UNSET,
+            value,
+        ):
+            raise WorldNamespaceIsImmutableError(self.namespace, value)
+        super().__setattr__(attribute, value)
+        if attribute == "namespace":
+            self._seed_entity_id_source()
+
+    def _seed_entity_id_source(self) -> None:
+        """
+        Start handing out the identifiers that belong to the current namespace.
+
+        A world outside a namespace draws random identifiers instead, since nothing has
+        to reproduce them.
+        """
+        self._entity_id_source = Random(
+            None if self.namespace == WorldNamespace.UNSET else self.namespace
+        )
+
+    def generate_entity_id(self) -> UUID:
+        """
+        Hand out the identifier for an entity joining this world without one.
+
+        Within a namespace the identifiers repeat for the same sequence of entities, so
+        a program that builds its world the same way twice gets the same identifiers.
+        """
+        return UUID(int=self._entity_id_source.getrandbits(128), version=4)
 
     @classmethod
     def create_with_root_body(
@@ -937,6 +1020,7 @@ class World(HasSimulatorProperties):
         :param kinematic_structure_entity: The kinematic_structure_entity to add.
         """
         self._raise_error_if_belongs_to_other_world(kinematic_structure_entity)
+        kinematic_structure_entity.ensure_identifier(self)
         if not self.is_kinematic_structure_entity_in_world(kinematic_structure_entity):
             self._add_kinematic_structure_entity(kinematic_structure_entity)
 
@@ -965,6 +1049,7 @@ class World(HasSimulatorProperties):
         :param dof: The degree of freedom to register.
         """
         self._raise_error_if_belongs_to_other_world(dof)
+        dof.ensure_identifier(self)
         if not self.is_degree_of_freedom_in_world(dof):
             self._add_degree_of_freedom(dof)
 
@@ -994,6 +1079,7 @@ class World(HasSimulatorProperties):
             name must be unique within the current context.
         """
         self._raise_error_if_belongs_to_other_world(semantic_annotation)
+        semantic_annotation.ensure_identifier(self)
         if self.is_semantic_annotation_in_world(semantic_annotation):
             return
         self._add_semantic_annotation(semantic_annotation)
@@ -1011,6 +1097,7 @@ class World(HasSimulatorProperties):
             name must be unique within the current context.
         """
         self._raise_error_if_belongs_to_other_world(semantic_annotation)
+        semantic_annotation.ensure_identifier(self)
         if self.is_semantic_annotation_in_world(semantic_annotation):
             return
         introspector = DataclassOnlyIntrospector()
@@ -1069,6 +1156,7 @@ class World(HasSimulatorProperties):
             raise AlreadyBelongsToAWorldError(
                 world=actuator._world, type_trying_to_add=Actuator
             )
+        actuator.ensure_identifier(self)
         self._add_actuator(actuator)
 
     @atomic_world_modification(modification=AddActuatorModification)
@@ -1604,37 +1692,32 @@ class World(HasSimulatorProperties):
         )
 
     def is_body_in_world(self, body: Body) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(hash(body))
+        return self._contains_entity(body)
 
     def is_kinematic_structure_entity_in_world(
         self, kinematic_structure_entity: KinematicStructureEntity
     ) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(
-            hash(kinematic_structure_entity)
-        )
+        return self._contains_entity(kinematic_structure_entity)
 
     def is_connection_in_world(self, connection: Connection) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(hash(connection))
+        return self._contains_entity(connection)
 
     def is_degree_of_freedom_in_world(self, degree_of_freedom: DegreeOfFreedom) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(
-            hash(degree_of_freedom)
-        )
+        return self._contains_entity(degree_of_freedom)
 
     def is_actuator_in_world(self, actuator: Actuator) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(hash(actuator))
+        return self._contains_entity(actuator)
 
-    def _is_world_entity_with_hash_in_world_from_iterable(
-        self, entity_hash: int
-    ) -> bool:
+    def _contains_entity(self, entity: WorldEntity) -> bool:
         """
-        Check if a world entity with a given hash exists in the world based on a given
-        iterable.
+        Check whether this world already holds an entity.
 
-        :param entity_hash: The hash of the entity to retrieve.
-        :return: True if the entity exists, False otherwise.
+        :param entity: The entity to look for.
+        :return: True if the entity is part of this world, False otherwise.
         """
-        return entity_hash in self._world_entity_hash_table
+        if not entity.has_identity:
+            return False
+        return hash(entity) in self._world_entity_hash_table
 
     # %% World Merging
     def merge_world_at_pose(
@@ -1885,7 +1968,7 @@ class World(HasSimulatorProperties):
         :param new_root: The root body of the subgraph to be copied.
         :return: A new `World` instance containing the copied subgraph.
         """
-        new_world = World(name=self.name)
+        new_world = World(name=self.name, namespace=self.namespace)
         child_bodies = self.compute_descendent_child_kinematic_structure_entities(
             new_root
         )
@@ -2495,7 +2578,7 @@ class World(HasSimulatorProperties):
         if me_id in memo:
             return memo[me_id]
 
-        new_world = World(name=self.name)
+        new_world = World(name=self.name, namespace=self.namespace)
         memo[me_id] = new_world
 
         with new_world.modify_world():

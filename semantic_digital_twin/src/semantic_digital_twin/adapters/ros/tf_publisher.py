@@ -3,6 +3,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from time import sleep
 from typing import Optional
+from typing_extensions import Dict, Iterable, Set
 from uuid import UUID
 
 from geometry_msgs.msg import TransformStamped
@@ -28,6 +29,75 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TfFrameNames:
+    """
+    Names the tf frame every kinematic structure entity is published under.
+
+    Frame names must be unique across the whole tf tree, while entity names need not be
+    unique even within one world. Only entities that actually share a name are told
+    apart, by appending their identifier; every other frame keeps the entity's name.
+
+    The name an entity is first published under is kept for as long as this publisher
+    lives, so a frame never moves to another entity and an entity arriving later never
+    renames the ones already on the tree.
+    """
+
+    frames_of_other_publishers: Set[str] = field(default_factory=set)
+    """
+    Frames that are already on the tree and belong to someone else.
+
+    An entity of ours standing for such a frame is the point where our tree joins
+    theirs, so it keeps that name instead of being told apart from it.
+    """
+
+    _frame_name_per_entity: Dict[UUID, str] = field(init=False, default_factory=dict)
+    """
+    The frame name each entity has been published under so far.
+    """
+
+    _assigned_frame_names: Set[str] = field(init=False, default_factory=set)
+    """
+    Every frame name handed out so far, kept even after the entity holding it is gone so
+    that no later entity can take over a name someone may still be following.
+    """
+
+    def reserve_frames_of_other_publishers(self, frame_names: Iterable[str]) -> None:
+        """
+        Record the frames another publisher is already broadcasting.
+
+        :param frame_names: The frame names observed on the tf tree.
+        """
+        self.frames_of_other_publishers.update(frame_names)
+
+    def assign(self, entity: KinematicStructureEntity) -> str:
+        """
+        Return the tf frame name of an entity, giving it one if it has none yet.
+
+        :param entity: The entity about to be published.
+        """
+        if entity.id in self._frame_name_per_entity:
+            return self._frame_name_per_entity[entity.id]
+
+        frame_name = self._unused_frame_name_for(entity)
+        self._frame_name_per_entity[entity.id] = frame_name
+        self._assigned_frame_names.add(frame_name)
+        return frame_name
+
+    def _unused_frame_name_for(self, entity: KinematicStructureEntity) -> str:
+        """
+        Work out the frame name a not yet published entity should get.
+
+        :param entity: The entity about to be published.
+        """
+        frame_name = str(entity.name)
+        if frame_name in self.frames_of_other_publishers:
+            return frame_name
+        if frame_name not in self._assigned_frame_names:
+            return frame_name
+        return f"{frame_name}_{entity.id.hex}"
 
 
 @dataclass(eq=False)
@@ -71,6 +141,11 @@ class TfPublisherModelCallback(ModelChangeCallback):
     Compiled function for evaluating the tf expressions.
     """
 
+    frame_names: TfFrameNames = field(default_factory=TfFrameNames)
+    """
+    The tf frame name of every entity published so far.
+    """
+
     def on_model_change(self, **kwargs):
         self.update_connections_to_expression()
         self.compile_tf_expression()
@@ -112,8 +187,12 @@ class TfPublisherModelCallback(ModelChangeCallback):
             )
             child_link = self._world.get_kinematic_structure_entity_by_id(child_link_id)
 
-            self.tf_message.transforms[i].header.frame_id = str(parent_link.name)
-            self.tf_message.transforms[i].child_frame_id = str(child_link.name)
+            self.tf_message.transforms[i].header.frame_id = self.frame_names.assign(
+                parent_link
+            )
+            self.tf_message.transforms[i].child_frame_id = self.frame_names.assign(
+                child_link
+            )
 
     def update_tf_message(self):
         if self.compiled_tf.is_result_empty():
@@ -169,6 +248,11 @@ class TFPublisher(StateChangeCallback):
     Callback for updating the tf message cache on model update.
     """
 
+    frame_names: TfFrameNames = field(default_factory=TfFrameNames)
+    """
+    The tf frame name of every entity published so far.
+    """
+
     throttle_state_updates: int = 1
     """
     Only published every n-th state update.
@@ -182,6 +266,7 @@ class TFPublisher(StateChangeCallback):
             node=self.node,
             _world=self._world,
             ignored_kinematic_structure_entities=self.ignored_kinematic_structure_entities,
+            frame_names=self.frame_names,
         )
         self.tf_model_callback.notify_model_change()
         self.on_state_change()
@@ -235,10 +320,13 @@ class TFPublisher(StateChangeCallback):
             for kse in world.kinematic_structure_entities
             if str(kse.name) in all_frames
         )
+        frame_names = TfFrameNames()
+        frame_names.reserve_frames_of_other_publishers(all_frames)
         return cls(
             node=node,
             _world=world,
             ignored_kinematic_structure_entities=ignored_bodies,
+            frame_names=frame_names,
         )
 
     def on_state_change(self, **kwargs):
