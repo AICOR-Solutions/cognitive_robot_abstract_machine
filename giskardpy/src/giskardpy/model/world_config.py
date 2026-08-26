@@ -15,7 +15,10 @@ from semantic_digital_twin.orm.utils import semantic_digital_twin_sessionmaker
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
+from semantic_digital_twin.adapters.ros.world_synchronizer import (
+    WorldNamespace,
+)
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     OmniDrive,

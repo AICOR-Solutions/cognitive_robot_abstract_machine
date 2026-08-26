@@ -31,6 +31,7 @@ from semantic_digital_twin.adapters.ros.messages import (
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelReloadSynchronizer,
+    WorldNamespace,
     Synchronizer,
     WorldSynchronizer,
 )
@@ -57,7 +58,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Drawer,
 )
 from semantic_digital_twin.spatial_types import Vector3
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     FixedConnection,
@@ -1074,7 +1075,7 @@ def test_world_state_update_serialization_round_trip():
     """
     Verify that WorldStateUpdate survives a to_json/from_json round trip.
     """
-    meta = MetaData(node_name="test_node", process_id=42)
+    meta = MetaData(node_name="test_node", process_id=42, world_namespace="test_node")
     original = WorldStateUpdate(
         meta_data=meta,
         ids=[uuid.uuid4(), uuid.uuid4()],
@@ -1097,7 +1098,7 @@ def test_load_model_serialization_round_trip():
     """
     Verify that LoadModel survives a to_json/from_json round trip.
     """
-    meta = MetaData(node_name="loader", process_id=99)
+    meta = MetaData(node_name="loader", process_id=99, world_namespace="loader")
     original = LoadModel(meta_data=meta, primary_key=7, sequence_number=5)
 
     serialized = to_json(original)
@@ -1433,7 +1434,12 @@ def test_world_update_serialization_round_trip():
     import json
 
     w = create_dummy_world()
-    meta = MetaData(node_name="test_node", process_id=1, world_id=w._id)
+    meta = MetaData(
+        node_name="test_node",
+        process_id=1,
+        world_id=w._id,
+        world_namespace=w.namespace,
+    )
     state_msg = WorldStateUpdate(
         meta_data=meta,
         ids=list(w.state.keys())[:2],
@@ -2129,7 +2135,12 @@ def test_combined_update_model_and_state_applied_atomically(rclpy_node):
     model_block = source_world.get_world_model_manager().model_modification_blocks[-1]
     new_dof_id = connection.dof.id
 
-    source_meta = MetaData(node_name="atomic_src", process_id=0, world_id=uuid4())
+    source_meta = MetaData(
+        node_name="atomic_src",
+        process_id=0,
+        world_id=uuid4(),
+        world_namespace="atomic_src",
+    )
     combined_update = WorldUpdate(
         meta_data=source_meta,
         modification_block=ModificationBlock(
@@ -2443,7 +2454,9 @@ def test_a_message_reports_where_it_sits_in_the_stream_of_its_publisher():
     A message carries everything a reader needs to tell how far it caught up with the
     publisher that sent it.
     """
-    meta_data = MetaData(node_name="publisher", process_id=1)
+    meta_data = MetaData(
+        node_name="publisher", process_id=1, world_namespace="publisher"
+    )
 
     message = WorldUpdate(meta_data=meta_data, sequence_number=3)
 
@@ -2526,7 +2539,7 @@ def test_a_publisher_that_was_never_heard_from_is_at_the_start_of_its_stream(
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/unknown_publisher_{uuid4().hex}"
     )
-    stranger = MetaData(node_name="stranger", process_id=1)
+    stranger = MetaData(node_name="stranger", process_id=1, world_namespace="stranger")
     try:
         assert synchronizer.has_applied(
             StreamPosition(origin=stranger, sequence_number=0)

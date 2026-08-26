@@ -10,7 +10,7 @@ from std_srvs.srv import Trigger
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
 
 
@@ -123,7 +123,7 @@ def fetch_world_from_service(
     node: Node,
     service_suffix: str = "fetch_world",
     timeout_seconds: float = 10.0,
-    namespace: str = WorldNamespace.UNSET,
+    namespace: Optional[str] = None,
 ) -> World:
     """
     Fetch a world from any WorldFetcher Service.

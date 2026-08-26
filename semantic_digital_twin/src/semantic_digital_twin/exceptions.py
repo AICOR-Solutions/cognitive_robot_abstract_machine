@@ -1143,15 +1143,15 @@ class EntityIdNotAssignedError(UsageError):
 @dataclass
 class WorldNamespaceIsImmutableError(UsageError):
     """
-    Raised when a world that is already in a namespace is moved to another one.
+    Raised when the namespace of an already constructed world is assigned.
 
-    The entities it holds keep the identifiers its current namespace gave them, so it
-    would end up with a mixture of both.
+    A world's namespace is decided when it is built, because the identifiers it hands
+    out come from the namespace it had at the time.
     """
 
-    current_namespace: str
+    current_namespace: Optional[str]
     """
-    The namespace the world is already in.
+    The namespace the world was built with, if it was built with one.
     """
 
     rejected_namespace: str
@@ -1161,14 +1161,14 @@ class WorldNamespaceIsImmutableError(UsageError):
 
     def error_message(self) -> str:
         return (
-            f"The world is in namespace '{self.current_namespace}' and cannot be moved "
-            f"to '{self.rejected_namespace}'."
+            f"The world was built in namespace '{self.current_namespace}' and cannot be "
+            f"moved to '{self.rejected_namespace}' afterwards."
         )
 
     def suggest_correction(self) -> str:
         return (
-            f"build a world of its own for '{self.rejected_namespace}' instead of "
-            f"renaming this one."
+            f"build the world in it, World(namespace='{self.rejected_namespace}'), and "
+            f"merge existing content into that world."
         )
 
 

@@ -42,7 +42,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     RotationMatrix,
 )
 from semantic_digital_twin.testing import StateChangeCounter, world_setup
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     PrismaticConnection,
     RevoluteConnection,
@@ -2470,15 +2470,7 @@ def test_hashing_an_entity_without_an_identifier_is_rejected():
         hash(Body(name=PrefixedName("a")))
 
 
-def test_a_world_outside_a_namespace_can_be_placed_in_one():
-    world = World()
-
-    world.namespace = "giskard"
-
-    assert build_bodies_in(world) == build_bodies_in(World(namespace="giskard"))
-
-
-def test_namespace_cannot_be_replaced_once_set():
+def test_namespace_is_frozen_after_construction():
     world = World(namespace="giskard")
 
     with pytest.raises(WorldNamespaceIsImmutableError):
@@ -2487,5 +2479,10 @@ def test_namespace_cannot_be_replaced_once_set():
     assert world.namespace == "giskard"
 
 
-def test_world_without_a_namespace_uses_the_default():
-    assert World().namespace == WorldNamespace.UNSET
+def test_a_world_built_without_a_namespace_cannot_be_placed_in_one():
+    world = World()
+
+    with pytest.raises(WorldNamespaceIsImmutableError):
+        world.namespace = "giskard"
+
+    assert world.namespace is None

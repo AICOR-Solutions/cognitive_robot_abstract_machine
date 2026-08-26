@@ -29,7 +29,10 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
+from semantic_digital_twin.adapters.ros.world_synchronizer import (
+    WorldNamespace,
+)
 
 # %% ros session
 

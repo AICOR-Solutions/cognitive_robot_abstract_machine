@@ -4,6 +4,7 @@ import json
 import os
 import threading
 from abc import ABC, abstractmethod
+from enum import StrEnum
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import ClassVar, Optional, Type, List, Dict
@@ -45,10 +46,36 @@ from semantic_digital_twin.exceptions import (
     WorldWithoutNamespaceCannotSynchronizeError,
     ConflictingWorldNamespaceError,
 )
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityWithClassBasedID,
 )
+
+
+class WorldNamespace(StrEnum):
+    """
+    The processes that run a world of their own.
+
+    A namespace separates the entity identifiers a world hands out from those of every
+    other world, so that two processes exchanging model changes never mean two different
+    entities by one identifier. Any string does; the members are the ones we run
+    ourselves.
+    """
+
+    CORAPLEX = "coraplex"
+    """
+    The process running a plan against a world.
+    """
+
+    GISKARD = "giskard"
+    """
+    The process controlling the robot in a world.
+    """
+
+    ROBOKUDO = "robokudo"
+    """
+    The process controlling the perception framework in a world
+    """
 
 
 class PublicationProgress(ABC):
@@ -138,7 +165,7 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     """
 
     def __post_init__(self):
-        if self._world.namespace == WorldNamespace.UNSET:
+        if self._world.namespace is None:
             raise WorldWithoutNamespaceCannotSynchronizeError(self._world)
         self.subscriber = self.node.create_subscription(
             std_msgs.msg.String,

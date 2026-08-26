@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from __future__ import annotations
 
 import difflib
-from enum import StrEnum
 import inspect
 import logging
 import threading
@@ -502,35 +501,6 @@ class WorldModelManager:
 _LRU_CACHE_SIZE: int = 2048
 
 
-class WorldNamespace(StrEnum):
-    """
-    The processes that run a world of their own.
-
-    A namespace separates the entity identifiers a world hands out from those of every
-    other world, so that two processes exchanging model changes never mean two different
-    entities by one identifier. Any string does; the members are the ones we run
-    ourselves.
-    """
-
-    UNSET = "unnamespaced"
-    """
-    Carried by a world that was not placed in a namespace.
-
-    Its entity identifiers are random rather than reproducible, which is all a process
-    that keeps its world to itself needs. Synchronizing such a world is refused.
-    """
-
-    CORAPLEX = "coraplex"
-    """
-    The process running a plan against a world.
-    """
-
-    GISKARD = "giskard"
-    """
-    The process controlling the robot in a world.
-    """
-
-
 @dataclass
 class World(HasSimulatorProperties):
     """
@@ -598,19 +568,18 @@ class World(HasSimulatorProperties):
     The ``publish_changes`` the currently open batch was entered with.
     """
 
-    namespace: str = field(default=WorldNamespace.UNSET, kw_only=True)
+    namespace: Optional[str] = field(default=None, kw_only=True)
     """
     Name of the process this world belongs to, such as ``giskard`` or ``coraplex``.
 
     Entity identifiers are derived from it, which is what keeps the identifiers of two
     worlds apart. Unlike :attr:`name`, which names the model the world holds, this names
-    its owner.
+    its owner. ``None`` means the world belongs to no process in particular and hands
+    out random identifiers, which is all a world kept to itself needs.
 
-    Worlds sharing a namespace would hand out colliding identifiers, so a synchronizer
-    refuses to run on a world that still carries :attr:`WorldNamespace.UNSET`. A world
-    may be placed in a namespace afterwards, which is what that refusal asks for, but it
-    cannot be moved to a different one: the entities it already holds keep the
-    identifiers its first namespace gave them.
+    Decided when the world is built and frozen afterwards, so that a world's namespace
+    is always the one it was constructed with. A world that has to be in one is built in
+    it and parsed content is merged in, the way :class:`WorldConfig` does.
     """
 
     _entity_id_source: Random = field(init=False, repr=False)
@@ -693,28 +662,12 @@ class World(HasSimulatorProperties):
             ),
         )
         self.collision_manager.add_to_world(self)
-        self._seed_entity_id_source()
+        self._entity_id_source = Random(self.namespace)
 
     def __setattr__(self, attribute: str, value: Any) -> None:
-        if attribute == "namespace" and self.namespace not in (
-            WorldNamespace.UNSET,
-            value,
-        ):
+        if attribute == "namespace":
             raise WorldNamespaceIsImmutableError(self.namespace, value)
         super().__setattr__(attribute, value)
-        if attribute == "namespace":
-            self._seed_entity_id_source()
-
-    def _seed_entity_id_source(self) -> None:
-        """
-        Start handing out the identifiers that belong to the current namespace.
-
-        A world outside a namespace draws random identifiers instead, since nothing has
-        to reproduce them.
-        """
-        self._entity_id_source = Random(
-            None if self.namespace == WorldNamespace.UNSET else self.namespace
-        )
 
     def generate_entity_id(self) -> UUID:
         """
@@ -1229,8 +1182,8 @@ class World(HasSimulatorProperties):
         """
         Removes a kinematic_structure_entity from the world.
 
-        Removing a kinematic_structure_entity this world does not own does nothing
-        and is not recorded, so a history can never open with the removal of a
+        Removing a kinematic_structure_entity this world does not own does nothing and
+        is not recorded, so a history can never open with the removal of a
         kinematic_structure_entity nothing added.
 
         :param kinematic_structure_entity: The kinematic_structure_entity to remove.
@@ -1258,9 +1211,9 @@ class World(HasSimulatorProperties):
         """
         Removes a degree of freedom from the world.
 
-        Removing a degree of freedom this world does not own does nothing and is
-        not recorded, so a history can never open with the removal of a degree of
-        freedom nothing added.
+        Removing a degree of freedom this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of a degree of freedom
+        nothing added.
 
         :param dof: The degree of freedom to remove.
         """
@@ -1282,9 +1235,9 @@ class World(HasSimulatorProperties):
         Removes a semantic annotation from the current list of semantic annotations if
         it exists.
 
-        Removing a semantic annotation this world does not own does nothing and is
-        not recorded, so a history can never open with the removal of a semantic
-        annotation nothing added.
+        Removing a semantic annotation this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of a semantic annotation
+        nothing added.
 
         :param semantic_annotation: The semantic annotation instance to be removed.
         """
@@ -1305,9 +1258,8 @@ class World(HasSimulatorProperties):
         """
         Removes an actuator from the current list of actuators if it exists.
 
-        Removing an actuator this world does not own does nothing and is not
-        recorded, so a history can never open with the removal of an actuator
-        nothing added.
+        Removing an actuator this world does not own does nothing and is not recorded,
+        so a history can never open with the removal of an actuator nothing added.
 
         :param actuator: The actuator instance to be removed.
         """

@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 import time
 
 import numpy as np
@@ -268,10 +269,12 @@ def test_pr2_semantic_annotation(rclpy_node, pr2_world_state_reset):
 
 
 def test_pr2_collision_rules(rclpy_node, pr2_world_state_reset):
-    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
-    # The two worlds stand for two processes, so each needs a namespace of its own.
-    pr2_world_state_reset.namespace = "serving_world"
-    fetcher = FetchWorldServer(node=rclpy_node, world=pr2_world_state_reset)
+    # The two worlds stand for two processes, so each is built in its own namespace and
+    # the parsed content is merged in, the way a WorldConfig assembles its world.
+    serving_world = World(namespace="serving_world")
+    serving_world.merge_world(deepcopy(pr2_world_state_reset))
+    pr2 = serving_world.get_semantic_annotations_by_type(PR2)[0]
+    fetcher = FetchWorldServer(node=rclpy_node, world=serving_world)
 
     pr2_world_copy = fetch_world_from_service(
         rclpy_node,
@@ -279,27 +282,27 @@ def test_pr2_collision_rules(rclpy_node, pr2_world_state_reset):
     )
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
-        _world=pr2_world_state_reset,
+        _world=serving_world,
     )
     synchronizer_2 = WorldSynchronizer(
         node=rclpy_node,
         _world=pr2_world_copy,
     )
 
-    assert len(pr2_world_state_reset.collision_manager.rules) == len(
+    assert len(serving_world.collision_manager.rules) == len(
         pr2_world_copy.collision_manager.rules
     )
 
     time.sleep(1)
 
-    with pr2_world_state_reset.modify_world():
-        pr2_world_state_reset.collision_manager.add_temporary_rule(
+    with serving_world.modify_world():
+        serving_world.collision_manager.add_temporary_rule(
             AvoidExternalCollisions(robot=pr2)
         )
 
     time.sleep(1)
     # temporary rules are not synced
-    assert len(pr2_world_state_reset.collision_manager.rules) - 1 == len(
+    assert len(serving_world.collision_manager.rules) - 1 == len(
         pr2_world_copy.collision_manager.rules
     )
 

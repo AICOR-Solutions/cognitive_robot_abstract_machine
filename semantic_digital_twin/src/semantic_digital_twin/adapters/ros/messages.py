@@ -7,7 +7,7 @@ from uuid import UUID
 from typing_extensions import Dict, Any, Self, List, Optional
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
-from semantic_digital_twin.world import World, WorldNamespace
+from semantic_digital_twin.world import World
 
 from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
@@ -26,16 +26,16 @@ class MetaData(SubclassJSONSerializer):
     process_id: int
     """The id of the process that published this message."""
 
-    world_id: UUID = field(default_factory=uuid.uuid4)
-    """The id of the origin world. This is used to identify messages that were published by the same publisher."""
-
-    world_namespace: str = WorldNamespace.UNSET
+    world_namespace: str
     """
     The namespace of the origin world.
 
     Two worlds sharing it hand out the same entity identifiers, so a message arriving
     with the namespace of the world receiving it means the namespaces were misconfigured.
     """
+
+    world_id: UUID = field(default_factory=uuid.uuid4)
+    """The id of the origin world. This is used to identify messages that were published by the same publisher."""
 
     @memoize
     def to_json(self) -> Dict[str, Any]:
