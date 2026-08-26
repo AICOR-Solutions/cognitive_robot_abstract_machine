@@ -37,6 +37,7 @@ from krrood.entity_query_language.core.mapped_variable import (
     MappedVariable,
 )
 from krrood.entity_query_language.factories import ConditionType, and_, or_
+from krrood.entity_query_language.query.query import Query
 from krrood.symbol_graph.helpers import get_field_type_endpoint
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
@@ -532,28 +533,20 @@ class GraphOfBoundingBoxes(
     @staticmethod
     def _selected_variable_of(root) -> Optional[CanBehaveLikeAVariable]:
         """
-        .. note::
-            Checked via the class rather than ``hasattr(root, "selected_variable")``:
-            every eql variable answers any attribute name through ``__getattr__``, by
-            fabricating a new symbolic attribute rather than raising, so probing the
-            instance can never tell a real property from one that does not exist.
-
         :param root: The chain root of an eql variable.
-        :return: ``root.selected_variable`` if ``root`` is a query with a real
-            ``selected_variable`` property, or None otherwise.
-        :raises AmbiguousSelectedVariableError: If ``root`` selects more than one
-            variable, so ``root.selected_variable`` would silently pick the first one
-            rather than the one the caller actually meant to constrain.
+        :return: The single variable ``root`` selects, or None if ``root`` is not a
+            query at all (e.g. a bare :class:`~krrood.entity_query_language.core.variable.Variable`).
+        :raises AmbiguousSelectedVariableError: If ``root`` is a query selecting more
+            than one variable -- an :class:`Entity` picking the first would silently
+            constrain the wrong one, and a :class:`SetOf` has no single variable to
+            constrain at all.
         """
-        if not hasattr(type(root), "selected_variable"):
+        if not isinstance(root, Query):
             return None
-        # ``root._selected_variables_`` is a genuine dataclass field of ``root``, always
-        # set by ``__init__``, so reading it never falls through to ``__getattr__`` the
-        # way probing an arbitrary name would.
         selected_variable_count = len(root._selected_variables_)
         if selected_variable_count != 1:
             raise AmbiguousSelectedVariableError(root, selected_variable_count)
-        return root.selected_variable
+        return root._selected_variables_[0]
 
 
 @dataclass

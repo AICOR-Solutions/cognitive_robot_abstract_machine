@@ -7,8 +7,7 @@ from dataclasses import dataclass
 
 from numpy import allclose
 
-from krrood.entity_query_language.factories import a, entity, variable
-from krrood.entity_query_language.query.query import Entity
+from krrood.entity_query_language.factories import a, entity, set_of, variable
 from random_events.interval import SimpleInterval
 from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.adapters.mjcf import MJCFParser
@@ -244,10 +243,9 @@ def test_constrain_to_free_space_rejects_a_query_selecting_multiple_variables(
     table_world: World,
 ):
     """
-    A query's ``selected_variable`` picks the first of its selections without checking
-    there is only one, so constrain_to_free_space must reject a query built to select
-    more than one variable rather than silently constraining whichever one happened to
-    be first.
+    A query over more than one variable has no single variable to constrain, so
+    constrain_to_free_space must reject it rather than resolving one of its selected
+    variables' fields regardless.
     """
     search_space = BoundingBoxCollection(
         [
@@ -267,12 +265,7 @@ def test_constrain_to_free_space_rejects_a_query_selecting_multiple_variables(
         table_world, search_space=search_space
     )
 
-    query = Entity(
-        _selected_variables_=(
-            variable(Point3),
-            variable(Point3),
-        )
-    )
+    query = set_of(variable(Point3), variable(Point3))
 
     with pytest.raises(AmbiguousSelectedVariableError):
         graph_of_convex_sets.constrain_to_free_space(query)
