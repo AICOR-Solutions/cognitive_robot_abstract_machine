@@ -72,6 +72,12 @@ class WorldNamespace(StrEnum):
     The process controlling the robot in a world.
     """
 
+    GISKARD_CLIENT = "giskard_client"
+    """
+    A process driving the robot through the giskard client, which keeps a world of its
+    own alongside the one giskard controls.
+    """
+
     ROBOKUDO = "robokudo"
     """
     The process controlling the perception framework in a world

@@ -145,7 +145,7 @@ if not (bottle_medium_cylinder.width == 0.04 and bottle_medium_cylinder.height =
 ## 2. Connect cap and large bottle under the root and place the cap on top
 Your goals:
 - Connect the cap body and the large bottle body with Connection6DoF connections under the world root.
-- Add the SemanticAnnotations and Connections to the world.
+- Add the Connections to the world, then the SemanticAnnotations of the bodies they brought in.
 - Use the exact cylinder parameters to place the cap perfectly on top of the bottle.
 
 ```{code-cell} ipython3
@@ -155,12 +155,9 @@ Your goals:
 
 ```{code-cell} ipython3
 :tags: [example-solution]
-# Register bodies and annotations then create free connections under a dedicated root body
+# Connect the bodies under a dedicated root body, then annotate them. An annotation is
+# identified by the bodies it annotates, so those have to be in the world first.
 with world.modify_world():
-    world.add_semantic_annotation(cap)
-    world.add_semantic_annotation(bottle_large)
-    world.add_semantic_annotation(bottle_medium)
-
     root_C_bottle_large = Connection6DoF.create_with_dofs(parent=virtual_root, child=bottle_large_body, world=world)
     bottle_large_C_cap = Connection6DoF.create_with_dofs(parent=bottle_large_body, child=cap_body, world=world)
     root_C_bottle_medium = Connection6DoF.create_with_dofs(parent=virtual_root, child=bottle_medium_body, world=world)
@@ -168,6 +165,10 @@ with world.modify_world():
     world.add_connection(root_C_bottle_large)
     world.add_connection(bottle_large_C_cap)
     world.add_connection(root_C_bottle_medium)
+
+    world.add_semantic_annotation(cap)
+    world.add_semantic_annotation(bottle_large)
+    world.add_semantic_annotation(bottle_medium)
     
 z_offset = bottle_large_cylinder.height / 2.0 + cap_cylinder.height / 2.0
 cap_pose = HomogeneousTransformationMatrix.from_xyz_rpy(

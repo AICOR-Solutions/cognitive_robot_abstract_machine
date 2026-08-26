@@ -1209,6 +1209,92 @@ class WorldWithoutNamespaceCannotSynchronizeError(UsageError):
 
 
 @dataclass
+class WorldWithoutNamespaceCannotBeMergedError(UsageError):
+    """
+    Raised when a world without a namespace is merged into one that has a namespace.
+
+    A namespaced world hands out reproducible identifiers, so content arriving with the
+    random ones of an unnamespaced world would leave it reproducible only in part.
+    """
+
+    namespace: str
+    """
+    The namespace of the world being merged into.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"A world without a namespace cannot be merged into one in namespace "
+            f"'{self.namespace}', because its entities carry random identifiers while "
+            f"that world's are reproducible."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"build the world that is merged in with a namespace of its own, for "
+            f"example World(namespace='{self.namespace}/<what it holds>')."
+        )
+
+
+@dataclass
+class WorldWithoutNamespaceCannotBeMergedError(UsageError):
+    """
+    Raised when a world without a namespace is merged into one that has one.
+
+    A namespaced world hands out reproducible identifiers, and content brought in from a
+    world without a namespace carries random ones, which would leave the result
+    reproducible only in part.
+    """
+
+    namespace: str
+    """
+    The namespace of the world being merged into.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The world being merged in has no namespace, while the world it is merged "
+            f"into is in '{self.namespace}', so only part of the result would have "
+            f"reproducible identifiers."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"build the world that is merged in with a namespace of its own, for "
+            f"example World(namespace='{self.namespace}/<what it holds>')."
+        )
+
+
+@dataclass
+class WorldsShareANamespaceError(UsageError):
+    """
+    Raised when two worlds carrying the same namespace are merged.
+
+    A namespace hands out the same sequence of identifiers to every world that carries
+    it, so two of them hold entities that cannot be told apart once they sit in one
+    world.
+    """
+
+    namespace: str
+    """
+    The namespace both worlds carry.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Both worlds are in namespace '{self.namespace}' and therefore handed out "
+            f"the same entity identifiers, so merging them would merge entities that "
+            f"are not the same."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "build the world that is merged in without a namespace, which gives it "
+            "random identifiers, and keep the namespace on the world it is merged into."
+        )
+
+
+@dataclass
 class ConflictingWorldNamespaceError(UsageError):
     """
     Raised when a synchronized message arrives from a world sharing our namespace.

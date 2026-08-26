@@ -52,6 +52,8 @@ from semantic_digital_twin.exceptions import (
     MissingWorldModificationContextError,
     WorldEntityWithIDNotFoundError,
     WorldNamespaceIsImmutableError,
+    WorldsShareANamespaceError,
+    WorldWithoutNamespaceCannotBeMergedError,
     MissingReferenceFrameError,
     MismatchingPublishChangesAttribute,
     AtomicWorldModificationNotAtomic,
@@ -1714,6 +1716,13 @@ class World(HasSimulatorProperties):
         :return: None
         """
         assert other is not self, "Cannot merge a world with itself."
+        if self.namespace is not None:
+            # A namespaced world stays reproducible only if everything merged into it
+            # was handed out by a namespace of its own, and a different one.
+            if other.namespace is None:
+                raise WorldWithoutNamespaceCannotBeMergedError(self.namespace)
+            if other.namespace == self.namespace:
+                raise WorldsShareANamespaceError(self.namespace)
 
         with self.modify_world(), other.modify_world():
             self_root = self.root

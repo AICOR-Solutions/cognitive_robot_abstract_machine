@@ -1,7 +1,7 @@
 from __future__ import annotations
 from robokudo.types.annotation import BoundingBox3DAnnotation
 from robokudo.types.annotation import PoseAnnotation
-from uuid import UUID
+from uuid import UUID, uuid4
 from collections import deque
 
 from robokudo.types.scene import ObjectHypothesis
@@ -33,12 +33,14 @@ class ObjectBeliefState:
     def create_with_new_body(cls, name: Optional[PrefixedName] = None) -> Self:
         """Create a new ObjectBeliefState with a new Body.
 
+        The body is given its identifier here rather than by the world it is later added
+        to, because that identifier is what belief states are tracked by, from the moment
+        one is created.
+
         :param name: Name of the body.
         :return: The new object belief state.
         """
-        return ObjectBeliefState(
-            body=Body(name=name) if name is not None else Body(),
-        )
+        return ObjectBeliefState(body=Body(name=name, id=uuid4()))
 
     @property
     def uuid(self) -> UUID:

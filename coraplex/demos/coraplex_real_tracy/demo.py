@@ -24,7 +24,10 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
-from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
+from semantic_digital_twin.adapters.ros.world_synchronizer import (
+    WorldNamespace,
+    WorldSynchronizer,
+)
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.tracy import Tracy
@@ -60,7 +63,9 @@ if execition_mode == ExecutionType.REAL:
     # 300s matches giskardpy's own client (giskardpy/middleware/ros2/python_interface.py), which waits
     # this long for the same race: this demo's giskard/world-fetcher server is still parsing the URDF
     # and starting up when the client's default 10s budget would otherwise expire.
-    world = fetch_world_from_service(node=node, timeout_seconds=300)
+    world = fetch_world_from_service(
+        node=node, timeout_seconds=300, namespace=WorldNamespace.CORAPLEX
+    )
 
     WorldSynchronizer(_world=world, node=node)
 elif execition_mode == ExecutionType.SIMULATED:

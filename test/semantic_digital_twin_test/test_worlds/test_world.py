@@ -25,6 +25,8 @@ from semantic_digital_twin.exceptions import (
     WorldEntityNotFoundError,
     EntityIdNotAssignedError,
     WorldNamespaceIsImmutableError,
+    WorldsShareANamespaceError,
+    WorldWithoutNamespaceCannotBeMergedError,
 )
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
@@ -2486,3 +2488,48 @@ def test_a_world_built_without_a_namespace_cannot_be_placed_in_one():
         world.namespace = "giskard"
 
     assert world.namespace is None
+
+
+def test_merging_two_worlds_of_one_namespace_is_refused():
+    """
+    A namespace hands out the same identifiers to every world that carries it, so two of
+    them hold entities that cannot be told apart once merged.
+    """
+    world = World(namespace="giskard")
+    other = World(namespace="giskard")
+
+    with pytest.raises(WorldsShareANamespaceError):
+        world.merge_world(other)
+
+
+def test_merging_an_unnamespaced_world_into_a_namespaced_one_is_refused():
+    """
+    A namespaced world hands out reproducible identifiers, and content merged in from a
+    world without a namespace would carry random ones, leaving it half reproducible.
+    """
+    world = World(namespace="giskard")
+
+    with pytest.raises(WorldWithoutNamespaceCannotBeMergedError):
+        world.merge_world(World())
+
+
+def test_merging_a_differently_namespaced_world_is_allowed():
+    world = World(namespace="giskard")
+    other = World(namespace="giskard/milk")
+    with other.modify_world():
+        other.add_body(Body(name=PrefixedName("milk")))
+
+    world.merge_world(other)
+
+    assert [str(body.name) for body in world.bodies] == ["milk"]
+
+
+def test_merging_between_worlds_without_namespaces_is_allowed():
+    world = World()
+    other = World()
+    with other.modify_world():
+        other.add_body(Body(name=PrefixedName("milk")))
+
+    world.merge_world(other)
+
+    assert [str(body.name) for body in world.bodies] == ["milk"]
