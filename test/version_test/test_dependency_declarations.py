@@ -97,4 +97,5 @@ def test_dependencies_are_declared_statically(member: WorkspaceMember) -> None:
 
 @pytest.mark.parametrize("member", MEMBERS, ids=[member.name for member in MEMBERS])
 def test_imported_workspace_members_are_declared(member: WorkspaceMember) -> None:
-    assert member.imported_members(MEMBERS) <= member.declared_dependencies
+    undeclared_members = member.imported_members(MEMBERS) - member.declared_dependencies
+    assert undeclared_members == set()
