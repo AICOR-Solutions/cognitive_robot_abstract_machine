@@ -720,8 +720,8 @@ class CausesEffectRule(PhraseRule):
     recognisable from its verbalization alone rather than reading as a vague *"what"*.
 
     >>> pick = variable(Pick, [])
-    >>> verbalize_expression(CausesEffect(pick.arm == 0.3, cause_attributes=[pick.arm]))
-    'the arm of a Pick causes the arm of the Pick to be 0.3'
+    >>> verbalize_expression(CausesEffect(pick.duration == 0.3, cause_attributes=[pick.arm]))
+    'the arm of a Pick causes the duration of the Pick to be 0.3'
     """
 
     construct = CausesEffect
