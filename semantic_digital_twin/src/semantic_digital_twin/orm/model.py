@@ -295,26 +295,28 @@ class Point2DMapping(AlternativeMapping[Point2D]):
 
 @dataclass(eq=False)
 class Pose2DMapping(AlternativeMapping[Pose2D]):
-    x: float
-    y: float
-    yaw: float
+    position: Point2D
+    bearing: float
     reference_frame: Optional[KinematicStructureEntity] = field(
         default=None, kw_only=True
     )
 
     @classmethod
     def from_domain_object(cls, obj: Pose2D):
-        result = cls(x=float(obj.x), y=float(obj.y), yaw=float(obj.yaw))
+        result = cls(position=obj.position, bearing=float(obj.yaw))
         result.reference_frame = obj.reference_frame
         return result
 
     def to_domain_object(self) -> Pose2D:
-        return Pose2D(
-            x=self.x,
-            y=self.y,
-            yaw=self.yaw,
+        return Pose2D.from_position_and_yaw(
+            self.position,
+            yaw=self.bearing,
             reference_frame=self.reference_frame,
         )
+
+    @classmethod
+    def required_pre_build_classes(cls) -> List[Type]:
+        return [Point2D]
 
 
 class TrimeshType(TypeDecorator):
