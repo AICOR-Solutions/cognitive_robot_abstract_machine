@@ -1198,25 +1198,6 @@ class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             )
 
     @classmethod
-    def from_iterable(
-        cls,
-        data: sm.VectorData,
-        reference_frame: Optional[KinematicStructureEntity] = None,
-    ) -> Point2D:
-        """
-        :param data: Array-like data used to initialize the Point2D instance.
-        :param reference_frame: The reference frame. If the data has a
-            ``reference_frame`` attribute, and this parameter is not specified, it will
-            be taken from the data.
-        :return: The Point2D instance.
-        """
-        if isinstance(data, SpatialType) and reference_frame is None:
-            reference_frame = data.reference_frame
-        result = cls(reference_frame=reference_frame)
-        result.casadi_sx = sm.to_sx(data)
-        return result
-
-    @classmethod
     def from_pose(
         cls,
         pose: Pose,
@@ -1237,10 +1218,8 @@ class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         reference_frame = cls._parse_optional_frame_from_json(
             data, key="reference_frame_id", **kwargs
         )
-        return cls.from_iterable(
-            data["data"][:2],
-            reference_frame=reference_frame,
-        )
+        x, y = data["data"][:2]
+        return cls(x=x, y=y, reference_frame=reference_frame)
 
     def to_json(self) -> Dict[str, Any]:
         if not self.is_constant():

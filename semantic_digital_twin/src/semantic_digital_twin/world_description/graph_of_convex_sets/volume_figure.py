@@ -399,19 +399,9 @@ class SceneCamera:
     each other.
     """
 
-    eye_x: float = 1.25
+    eye: Point3 = field(default_factory=lambda: Point3(1.25, -1.25, 1.15))
     """
-    The viewpoint's x coordinate, in units of the scene's own size.
-    """
-
-    eye_y: float = -1.25
-    """
-    The viewpoint's y coordinate, in units of the scene's own size.
-    """
-
-    eye_z: float = 1.15
-    """
-    The viewpoint's z coordinate, in units of the scene's own size.
+    The viewpoint, in units of the scene's own size.
     """
 
     def as_plotly(self) -> dict[str, object]:
@@ -419,7 +409,7 @@ class SceneCamera:
         :return: The camera as plotly expects it, with z up.
         """
         return dict(
-            eye=dict(x=self.eye_x, y=self.eye_y, z=self.eye_z),
+            eye=dict(x=float(self.eye.x), y=float(self.eye.y), z=float(self.eye.z)),
             up=dict(x=0.0, y=0.0, z=1.0),
         )
 

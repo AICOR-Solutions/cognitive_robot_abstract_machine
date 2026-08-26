@@ -41,19 +41,6 @@ class TestPoint2DConstruction:
         assert p.y.to_np() == pytest.approx(-3.0)
 
 
-class TestPoint2DFromIterable:
-    def test_from_iterable(self):
-        p = Point2D.from_iterable([1.0, 2.0])
-        assert p.x.to_np() == pytest.approx(1.0)
-        assert p.y.to_np() == pytest.approx(2.0)
-
-    def test_from_iterable_inherits_reference_frame(self):
-        frame = Body(name=PrefixedName("world"))
-        source = Point2D(1, 2, reference_frame=frame)
-        p = Point2D.from_iterable(source)
-        assert p.reference_frame is frame
-
-
 class TestPoint2DToPoint3:
     def test_to_point3_default_z(self):
         p2 = Point2D(x=1.0, y=2.0)

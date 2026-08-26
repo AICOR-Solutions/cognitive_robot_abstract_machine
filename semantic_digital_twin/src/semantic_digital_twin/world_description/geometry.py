@@ -1264,15 +1264,15 @@ class AxisAlignedBox(ABC):
             }
         )
 
-    def to_array_bounds(self) -> Bounds[np.ndarray]:
+    def to_array_bounds(self) -> Bounds[npt.NDArray[np.float64]]:
         """
         Express this bounding box's lower and upper corners as plain-float vectors.
 
         :return: The corners, in the same frame as ``origin``.
         """
         intervals = self._ordered_intervals
-        lower = np.array([interval.lower for interval in intervals])
-        upper = np.array([interval.upper for interval in intervals])
+        lower = np.array([interval.lower for interval in intervals], dtype=np.float64)
+        upper = np.array([interval.upper for interval in intervals], dtype=np.float64)
         return Bounds(lower, upper)
 
     @classmethod

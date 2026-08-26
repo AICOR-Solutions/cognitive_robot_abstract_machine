@@ -211,11 +211,7 @@ def test_constrain_to_free_space_adds_a_where_condition(table_world: World):
     constrain_to_free_space attaches its condition to the variable's own query, rather
     than merely returning it for the caller to attach.
 
-    The full round trip -- evaluating the attached condition back into an event and
-    checking it matches the free space exactly -- is covered end-to-end by
-    ``test_constrain_to_free_space`` in ``test_sage10k.py``, which exercises this
-    through a query nested inside a larger entity the way callers actually use it; this
-    test only checks that a condition ends up attached, without depending on
+    This test only checks that a condition ends up attached, without depending on
     ``UnderspecifiedParameters``' behaviour for a bare top-level selection.
     """
     search_space = BoundingBoxCollection(

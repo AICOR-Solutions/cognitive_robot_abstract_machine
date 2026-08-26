@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import itertools
 import logging
 import time
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from functools import reduce
-from operator import or_
 
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import rustworkx as rx
-from random_events.interval import Bound, closed, Interval
+from random_events.interval import Bound, closed, Interval, SimpleInterval
 from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
+from random_events.variable import (
+    Continuous,
+    Integer,
+    compatible_types,
+    variable_from_name_and_type,
+)
 from rtree import index
 from typing_extensions import (
     Generic,
@@ -432,28 +435,59 @@ class GraphOfBoundingBoxes(
             for spatial_variable in free_space_event.variables
         }
 
-        simple_event_conditions = []
-        for simple_event in free_space_event.simple_sets:
-            axes = [simple_event[name].simple_sets for name in fields]
-            for combination in itertools.product(*axes):
-                bounds = []
-                for field_name, simple_interval in zip(fields, combination):
-                    field = fields[field_name]
-                    bounds.append(
-                        field >= simple_interval.lower
-                        if simple_interval.left == Bound.CLOSED
-                        else field > simple_interval.lower
-                    )
-                    bounds.append(
-                        field <= simple_interval.upper
-                        if simple_interval.right == Bound.CLOSED
-                        else field < simple_interval.upper
-                    )
-                simple_event_conditions.append(chained_logic(AND, *bounds))
+        simple_event_conditions = [
+            chained_logic(
+                AND,
+                *(
+                    self._axis_condition(fields[name], simple_event[name].simple_sets)
+                    for name in fields
+                ),
+            )
+            for simple_event in free_space_event.simple_sets
+        ]
 
         condition = chained_logic(OR, *simple_event_conditions)
         chain_root.where(condition)
         return condition
+
+    @staticmethod
+    def _axis_condition(
+        field: MappedVariable, intervals: Sequence[SimpleInterval]
+    ) -> OR:
+        """
+        Build the condition constraining one coordinate to a union of intervals.
+
+        Mirrors the event's own OR-of-AND structure for that coordinate directly,
+        rather than joining it with every other coordinate's intervals first: a
+        query condition does not need each axis combination spelled out as its own
+        convex clause the way a :class:`GraphOfBoundingBoxes` node does -- that
+        flattening exists only to keep the graph's own nodes convex, and belongs on
+        :meth:`~semantic_digital_twin.world_description.geometry.AxisAlignedBox.from_simple_event`,
+        not here.
+
+        :param field: The query field this coordinate constrains.
+        :param intervals: The simple intervals the field must lie within one of.
+        :return: An OR of one AND(lower bound, upper bound) condition per interval.
+        """
+        return chained_logic(
+            OR,
+            *(
+                chained_logic(
+                    AND,
+                    (
+                        field >= interval.lower
+                        if interval.left == Bound.CLOSED
+                        else field > interval.lower
+                    ),
+                    (
+                        field <= interval.upper
+                        if interval.right == Bound.CLOSED
+                        else field < interval.upper
+                    ),
+                )
+                for interval in intervals
+            ),
+        )
 
     @staticmethod
     def _floatlike_field(variable: MappedVariable, field_name: str) -> MappedVariable:
@@ -466,11 +500,15 @@ class GraphOfBoundingBoxes(
         """
         field = variable._get_mapped_variable_(Attribute, field_name)
         resolved_type = GraphOfBoundingBoxes._resolved_type_of(field)
-        if (
-            resolved_type is None
-            or not issubclass(resolved_type, (int, float))
-            or issubclass(resolved_type, bool)
-        ):
+        is_floatlike = (
+            resolved_type is not None
+            and issubclass(resolved_type, compatible_types)
+            and isinstance(
+                variable_from_name_and_type(field_name, resolved_type),
+                (Integer, Continuous),
+            )
+        )
+        if not is_floatlike:
             raise MissingFloatLikeFieldError(variable, field_name, resolved_type)
         return field
 
@@ -557,34 +595,6 @@ class VolumetricGraphOfBoundingBoxes(
         )
 
     @classmethod
-    def obstacles_from_bounding_boxes(
-        cls,
-        bounding_boxes: BoundingBoxCollection[BoundingBox],
-        search_space_event: Event,
-    ) -> Optional[Event]:
-        """
-        Create an event representing the obstacles from a list of bounding boxes.
-
-        :param bounding_boxes: The list of bounding boxes to create the event from.
-        :param search_space_event: The search space event to limit the event to.
-        :return: An event representing the obstacles in the search space, or None if no
-            obstacles are found.
-        """
-        events = (
-            bb.simple_event.as_composite_set() & search_space_event
-            for bb in bounding_boxes
-        )
-        events = (event for event in events if not event.is_empty())
-
-        try:
-            return reduce(or_, events)
-        except TypeError:
-            logger.warning(
-                "No obstacles found in the given semantic annotations. Returning None."
-            )
-            return None
-
-    @classmethod
     def free_space_from_bounding_boxes(
         cls,
         bounding_boxes: BoundingBoxCollection[BoundingBox],
@@ -595,9 +605,8 @@ class VolumetricGraphOfBoundingBoxes(
         space incrementally (subtract_disjoint), avoiding complement in the full ambient
         space and the costly union-then-complement pipeline.
 
-        This is 40-50× faster than
-        ``~obstacles_from_bounding_boxes(...) & search_space_event``
-        because:
+        This is 40-50× faster than computing the obstacles' union directly and
+        complementing it, because:
         - The subtraction stays bounded inside search_space_event at every step.
         - No make_disjoint() calls are needed (disjointness is maintained by construction).
         - The intermediate obstacle union is never materialised.
@@ -711,31 +720,6 @@ class VolumetricGraphOfBoundingBoxes(
             bloat_obstacles=bloat_obstacles,
         )
 
-    @classmethod
-    def obstacles_from_world(
-        cls,
-        world: World,
-        search_space: BoundingBoxCollection[BoundingBox],
-        bloat_obstacles: float = 0.0,
-    ) -> Optional[Event]:
-        """
-        Create an event representing the obstacles in the belief state of the robot.
-
-        :param world: The belief state.
-        :param search_space: The search space for the connectivity graph.
-        :param bloat_obstacles: The amount to bloat the obstacles.
-        :return: An event representing the obstacles in the search space.
-        """
-        semantic_obstacle_annotation = SemanticEnvironmentAnnotation(
-            root=world.root, _world=world
-        )
-        bloated_obstacles = (
-            semantic_obstacle_annotation.build_bloated_obstacle_collection(
-                search_space, bloat_obstacles=bloat_obstacles
-            )
-        )
-        return cls.obstacles_from_bounding_boxes(bloated_obstacles, search_space.event)
-
 
 @dataclass
 class PlanarGraphOfBoundingBoxes(
@@ -772,38 +756,6 @@ class PlanarGraphOfBoundingBoxes(
         )
 
     @classmethod
-    def obstacles_from_bounding_boxes(
-        cls,
-        bounding_boxes: BoundingBoxCollection[BoundingBox],
-        search_space_event: Event,
-    ) -> Optional[Event]:
-        """
-        Create an event representing the obstacles' floor footprint from a list of
-        bounding boxes.
-
-        :param bounding_boxes: The list of bounding boxes to create the event from.
-        :param search_space_event: The three-dimensional search space event to limit
-            the event to before flattening onto the floor plane.
-        :return: An event representing the obstacles' floor footprint in the search
-            space, or None if no obstacles are found.
-        """
-        search_space_event = search_space_event.marginal(SpatialVariables.xy)
-        events = (
-            bb.simple_event.as_composite_set().marginal(SpatialVariables.xy)
-            & search_space_event
-            for bb in bounding_boxes
-        )
-        events = (event for event in events if not event.is_empty())
-
-        try:
-            return reduce(or_, events)
-        except TypeError:
-            logger.warning(
-                "No obstacles found in the given semantic annotations. Returning None."
-            )
-            return None
-
-    @classmethod
     def free_space_from_bounding_boxes(
         cls,
         bounding_boxes: BoundingBoxCollection[BoundingBox],
@@ -834,34 +786,6 @@ class PlanarGraphOfBoundingBoxes(
             if free_space.is_empty():
                 break
         return free_space
-
-    @classmethod
-    def obstacles_from_world(
-        cls,
-        world: World,
-        search_space: BoundingBoxCollection[BoundingBox],
-        bloat_obstacles: float = 0.0,
-    ) -> Optional[Event]:
-        """
-        Create an event representing the obstacles' floor footprint in the belief
-        state of the robot.
-
-        :param world: The belief state.
-        :param search_space: The three-dimensional search space for the connectivity
-            graph.
-        :param bloat_obstacles: The amount to bloat the obstacles.
-        :return: An event representing the obstacles' floor footprint in the search
-            space.
-        """
-        semantic_obstacle_annotation = SemanticEnvironmentAnnotation(
-            root=world.root, _world=world
-        )
-        bloated_obstacles = (
-            semantic_obstacle_annotation.build_bloated_obstacle_collection(
-                search_space, bloat_obstacles=bloat_obstacles
-            )
-        )
-        return cls.obstacles_from_bounding_boxes(bloated_obstacles, search_space.event)
 
     @classmethod
     def navigation_map_from_semantic_annotation(
