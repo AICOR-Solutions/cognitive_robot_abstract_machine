@@ -738,7 +738,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         return free_space
 
     @classmethod
-    def navigation_map_from_semantic_annotation(
+    def free_space_from_semantic_annotation(
         cls,
         search_space: BoundingBoxCollection[BoundingBox],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
@@ -746,6 +746,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
+        obstacle_height_clearance: float = 0.01,
     ) -> Self:
         """
         Create a GCS from the free space in the belief state of the robot for
@@ -767,6 +768,8 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
             connectivity.
         :param bloat_obstacles: The amount to bloat the obstacles.
         :param bloat_walls: The amount to bloat the walls.
+        :param obstacle_height_clearance: The amount every obstacle bounding box gets
+            expanded by in z, regardless of ``bloat_obstacles``/``bloat_walls``.
         :return: The connectivity graph. If no obstacles are found, an empty graph is
             returned.
         """
@@ -782,6 +785,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
             semantic_wall_annotation,
             bloat_obstacles,
             bloat_walls,
+            obstacle_height_clearance,
         )
 
         if not nav_obstacles:
@@ -831,7 +835,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
             root=world.root, _world=world
         )
 
-        return cls.navigation_map_from_semantic_annotation(
+        return cls.free_space_from_semantic_annotation(
             search_space,
             semantic_annotation,
             tolerance=tolerance,

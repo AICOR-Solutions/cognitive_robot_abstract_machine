@@ -40,8 +40,9 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions imp
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
+    ShapeCollection,
 )
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, Region
 
 MJCF_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -547,16 +548,26 @@ def test_path_from_to_scales_to_a_real_apartment_scene():
     assert len(path) > 1
 
 
-def test_floor_navigation_map_uses_its_own_footprint_as_search_space():
+def test_planar_free_space_uses_the_supporting_surface_as_search_space():
     """
-    Floor.navigation_map must derive its search space from its own body's collision
-    geometry, rather than requiring the caller to build one.
+    HasSupportingSurface.planar_free_space must derive its search space from the
+    supporting surface's own area, rather than requiring the caller to build one.
     """
     world = World.create_with_root_body("root")
     with world.modify_world():
         floor = Floor.create_with_new_body_in_world(
             name="floor", world=world, scale=Scale(4, 4, 0.01)
         )
+        surface = Region.from_shape_collection(
+            PrefixedName("floor_surface"),
+            ShapeCollection(
+                [Box(scale=Scale(4, 4, 0.001))], reference_frame=floor.root
+            ),
+        )
+        world.add_region(surface)
+        world.add_connection(FixedConnection(parent=floor.root, child=surface))
+        floor.supporting_surface = surface
+
         obstacle = Body(name=PrefixedName("obstacle"))
         world.add_connection(
             FixedConnection.create_with_dofs(
@@ -570,7 +581,7 @@ def test_floor_navigation_map_uses_its_own_footprint_as_search_space():
         )
         obstacle.collision.append(Box(scale=Scale(0.4, 0.4, 1.0)))
 
-    graph = floor.navigation_map(max_height=2.0)
+    graph = floor.planar_free_space(max_height=2.0)
 
     assert isinstance(graph, PlanarGraphOfBoundingBoxes)
     search_box = graph.search_space.bounding_box()

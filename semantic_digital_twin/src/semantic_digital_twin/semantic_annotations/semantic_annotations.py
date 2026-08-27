@@ -73,15 +73,6 @@ from semantic_digital_twin.api import (
 
 if TYPE_CHECKING:
     from semantic_digital_twin.world import World
-    from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-        PlanarGraphOfBoundingBoxes,
-    )
-
-OBSTACLE_HEIGHT_CLEARANCE = 0.01
-"""
-The z-clearance every bloated obstacle bounding box gets in addition to the caller's
-own bloat amount, regardless of it.
-"""
 
 
 @dataclass(eq=False)
@@ -796,73 +787,6 @@ class Floor(HasSupportingSurface):
             connection_specification=connection_specification,
         )
 
-    def navigation_map(
-        self,
-        max_height: float = 2.0,
-        tolerance: float = 0.001,
-        bloat_obstacles: float = 0.0,
-        bloat_walls: float = 0.0,
-        semantic_wall_annotation: Optional[Wall] = None,
-    ) -> PlanarGraphOfBoundingBoxes:
-        """
-        Build a navigation map spanning this floor's own footprint, from floor level up
-        to ``max_height``.
-
-        The search space is derived from this floor's own body's collision geometry --
-        its x,y extent bounds the navigable area, and the height range determines which
-        obstacles in the world count as blocking.
-
-        :param max_height: The height of the navigable space above the floor.
-        :param tolerance: The tolerance for the intersection when calculating the
-            connectivity.
-        :param bloat_obstacles: The amount to bloat the obstacles.
-        :param bloat_walls: The amount to bloat wall obstacles.
-        :param semantic_wall_annotation: An optional wall annotation to be considered
-            as an obstacle.
-        :return: The navigation map.
-        """
-        from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-            PlanarGraphOfBoundingBoxes,
-        )
-
-        world = self._world
-        origin = HomogeneousTransformationMatrix(reference_frame=self.root)
-        floor_box = self.root.collision.as_bounding_box_collection_at_origin(
-            origin
-        ).bounding_box()
-
-        # Starts strictly above the floor's own bloated top surface (see
-        # OBSTACLE_HEIGHT_CLEARANCE), so the floor's body never registers as an
-        # obstacle to the navigation map built over it.
-        floor_top = floor_box.max_z + 2 * OBSTACLE_HEIGHT_CLEARANCE
-        search_space = BoundingBoxCollection(
-            [
-                BoundingBox(
-                    floor_box.min_x,
-                    floor_box.min_y,
-                    floor_top,
-                    floor_box.max_x,
-                    floor_box.max_y,
-                    floor_top + max_height,
-                    origin,
-                )
-            ],
-            self.root,
-        )
-
-        semantic_obstacle_annotation = SemanticEnvironmentAnnotation(
-            root=world.root, _world=world
-        )
-
-        return PlanarGraphOfBoundingBoxes.navigation_map_from_semantic_annotation(
-            search_space,
-            semantic_obstacle_annotation,
-            semantic_wall_annotation,
-            tolerance,
-            bloat_obstacles,
-            bloat_walls,
-        )
-
 
 @dataclass(eq=False)
 class Room(SemanticAnnotation):
@@ -1000,6 +924,7 @@ class Wall(HasApertures):
         self,
         origin: HomogeneousTransformationMatrix,
         bloat_amount: float,
+        obstacle_height_clearance: float = 0.01,
     ) -> BoundingBoxCollection[BoundingBox]:
         """
         Bloat this wall's bounding boxes along their thinner dimension only -- the
@@ -1007,14 +932,16 @@ class Wall(HasApertures):
 
         :param origin: The origin to express the bounding boxes relative to.
         :param bloat_amount: The amount to bloat by.
+        :param obstacle_height_clearance: The amount to bloat by in z, regardless of
+            ``bloat_amount``.
         :return: The bloated bounding boxes.
         """
         return BoundingBoxCollection(
             [
                 (
-                    bounding_box.bloat(bloat_amount, 0, OBSTACLE_HEIGHT_CLEARANCE)
+                    bounding_box.bloat(bloat_amount, 0, obstacle_height_clearance)
                     if bounding_box.width > bounding_box.depth
-                    else bounding_box.bloat(0, bloat_amount, OBSTACLE_HEIGHT_CLEARANCE)
+                    else bounding_box.bloat(0, bloat_amount, obstacle_height_clearance)
                 )
                 for bounding_box in self.as_bounding_box_collection_at_origin(origin)
             ],
@@ -1584,6 +1511,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         semantic_wall_annotation: Optional[Wall] = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
+        obstacle_height_clearance: float = 0.01,
     ) -> BoundingBoxCollection[BoundingBox]:
         """
         Collect and bloat this annotation's obstacle bounding boxes.
@@ -1598,6 +1526,8 @@ class SemanticEnvironmentAnnotation(HasRootBody):
             symmetrically in x and y.
         :param bloat_walls: Amount to expand wall bounding boxes in their thinner
             dimension.
+        :param obstacle_height_clearance: Amount to expand every obstacle bounding box
+            in z, regardless of ``bloat_obstacles``/``bloat_walls``.
         :return: A collection of the bloated obstacle and wall bounding boxes.
         """
         world_root = search_space.reference_frame
@@ -1616,7 +1546,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         bloated_obstacles = BoundingBoxCollection(
             [
                 bounding_box.bloat(
-                    bloat_obstacles, bloat_obstacles, OBSTACLE_HEIGHT_CLEARANCE
+                    bloat_obstacles, bloat_obstacles, obstacle_height_clearance
                 )
                 for bounding_box in obstacle_bounding_boxes
             ],
@@ -1626,7 +1556,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         if semantic_wall_annotation is not None:
             bloated_obstacles = bloated_obstacles.merge(
                 semantic_wall_annotation.bloated_bounding_box_collection(
-                    origin, bloat_walls
+                    origin, bloat_walls, obstacle_height_clearance
                 )
             )
 
