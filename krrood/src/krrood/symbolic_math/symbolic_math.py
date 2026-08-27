@@ -463,15 +463,14 @@ class SymbolicMathType(ABC):
     Strong references to this expression's free variables, keeping them alive.
 
     :attr:`FloatVariable._registry` holds its variables weakly, so an expression whose
-    variables are referenced nowhere else can no longer report them. ``None`` means this
+    variables are referenced nowhere else can no longer report them. Empty means this
     expression pins nothing, which is the case for every expression built by
     :meth:`from_casadi_sx` and therefore for every result of an arithmetic operation.
     """
 
     def __post_init__(self):
         # constants have no free variables, so skip the casadi graph scan for them.
-        if not self.is_constant():
-            self.pinned_free_variables = self.free_variables()
+        self.pinned_free_variables = [] if self.is_constant() else self.free_variables()
 
     @classmethod
     def from_casadi_sx(cls, casadi_sx: ca.SX) -> Self:

@@ -217,13 +217,11 @@ class HomogeneousTransformationMatrix(
         self.child_frame = child_frame
         if data is None:
             self._casadi_sx = ca.SX.eye(4)
-            return
-        if isinstance(data, SpatialType):
+        elif isinstance(data, SpatialType):
             # create a copy if data is a spatial type, because they are often still being used
-            casadi_sx = copy(data.casadi_sx)
+            self.casadi_sx = copy(data.casadi_sx)
         else:
-            casadi_sx = sm.to_sx(data)
-        self.casadi_sx = casadi_sx
+            self.casadi_sx = sm.to_sx(data)
         super().__post_init__()
 
     def _verify_type(self):
@@ -574,10 +572,10 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         self.reference_frame = reference_frame
         if data is None:
             self._casadi_sx = ca.SX.eye(4)
-            return
-        empty_data = to_sx(Matrix.eye(4))
-        empty_data[:3, :3] = sm.to_sx(data)[:3, :3]
-        self._casadi_sx = empty_data
+        else:
+            empty_data = to_sx(Matrix.eye(4))
+            empty_data[:3, :3] = sm.to_sx(data)[:3, :3]
+            self._casadi_sx = empty_data
         super().__post_init__()
 
     def _verify_type(self):

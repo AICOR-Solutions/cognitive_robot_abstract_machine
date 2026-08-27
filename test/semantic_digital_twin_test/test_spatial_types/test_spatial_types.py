@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
@@ -549,6 +551,17 @@ class TestRotationMatrix:
             assert np.allclose(
                 det, 1.0, atol=1e-10
             ), f"Determinant {det} != 1.0 for operation"
+
+    def test_deepcopy_of_default_constructed_matrix(self):
+        """
+        The identity shortcut in the constructor still yields a copyable matrix.
+        """
+        rotation = RotationMatrix()
+
+        rotation_copy = deepcopy(rotation)
+
+        assert isinstance(rotation_copy, RotationMatrix)
+        np.testing.assert_array_equal(rotation_copy.to_np(), rotation.to_np())
 
 
 class TestPoint3:
@@ -1805,6 +1818,29 @@ class TestTransformationMatrix:
         # Frames should be preserved but not deep copied (reference equality)
         assert t_copy.reference_frame == t.reference_frame
         assert t_copy.child_frame == t.child_frame
+
+    def test_deepcopy_of_default_constructed_matrix(self):
+        """
+        The identity shortcut in the constructor still yields a copyable matrix.
+        """
+        transform = HomogeneousTransformationMatrix()
+
+        transform_copy = deepcopy(transform)
+
+        assert isinstance(transform_copy, HomogeneousTransformationMatrix)
+        np.testing.assert_array_equal(transform_copy.to_np(), transform.to_np())
+
+    def test_deepcopy_of_symbolic_matrix_keeps_free_variables(self):
+        """
+        A copied symbolic matrix keeps reporting the variables of its original.
+        """
+        transform = HomogeneousTransformationMatrix.create_with_variables("joint")
+
+        transform_copy = deepcopy(transform)
+
+        assert [variable.name for variable in transform_copy.free_variables()] == [
+            variable.name for variable in transform.free_variables()
+        ]
 
     def test_robot_kinematics(self):
         """
