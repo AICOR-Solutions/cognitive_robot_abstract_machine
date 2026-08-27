@@ -8,11 +8,9 @@ from rclpy.time import Time
 from typing_extensions import List, Set, Tuple
 from visualization_msgs.msg import MarkerArray, Marker
 
+from .test_tf_publisher import publisher_ignoring_existing_frames
 from semantic_digital_twin.adapters.mesh import STLParser
-from semantic_digital_twin.adapters.ros.tf_publisher import (
-    TFPublisher,
-    TfPublisherModelCallback,
-)
+from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -267,6 +265,16 @@ def world_with_visible_bodies(*names: str) -> Tuple[World, List[Body]]:
     return world, bodies
 
 
+def published_child_frames(tf_publisher: TFPublisher) -> Set[str]:
+    """
+    The tf frames the publisher broadcasts a transform for.
+    """
+    return {
+        transform.child_frame_id
+        for transform in tf_publisher.tf_model_callback.tf_message.transforms
+    }
+
+
 def marker_frames(viz: VizMarkerPublisher) -> Set[str]:
     """
     The tf frames the markers are positioned in.
@@ -282,11 +290,7 @@ def test_markers_are_stamped_with_the_frame_names_the_tf_publisher_publishes(
 
     viz = VizMarkerPublisher(_world=world, node=rclpy_node)
 
-    published_frames = {
-        transform.child_frame_id
-        for transform in tf_publisher.tf_model_callback.tf_message.transforms
-    }
-    assert marker_frames(viz) == published_frames
+    assert marker_frames(viz) == published_child_frames(tf_publisher)
 
 
 def test_the_tf_publisher_of_the_world_is_adopted(rclpy_node):
@@ -349,9 +353,51 @@ def test_markers_are_stamped_by_the_tf_publisher_the_marker_publisher_starts(
 
     viz = VizMarkerPublisher(_world=world, node=rclpy_node)
 
-    tf_message = TfPublisherModelCallback.all_of_world(world)[0].tf_message
-    published_frames = {transform.child_frame_id for transform in tf_message.transforms}
-    assert marker_frames(viz) == published_frames
+    assert marker_frames(viz) == published_child_frames(viz.tf_publisher)
+
+
+def test_a_body_added_later_reaches_both_publishers_under_one_name(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    with world.modify_world():
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=Body(
+                    name=PrefixedName("milk"),
+                    visual=ShapeCollection(shapes=[Box(scale=Scale(0.1, 0.1, 0.1))]),
+                ),
+            )
+        )
+
+    assert marker_frames(viz) == published_child_frames(viz.tf_publisher)
+
+
+def test_region_markers_are_stamped_like_the_frames_they_share_a_name_with(rclpy_node):
+    world, _ = world_with_visible_bodies("table")
+    region = Region(
+        name=PrefixedName("table"),
+        area=ShapeCollection(shapes=[Box(scale=Scale(0.1, 0.1, 0.1))]),
+    )
+    with world.modify_world():
+        world.add_region(region)
+        world.add_connection(FixedConnection(parent=world.root, child=region))
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    assert marker_frames(viz) == published_child_frames(viz.tf_publisher)
+
+
+def test_markers_of_bodies_another_publisher_broadcasts_keep_its_frame_names(
+    rclpy_node,
+):
+    world, (odom, milk) = world_with_visible_bodies("odom_combined", "milk")
+    publisher_ignoring_existing_frames(world, rclpy_node, [str(odom.name)])
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    assert marker_frames(viz) == {str(odom.name), str(milk.name)}
 
 
 # %% publisher lifetime
