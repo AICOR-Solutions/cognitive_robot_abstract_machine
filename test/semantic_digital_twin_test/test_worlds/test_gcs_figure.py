@@ -35,7 +35,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     UnconnectedGraphError,
 )
-from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
+from semantic_digital_twin.world_description.graph_of_convex_sets.plotting import (
     ConvexSetAdjacency,
     ConvexSetsPanel,
     EnvironmentPanel,

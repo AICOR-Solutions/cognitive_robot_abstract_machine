@@ -4,7 +4,7 @@ plan.
 
 The panels answer the same three questions as the two-dimensional figure -- what the
 planner is given, what it builds, what it returns -- but over a
-:class:`~semantic_digital_twin.world_description.graph_of_convex_sets.figure.VolumetricDecomposition`,
+:class:`~semantic_digital_twin.world_description.graph_of_convex_sets.plotting.VolumetricDecomposition`,
 so free space is partitioned in all three dimensions and a path may change height to
 pass over what it cannot pass beside.
 
@@ -31,7 +31,7 @@ from typing_extensions import List, Sequence
 
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.world_description.geometry import Bounds
-from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
+from semantic_digital_twin.world_description.graph_of_convex_sets.plotting import (
     FigurePalette,
     NavigationScene,
     Theme,

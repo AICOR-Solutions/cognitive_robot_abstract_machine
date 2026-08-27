@@ -7,7 +7,7 @@ import krrood.symbolic_math.symbolic_math as sm
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import SpatialTypeNotJsonSerializable
 from semantic_digital_twin.spatial_types import (
-    Point2D,
+    Point2,
     Pose2D,
     Pose,
     Point3,
@@ -117,7 +117,7 @@ class TestPose2DToPose:
     def test_position_property(self):
         p2 = Pose2D(x=5, y=6, yaw=0.3)
         pt = p2.position
-        assert isinstance(pt, Point2D)
+        assert isinstance(pt, Point2)
         assert pt.x.to_np() == pytest.approx(5.0)
         assert pt.y.to_np() == pytest.approx(6.0)
 
@@ -134,7 +134,7 @@ class TestPose2DToPose:
 
 class TestPose2DFromPositionAndYaw:
     def test_composes_position_and_yaw(self):
-        position = Point2D(x=1.5, y=-2.5)
+        position = Point2(x=1.5, y=-2.5)
         p2 = Pose2D.from_position_and_yaw(position, yaw=0.7)
         assert p2.x.to_np() == pytest.approx(1.5)
         assert p2.y.to_np() == pytest.approx(-2.5)
@@ -142,14 +142,14 @@ class TestPose2DFromPositionAndYaw:
 
     def test_inherits_position_reference_frame(self):
         frame = Body(name=PrefixedName("world"))
-        position = Point2D(x=1.0, y=2.0, reference_frame=frame)
+        position = Point2(x=1.0, y=2.0, reference_frame=frame)
         p2 = Pose2D.from_position_and_yaw(position, yaw=0.0)
         assert p2.reference_frame is frame
 
     def test_override_reference_frame(self):
         frame = Body(name=PrefixedName("world"))
         other_frame = Body(name=PrefixedName("other"))
-        position = Point2D(x=1.0, y=2.0, reference_frame=frame)
+        position = Point2(x=1.0, y=2.0, reference_frame=frame)
         p2 = Pose2D.from_position_and_yaw(
             position, yaw=0.0, reference_frame=other_frame
         )

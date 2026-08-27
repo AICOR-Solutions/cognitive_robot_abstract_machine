@@ -19,7 +19,7 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.spatial_types.spatial_types import (
     Quaternion,
     Pose,
-    Point2D,
+    Point2,
     Pose2D,
     SpatialType,
 )
@@ -276,26 +276,26 @@ class PoseMapping(AlternativeMapping[Pose]):
 
 
 @dataclass(eq=False)
-class Point2DMapping(AlternativeMapping[Point2D]):
+class Point2Mapping(AlternativeMapping[Point2]):
     x: float
     y: float
 
     reference_frame: Optional[KinematicStructureEntity]
 
     @classmethod
-    def from_domain_object(cls, obj: Point2D):
+    def from_domain_object(cls, obj: Point2):
         result = cls(
             x=float(obj.x), y=float(obj.y), reference_frame=obj.reference_frame
         )
         return result
 
-    def to_domain_object(self) -> Point2D:
-        return Point2D(x=self.x, y=self.y, reference_frame=self.reference_frame)
+    def to_domain_object(self) -> Point2:
+        return Point2(x=self.x, y=self.y, reference_frame=self.reference_frame)
 
 
 @dataclass(eq=False)
 class Pose2DMapping(AlternativeMapping[Pose2D]):
-    position: Point2D
+    position: Point2
     bearing: float
     reference_frame: Optional[KinematicStructureEntity] = field(
         default=None, kw_only=True
@@ -316,7 +316,7 @@ class Pose2DMapping(AlternativeMapping[Pose2D]):
 
     @classmethod
     def required_pre_build_classes(cls) -> List[Type]:
-        return [Point2D]
+        return [Point2]
 
 
 class TrimeshType(TypeDecorator):

@@ -21,6 +21,13 @@ from random_events.product_algebra import Event, SimpleEvent
 from random_events.variable import Symbolic
 
 
+class EventContainsSymbolicVariableError(Exception):
+    """
+    Raised when plotting an event that constrains a symbolic variable -- only continuous
+    variables can be plotted.
+    """
+
+
 @dataclass(frozen=True)
 class SimpleEventPlotter:
     """
@@ -35,12 +42,16 @@ class SimpleEventPlotter:
     def plot(self) -> Union[List[go.Scatter], List[go.Mesh3d]]:
         """
         :return: The event's traces, dispatched on its dimensionality.
+        :raises EventContainsSymbolicVariableError: If the event constrains a symbolic
+            variable.
         :raises NotImplementedError: If the event constrains a variable other than one,
             two or three continuous variables.
         """
-        assert all(
-            not isinstance(variable, Symbolic) for variable in self.event.keys()
-        ), "Plotting is only supported for events that consist of only continuous variables."
+        if any(isinstance(variable, Symbolic) for variable in self.event.keys()):
+            raise EventContainsSymbolicVariableError(
+                "Plotting is only supported for events that consist of only "
+                "continuous variables."
+            )
         dimensionality = len(self.event.keys())
         if dimensionality == 1:
             return self.plot_1d()

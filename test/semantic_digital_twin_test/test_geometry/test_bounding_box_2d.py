@@ -5,7 +5,7 @@ from random_events.product_algebra import Event, SimpleEvent
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2D
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import BoundingBox2D
@@ -112,7 +112,7 @@ def test_bounding_box_2d_contains():
         -0.5, -1, 0.5, 1, HomogeneousTransformationMatrix(reference_frame=world.root)
     )
 
-    point = Point2D(0, 0, reference_frame=world.root)
+    point = Point2(0, 0, reference_frame=world.root)
 
     assert bb.contains(point)
 
@@ -126,7 +126,7 @@ def test_bounding_box_2d_does_not_contain_a_point_outside():
         -0.5, -1, 0.5, 1, HomogeneousTransformationMatrix(reference_frame=world.root)
     )
 
-    point = Point2D(10, 10, reference_frame=world.root)
+    point = Point2(10, 10, reference_frame=world.root)
 
     assert not bb.contains(point)
 
@@ -136,7 +136,7 @@ def test_bounding_box_2d_center():
 
     center = bb.center
 
-    assert isinstance(center, Point2D)
+    assert isinstance(center, Point2)
     assert float(center.x) == 1.0
     assert float(center.y) == 2.0
 

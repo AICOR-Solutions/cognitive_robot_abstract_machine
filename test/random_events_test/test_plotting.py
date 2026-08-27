@@ -4,15 +4,30 @@ import numpy as np
 import plotly.graph_objects as go
 
 from random_events.interval import *
-from random_events.plotting import EventPlotter, SimpleEventPlotter
+from random_events.plotting import (
+    EventContainsSymbolicVariableError,
+    EventPlotter,
+    SimpleEventPlotter,
+)
 from random_events.product_algebra import SimpleEvent, Event
-from random_events.variable import Continuous, Integer
+from random_events.set import Set
+from random_events.variable import Continuous, Integer, Symbolic
 
 
 class PlotTestCase(unittest.TestCase):
     x = Continuous(name="x")
     y = Continuous(name="y")
     z = Continuous(name="z")
+
+    def test_plot_rejects_a_symbolic_variable(self):
+        """
+        A symbolic variable has no numeric axis to plot along, so plotting an event that
+        constrains one must raise rather than attempt to draw it.
+        """
+        a = Symbolic(name="a", domain=Set.from_iterable({"a", "b"}))
+        event = SimpleEvent.from_data({a: Set.from_iterable({"a"})})
+        with self.assertRaises(EventContainsSymbolicVariableError):
+            SimpleEventPlotter(event).plot()
 
     def test_plot_2d(self):
         event_1 = SimpleEvent.from_data(

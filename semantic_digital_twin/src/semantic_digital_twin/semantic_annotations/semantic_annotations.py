@@ -1463,22 +1463,18 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         """
         Collect the obstacle bodies to consider within ``search_space``.
 
-        Filters out agent entities so the robot does not treat itself as an obstacle,
-        and bodies without meaningful collision geometry.
+        Filters out robot bodies so a robot does not treat itself as an obstacle, and
+        bodies without meaningful collision geometry.
 
         :param search_space: The search space; its reference frame is used to look up
             the owning world.
         :return: The obstacle bodies to consider.
         """
         world = search_space.reference_frame._world
-
-        agents = world.get_semantic_annotations_by_type(Agent)
-        agent_entities = set()
-        for agent in agents:
-            agent_entities.update(agent.kinematic_structure_entities)
-
         return [
-            body for body in self.bodies_with_collision if body not in agent_entities
+            body
+            for body in self.bodies_with_collision
+            if body not in world.robot_bodies_with_collision
         ]
 
     def build_bloated_obstacle_collection(

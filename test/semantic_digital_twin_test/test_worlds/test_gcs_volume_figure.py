@@ -24,7 +24,7 @@ from semantic_digital_twin.world_description.geometry import Box, BoundingBox, S
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     VolumetricGraphOfBoundingBoxes,
 )
-from semantic_digital_twin.world_description.graph_of_convex_sets.figure import (
+from semantic_digital_twin.world_description.graph_of_convex_sets.plotting import (
     NavigationPath,
     NavigationScene,
     Theme,

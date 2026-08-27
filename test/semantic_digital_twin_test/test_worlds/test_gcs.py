@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from numpy import allclose
 
+from krrood.entity_query_language.exceptions import NotNumberLikeFieldError
 from krrood.entity_query_language.factories import a, entity, set_of, variable
 from random_events.interval import SimpleInterval
 from random_events.product_algebra import SimpleEvent
@@ -14,7 +15,7 @@ from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
-from semantic_digital_twin.spatial_types import Point2D, Point3, Pose
+from semantic_digital_twin.spatial_types import Point2, Point3, Pose
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
@@ -35,7 +36,6 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     AmbiguousSelectedVariableError,
-    MissingFloatLikeFieldError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
@@ -201,7 +201,7 @@ def test_constrain_to_free_space_requires_floatlike_fields(table_world: World):
 
     query = entity(variable(str))
 
-    with pytest.raises(MissingFloatLikeFieldError):
+    with pytest.raises(NotNumberLikeFieldError):
         graph_of_convex_sets.constrain_to_free_space(query)
 
 
@@ -309,10 +309,10 @@ def test_navigation_map_from_world(table_world: World):
     )
 
 
-def test_navigation_map_path_returns_point2d_waypoints(table_world: World):
+def test_navigation_map_path_returns_point2_waypoints(table_world: World):
     """
-    A planar GCS's path is expressed in Point2D, not Point3: there is no z to report,
-    and interior waypoints (portals between boxes) carry no meaningful orientation.
+    A planar GCS's path is expressed in Point2, not Point3: there is no z to report, and
+    interior waypoints (portals between boxes) carry no meaningful orientation.
     """
     search_space = BoundingBoxCollection(
         [
@@ -334,14 +334,14 @@ def test_navigation_map_path_returns_point2d_waypoints(table_world: World):
         table_world, search_space=search_space
     )
 
-    start = Point2D(-4.5, -0.5, reference_frame=table_world.root)
-    goal = Point2D(-2.5, 1.5, reference_frame=table_world.root)
+    start = Point2(-4.5, -0.5, reference_frame=table_world.root)
+    goal = Point2(-2.5, 1.5, reference_frame=table_world.root)
     path = graph_of_convex_sets.path_from_to(start, goal)
 
     assert path is not None
     assert len(path) > 1
     for waypoint in path:
-        assert isinstance(waypoint, Point2D)
+        assert isinstance(waypoint, Point2)
         assert float(waypoint.z) == 0.0
 
 

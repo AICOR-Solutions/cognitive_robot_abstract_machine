@@ -13,12 +13,6 @@ from random_events.interval import Bound, closed, Interval, SimpleInterval
 from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
-from random_events.variable import (
-    Continuous,
-    Integer,
-    compatible_types,
-    variable_from_name_and_type,
-)
 from rtree import index
 from typing_extensions import (
     Generic,
@@ -27,18 +21,15 @@ from typing_extensions import (
     Dict,
     Sequence,
     Self,
-    Type,
     TypeVar,
 )
 
 from krrood.entity_query_language.core.mapped_variable import (
-    Attribute,
     CanBehaveLikeAVariable,
     MappedVariable,
 )
 from krrood.entity_query_language.factories import ConditionType, and_, or_
 from krrood.entity_query_language.query.query import Query
-from krrood.symbol_graph.helpers import get_field_type_endpoint
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -46,7 +37,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
-    Point2D,
+    Point2,
     Point3,
 )
 from semantic_digital_twin.world import World
@@ -58,12 +49,10 @@ from semantic_digital_twin.world_description.geometry import (
 from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
     GraphOfConvexSets,
     PointT,
-    SearchSpaceT,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     AmbiguousSelectedVariableError,
     InconsistentBoxDimensionalityError,
-    MissingFloatLikeFieldError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
@@ -106,8 +95,8 @@ class BoundingBoxAdjacency(Generic[BoxT]):
 
 @dataclass
 class GraphOfBoundingBoxes(
-    Generic[BoxT, PointT, SearchSpaceT],
-    GraphOfConvexSets[PointT, SearchSpaceT],
+    Generic[BoxT, PointT],
+    GraphOfConvexSets[PointT, BoundingBoxCollection[BoxT]],
 ):
     """
     Abstract base for graphs of convex sets whose nodes are axis-aligned bounding boxes.
@@ -133,7 +122,7 @@ class GraphOfBoundingBoxes(
     """
 
     @abstractmethod
-    def _default_search_space(self) -> SearchSpaceT:
+    def _default_search_space(self) -> BoundingBoxCollection[BoxT]:
         raise NotImplementedError
 
     @property
@@ -425,8 +414,8 @@ class GraphOfBoundingBoxes(
         :param variable: The eql variable to constrain, e.g. a Pose2D- or
             Point3-typed attribute of a query, or the query itself.
         :return: The condition that was added.
-        :raises MissingFloatLikeFieldError: If ``variable`` has no float-like field
-            for one of this graph's spatial coordinates.
+        :raises NotNumberLikeFieldError: If ``variable`` has no number-like field for
+            one of this graph's spatial coordinates.
         """
         chain_root = (
             variable._chain_root_ if isinstance(variable, MappedVariable) else variable
@@ -441,9 +430,7 @@ class GraphOfBoundingBoxes(
 
         free_space_event = self.free_space_event
         fields = {
-            spatial_variable.name: self._floatlike_field(
-                variable, spatial_variable.name
-            )
+            spatial_variable.name: variable.number_like_field(spatial_variable.name)
             for spatial_variable in free_space_event.variables
         }
 
@@ -499,53 +486,6 @@ class GraphOfBoundingBoxes(
         )
 
     @staticmethod
-    def _floatlike_field(variable: MappedVariable, field_name: str) -> MappedVariable:
-        """
-        :param variable: The eql variable to read the field from.
-        :param field_name: The name of the field.
-        :return: The field, accessed symbolically on ``variable``.
-        :raises MissingFloatLikeFieldError: If the field does not exist or is not
-            float-like.
-        """
-        field = variable._get_mapped_variable_(Attribute, field_name)
-        resolved_type = GraphOfBoundingBoxes._resolved_type_of(field)
-        is_floatlike = (
-            resolved_type is not None
-            and issubclass(resolved_type, compatible_types)
-            and isinstance(
-                variable_from_name_and_type(field_name, resolved_type),
-                (Integer, Continuous),
-            )
-        )
-        if not is_floatlike:
-            raise MissingFloatLikeFieldError(variable, field_name, resolved_type)
-        return field
-
-    @staticmethod
-    def _resolved_type_of(field: MappedVariable) -> Optional[Type]:
-        """
-        Resolve the domain type a mapping chain's leaf field holds.
-
-        ``field._type_`` itself does not resolve when the chain is rooted at a query
-        rather than at an already-typed variable, since a query's own ``_type_`` is
-        unset -- what it selects lives on its ``selected_variable`` instead. Walking
-        the chain's own access path against that seed type sidesteps the gap.
-
-        :param field: The field to resolve the type of.
-        :return: The field's domain type, or None if it does not exist.
-        """
-        root = field._chain_root_
-        selected_variable = GraphOfBoundingBoxes._selected_variable_of(root)
-        owner_type = (
-            selected_variable._type_
-            if selected_variable is not None
-            else root.__dict__.get("_type_")
-        )
-        for step in field._access_path_:
-            owner_type = get_field_type_endpoint(owner_type, step._attribute_name_)
-        return owner_type
-
-    @staticmethod
     def _selected_variable_of(root) -> Optional[CanBehaveLikeAVariable]:
         """
         :param root: The chain root of an eql variable.
@@ -565,9 +505,7 @@ class GraphOfBoundingBoxes(
 
 
 @dataclass
-class VolumetricGraphOfBoundingBoxes(
-    GraphOfBoundingBoxes[BoundingBox, Point3, BoundingBoxCollection[BoundingBox]]
-):
+class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
     """
     A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
     free space in all three dimensions.
@@ -723,9 +661,7 @@ class VolumetricGraphOfBoundingBoxes(
 
 
 @dataclass
-class PlanarGraphOfBoundingBoxes(
-    GraphOfBoundingBoxes[BoundingBox2D, Point2D, BoundingBoxCollection[BoundingBox2D]]
-):
+class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
     """
     A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
     free space on a single navigable plane.

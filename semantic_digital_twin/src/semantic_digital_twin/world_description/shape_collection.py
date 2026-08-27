@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from functools import cached_property
 
 import numpy as np
+import numpy.typing as npt
 from random_events.product_algebra import Event, SimpleEvent
 from trimesh import Trimesh
 from trimesh.util import concatenate
@@ -287,7 +288,7 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
             *[box.simple_event for box in self.bounding_boxes]
         )
 
-    def merge(self, other: BoundingBoxCollection[BoxT]) -> BoundingBoxCollection[BoxT]:
+    def merge(self, other: Self) -> Self:
         """
         Merge another bounding box collection into this one.
 
@@ -434,7 +435,9 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
         )
 
 
-def _padded_to_3d(coordinates: np.ndarray) -> np.ndarray:
+def _padded_to_3d(
+    coordinates: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
     """
     :param coordinates: A 2- or 3-element coordinate array.
     :return: The same coordinates, padded with trailing zeros to 3 elements.

@@ -14,7 +14,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
-    Point2D,
+    Point2,
     Point3,
 )
 from semantic_digital_twin.world import World
@@ -25,11 +25,11 @@ from semantic_digital_twin.world_description.shape_collection import (
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
-PointT = TypeVar("PointT", bound=Union[Point3, Point2D])
+PointT = TypeVar("PointT", bound=Union[Point3, Point2])
 """
 The point type a :class:`GraphOfConvexSets` subclass queries and returns paths in --
 :class:`~semantic_digital_twin.spatial_types.Point3` for a graph that plans in three
-dimensions, :class:`~semantic_digital_twin.spatial_types.Point2D` for one that plans on
+dimensions, :class:`~semantic_digital_twin.spatial_types.Point2` for one that plans on
 a single plane.
 """
 

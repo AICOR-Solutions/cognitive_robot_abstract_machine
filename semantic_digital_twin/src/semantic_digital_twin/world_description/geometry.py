@@ -38,7 +38,7 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.mixin import HasSimulatorProperties
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
-    Point2D,
+    Point2,
     Point3,
     Vector3,
 )
@@ -1239,14 +1239,10 @@ class AxisAlignedBox(ABC):
         return len(cls.axes())
 
     @abstractmethod
-    def get_points(self) -> List[Point3]:
+    def get_points(self) -> List[Point3] | List[Point2]:
         """
-        Always ``Point3`` -- even for :class:`BoundingBox2D` -- so that
-        :meth:`transform_to_origin`'s corner-transform math stays a single
-        implementation shared by every box type, rather than branching on
-        dimensionality.
-
-        :return: This box's corners, as ``Point3`` instances in its own local frame.
+        :return: This box's corners, in its own local frame -- ``Point3`` for
+            :class:`BoundingBox`, ``Point2`` for :class:`BoundingBox2D`.
         """
         raise NotImplementedError
 
@@ -1337,9 +1333,9 @@ class AxisAlignedBox(ABC):
 
         list_self_T_corner = [
             HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                self_T_corner
+                corner.to_point3() if isinstance(corner, Point2) else corner
             ).to_np()
-            for self_T_corner in self.get_points()
+            for corner in self.get_points()
         ]
 
         list_reference_T_corner = [
@@ -1682,7 +1678,7 @@ class BoundingBox(AxisAlignedBox):
             and np.isclose(self.max_x, other.max_x)
             and np.isclose(self.max_y, other.max_y)
             and np.isclose(self.max_z, other.max_z)
-            and np.allclose(self.origin.to_np(), other.origin.to_np())
+            and np.allclose(self.origin, other.origin)
         )
 
 
@@ -1769,11 +1765,11 @@ class BoundingBox2D(AxisAlignedBox):
         return self.depth * self.width
 
     @property
-    def center(self) -> Point2D:
+    def center(self) -> Point2:
         """
         :return: The center of the bounding box, in the same frame as ``origin``.
         """
-        return Point2D(
+        return Point2(
             self.x_interval.center(),
             self.y_interval.center(),
             reference_frame=self.origin.reference_frame,
@@ -1795,7 +1791,7 @@ class BoundingBox2D(AxisAlignedBox):
             self.origin,
         )
 
-    def contains(self, point: Point2D) -> bool:
+    def contains(self, point: Point2) -> bool:
         """
         Check if the bounding box contains a point.
         """
@@ -1842,16 +1838,15 @@ class BoundingBox2D(AxisAlignedBox):
             result.append(cls(x.lower, y.lower, x.upper, y.upper, origin))
         return result
 
-    def get_points(self) -> List[Point3]:
+    def get_points(self) -> List[Point2]:
         """
-        Get the 4 corners of the bounding box as ``Point3`` objects at z=0, in the box's
-        own local frame -- see :meth:`AxisAlignedBox.get_points` for why a 2D box still
-        returns ``Point3`` rather than ``Point2D``.
+        Get the 4 corners of the bounding box as ``Point2`` objects, in the box's own
+        local frame.
 
-        :return: A list of Point3 objects representing the corners of the bounding box.
+        :return: A list of Point2 objects representing the corners of the bounding box.
         """
         return [
-            Point3(x, y, 0)
+            Point2(x, y, reference_frame=self.origin.reference_frame)
             for x in (self.min_x, self.max_x)
             for y in (self.min_y, self.max_y)
         ]
@@ -1862,5 +1857,5 @@ class BoundingBox2D(AxisAlignedBox):
             and np.isclose(self.min_y, other.min_y)
             and np.isclose(self.max_x, other.max_x)
             and np.isclose(self.max_y, other.max_y)
-            and np.allclose(self.origin.to_np(), other.origin.to_np())
+            and np.allclose(self.origin, other.origin)
         )

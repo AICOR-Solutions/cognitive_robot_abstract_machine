@@ -17,7 +17,6 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import Po
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     BoxT,
     GraphOfBoundingBoxes,
-    SearchSpaceT,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     UnconnectedGraphError,
@@ -42,7 +41,7 @@ class PathQuery(Generic[PointT]):
 
 
 def hardest_path_query(
-    graph: GraphOfBoundingBoxes[BoxT, PointT, SearchSpaceT],
+    graph: GraphOfBoundingBoxes[BoxT, PointT],
 ) -> PathQuery[PointT]:
     """
     Pick the query that is hardest to answer: the two convex set centers whose shortest
@@ -97,7 +96,7 @@ def hardest_path_query(
 
 
 def _coordinates_of(
-    graph: GraphOfBoundingBoxes[BoxT, PointT, SearchSpaceT], index: int
+    graph: GraphOfBoundingBoxes[BoxT, PointT], index: int
 ) -> tuple[float, float, float]:
     """
     :param graph: The graph holding the convex set.

@@ -25,6 +25,13 @@ from typing_extensions import (
     List,
 )
 
+from random_events.variable import (
+    Continuous,
+    Integer,
+    compatible_types,
+    variable_from_name_and_type,
+)
+
 from krrood.class_diagrams.utils import get_type_hints_of_object
 from krrood.entity_query_language.core.base_expressions import (
     UnaryExpression,
@@ -36,6 +43,7 @@ from krrood.entity_query_language.core.base_expressions import (
 )
 from krrood.entity_query_language.exceptions import (
     MultipleValuesAlongAccessPath,
+    NotNumberLikeFieldError,
     ReadOnlyMapping,
     SymbolicDunderAccessError,
 )
@@ -106,6 +114,39 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         args = (self,) + args
         all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
         return convert_args_and_kwargs_into_hashable_key(all_kwargs)
+
+    def number_like_field(self, field_name: str) -> Attribute:
+        """
+        Access ``field_name`` on this variable, asserting it resolves to a number-like
+        (integer or continuous) type.
+
+        :param field_name: The name of the field to access.
+        :return: The field, accessed symbolically on this variable.
+        :raises AmbiguousQueryAttribute: If this variable is (or is chain-rooted at) a
+            query that selects more than one variable, so the field has no single
+            subject to resolve its type from.
+        :raises NotNumberLikeFieldError: If the field does not exist or is not number-
+            like.
+        """
+        from krrood.entity_query_language.query.query import Query
+
+        field = self._get_mapped_variable_(Attribute, field_name)
+        resolved_type = field._type_
+        if resolved_type is None:
+            root = field._chain_root_
+            if isinstance(root, Query):
+                resolved_type = root._rerooted_on_selection_(field)._type_
+        is_number_like = (
+            resolved_type is not None
+            and issubclass(resolved_type, compatible_types)
+            and isinstance(
+                variable_from_name_and_type(field_name, resolved_type),
+                (Integer, Continuous),
+            )
+        )
+        if not is_number_like:
+            raise NotNumberLikeFieldError(self, field_name, resolved_type)
+        return field
 
     def __getattr__(self, name: str) -> Attribute[T]:
         # Dunder names are never symbolic attribute access. Mapping them would (a) let copy/pickle

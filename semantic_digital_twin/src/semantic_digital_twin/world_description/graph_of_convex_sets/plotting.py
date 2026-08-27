@@ -39,7 +39,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from typing_extensions import Iterable, List, Optional, Sequence, Self, Union
 
-from semantic_digital_twin.spatial_types import Point2D, Point3
+from semantic_digital_twin.spatial_types import Point2, Point3
 from semantic_digital_twin.world_description.geometry import BoundingBox, BoundingBox2D
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
@@ -272,7 +272,7 @@ class NavigationPath:
     instead of recomputing it from a bare list.
     """
 
-    waypoints: List[Union[Point3, Point2D]]
+    waypoints: List[Union[Point3, Point2]]
     """
     The points to navigate to, starting at the query's start and ending at its goal.
     """
@@ -334,17 +334,17 @@ class ConvexSetAdjacency:
     convex set, through the portal the two sets share, to the center of the other.
     """
 
-    source_center: Union[Point3, Point2D]
+    source_center: Union[Point3, Point2]
     """
     The center of the convex set the edge starts at.
     """
 
-    portal_center: Union[Point3, Point2D]
+    portal_center: Union[Point3, Point2]
     """
     The center of the region where the two convex sets overlap.
     """
 
-    target_center: Union[Point3, Point2D]
+    target_center: Union[Point3, Point2]
     """
     The center of the convex set the edge ends at.
     """
@@ -737,7 +737,7 @@ class EndpointsLayer(SceneLayer):
     def _draw_endpoint(
         self,
         axes: Axes,
-        endpoint: Union[Point3, Point2D],
+        endpoint: Union[Point3, Point2],
         label: str,
         marker: str,
         color: str,

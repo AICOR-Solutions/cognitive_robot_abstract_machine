@@ -2,50 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from krrood.entity_query_language.core.mapped_variable import (
-    CanBehaveLikeAVariable,
-    MappedVariable,
-)
-from typing_extensions import Optional, Type, Union
+from krrood.entity_query_language.core.mapped_variable import CanBehaveLikeAVariable
 
 from semantic_digital_twin.exceptions import UsageError
-from semantic_digital_twin.spatial_types import Point2D, Point3
+from semantic_digital_twin.spatial_types import Point2, Point3
 from semantic_digital_twin.world_description.geometry import AxisAlignedBox
-
-
-@dataclass
-class MissingFloatLikeFieldError(UsageError):
-    """
-    Raised when constraining an eql variable to a graph of convex sets' free space, but
-    the variable has no float-like field for one of the coordinates the free space is
-    expressed over.
-    """
-
-    variable: MappedVariable
-    """
-    The variable that was to be constrained.
-    """
-
-    field_name: str
-    """
-    The name of the missing or wrongly-typed field.
-    """
-
-    resolved_type: Optional[Type]
-    """
-    The field's resolved type, or None if the field does not exist at all.
-    """
-
-    def error_message(self) -> str:
-        if self.resolved_type is None:
-            return f"{self.variable} has no field named '{self.field_name}'."
-        return (
-            f"{self.variable}'s field '{self.field_name}' is {self.resolved_type}, "
-            "not float-like."
-        )
-
-    def suggest_correction(self) -> str:
-        return f"give the queried type a float-valued '{self.field_name}' field."
 
 
 @dataclass
@@ -80,12 +41,12 @@ class UnreachableGoalError(UsageError):
     goal.
     """
 
-    start: Union[Point3, Point2D]
+    start: Point3 | Point2
     """
     Where the queried path was supposed to begin.
     """
 
-    goal: Union[Point3, Point2D]
+    goal: Point3 | Point2
     """
     Where the queried path was supposed to end.
     """

@@ -1167,7 +1167,7 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
 
 
 @dataclass(eq=False, init=False, repr=False)
-class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+class Point2(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     """
     Represents a 2D point with reference frame handling.
 
@@ -1203,13 +1203,13 @@ class Point2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         cls,
         pose: Pose,
         reference_frame: Optional[KinematicStructureEntity] = None,
-    ) -> Point2D:
+    ) -> Point2:
         """
-        Extract a Point2D from a 3D Pose by dropping z, roll, pitch and yaw.
+        Extract a Point2 from a 3D Pose by dropping z, roll, pitch and yaw.
 
         :param pose: The pose to extract the point from.
         :param reference_frame: The reference frame. Defaults to ``pose``'s.
-        :return: The Point2D instance.
+        :return: The Point2 instance.
         """
         frame = reference_frame if reference_frame is not None else pose.reference_frame
         return cls(x=pose.x, y=pose.y, reference_frame=frame)
@@ -2316,11 +2316,11 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     # ------------------------------------------------------------------
 
     @property
-    def position(self) -> Point2D:
+    def position(self) -> Point2:
         """
         :return: The position this pose is composed of, dropping the bearing.
         """
-        return Point2D(self.x, self.y, reference_frame=self.reference_frame)
+        return Point2(self.x, self.y, reference_frame=self.reference_frame)
 
     @property
     def orientation(self) -> Quaternion:
@@ -2358,7 +2358,7 @@ class Pose2D(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     @classmethod
     def from_position_and_yaw(
         cls,
-        position: Point2D,
+        position: Point2,
         yaw: sm.ScalarData = 0,
         reference_frame: Optional[KinematicStructureEntity] = None,
     ) -> Pose2D:
