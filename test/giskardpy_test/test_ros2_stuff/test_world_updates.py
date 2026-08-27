@@ -105,7 +105,7 @@ class PublishingSynchronizerMimic:
     """
 
     origin: MetaData = field(
-        default_factory=lambda: MetaData(node_name="client", process_id=0)
+        default_factory=lambda: MetaData(node_name="client", process_id=0, world_namespace="client")
     )
     """
     The publisher the positions of this world belong to.
@@ -222,7 +222,7 @@ class TestCatchingUp:
         world_synchronizer = BufferingSynchronizerMimic(caught_up=True)
         world_updates = IncomingWorldUpdates(world_synchronizer=world_synchronizer)
         position = StreamPosition(
-            origin=MetaData(node_name="publisher", process_id=1), sequence_number=7
+            origin=MetaData(node_name="publisher", process_id=1, world_namespace="publisher"), sequence_number=7
         )
 
         assert world_updates.has_applied(position)
@@ -235,7 +235,7 @@ class TestCatchingUp:
 
         assert not world_updates.has_applied(
             StreamPosition(
-                origin=MetaData(node_name="publisher", process_id=1), sequence_number=7
+                origin=MetaData(node_name="publisher", process_id=1, world_namespace="publisher"), sequence_number=7
             )
         )
 
@@ -281,7 +281,7 @@ class TestClientWorldUpdates:
             {
                 "published_position": to_json(
                     StreamPosition(
-                        origin=MetaData(node_name="giskard", process_id=1),
+                        origin=MetaData(node_name="giskard", process_id=1, world_namespace="giskard"),
                         sequence_number=9,
                     )
                 )
@@ -300,7 +300,7 @@ class TestClientWorldUpdates:
                 {
                     "published_position": to_json(
                         StreamPosition(
-                            origin=MetaData(node_name="giskard", process_id=1),
+                            origin=MetaData(node_name="giskard", process_id=1, world_namespace="giskard"),
                             sequence_number=9,
                         )
                     )
@@ -408,8 +408,9 @@ def add_moving_connection(world: World) -> None:
 
 @pytest.fixture()
 def control_loop(init_rospy) -> ControlLoopFixture:
-    controlled_world = World()
-    remote_world = World()
+    # The two worlds stand for two processes, so each needs a namespace of its own.
+    controlled_world = World(namespace="controlled")
+    remote_world = World(namespace="remote")
     controlled_synchronizer = WorldSynchronizer(
         node=rospy.node, _world=controlled_world
     )

@@ -207,7 +207,7 @@ class PublicationProgressMimic:
     """
 
     origin: MetaData = field(
-        default_factory=lambda: MetaData(node_name="mimic", process_id=0)
+        default_factory=lambda: MetaData(node_name="mimic", process_id=0, world_namespace="mimic")
     )
     """
     The publisher the sequence numbers belong to.
@@ -1124,7 +1124,7 @@ class TestWaitingForTheWorldOfTheClient:
         self, motion_server: MotionServerFixture
     ):
         position = StreamPosition(
-            origin=MetaData(node_name="client", process_id=1), sequence_number=4
+            origin=MetaData(node_name="client", process_id=1, world_namespace="client"), sequence_number=4
         )
         motion_server.world_updates.drains_until_caught_up = 3
         motion_server.action_server.goal_json = create_goal_json(
@@ -1147,7 +1147,7 @@ class TestWaitingForTheWorldOfTheClient:
         motion_server.world_updates.drains_until_caught_up = 3
         motion_server.action_server.goal_json = create_goal_json(
             required_position=StreamPosition(
-                origin=MetaData(node_name="client", process_id=1), sequence_number=4
+                origin=MetaData(node_name="client", process_id=1, world_namespace="client"), sequence_number=4
             )
         )
 
@@ -1166,7 +1166,7 @@ class TestWaitingForTheWorldOfTheClient:
         motion_server.motion_server.world_update_timeout = 0.2
         motion_server.action_server.goal_json = create_goal_json(
             required_position=StreamPosition(
-                origin=MetaData(node_name="client", process_id=1), sequence_number=4
+                origin=MetaData(node_name="client", process_id=1, world_namespace="client"), sequence_number=4
             )
         )
 

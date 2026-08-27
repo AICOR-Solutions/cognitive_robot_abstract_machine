@@ -1714,7 +1714,9 @@ class World(HasSimulatorProperties):
         :return: None
         """
         assert other is not self, "Cannot merge a world with itself."
-        if self.namespace is not None:
+        # A world holding nothing has no identifiers of its own to keep apart, and what
+        # it ends up with is entirely the other world's, the namespaces are not important
+        if self.namespace is not None and not self.is_empty():
             # A namespaced world stays reproducible only if everything merged into it
             # was handed out by a namespace of its own, and a different one.
             if other.namespace is None:

@@ -249,7 +249,14 @@ class GiskardTester(ABC):
             parent_link = self.api.world.get_kinematic_structure_entity_by_name(
                 parent_link
             )
-        pr2_parser = URDFParser(urdf=urdf, prefix=name)
+        # The world this is merged into may be namespaced, and only takes in content
+        # that carries a namespace of its own, named apart from it.
+        world_namespace = self.api.world.namespace
+        pr2_parser = URDFParser(
+            urdf=urdf,
+            prefix=name,
+            namespace=None if world_namespace is None else f"{world_namespace}/{name}",
+        )
         world_with_pr2 = pr2_parser.parse()
         with self.api.world.modify_world():
             c_map_root = FixedConnection(
