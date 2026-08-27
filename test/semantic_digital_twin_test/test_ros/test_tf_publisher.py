@@ -1,8 +1,9 @@
 from copy import deepcopy
 from unittest.mock import MagicMock, patch
 import pytest
-from typing_extensions import List, Tuple
+from typing_extensions import List, Set, Tuple
 from rclpy.duration import Duration
+from rclpy.node import Node
 from rclpy.time import Time
 from tf2_py import LookupException
 
@@ -422,13 +423,49 @@ def test_removing_a_body_leaves_the_frame_name_of_the_other_one_alone():
     assert frame_names.assign(second) == published
 
 
-def test_frames_published_by_someone_else_are_kept_as_they_are():
-    world, (odom, milk) = world_with_bodies("odom_combined", "milk")
-    frame_names = TfFrameNames()
-    frame_names.reserve_frames_of_other_publishers(["odom_combined"])
+def published_child_frames(tf_publisher: TFPublisher) -> Set[str]:
+    """
+    The tf frames the publisher broadcasts a transform for.
+    """
+    return {
+        transform.child_frame_id
+        for transform in tf_publisher.tf_model_callback.tf_message.transforms
+    }
 
-    assert frame_names.assign(odom) == "odom_combined"
-    assert frame_names.assign(milk) == "milk"
+
+def publisher_ignoring_existing_frames(
+    world: World, node: Node, existing_frames: List[str]
+) -> TFPublisher:
+    """
+    Build a publisher for a world whose tf tree already carries the given frames.
+    """
+    with patch.object(TFWrapper, "get_tf_frames", return_value=existing_frames):
+        return TFPublisher.create_with_ignore_existing_tf(node=node, world=world)
+
+
+def test_a_body_another_publisher_broadcasts_keeps_that_frame_name(rclpy_node):
+    world, (odom, milk) = world_with_bodies("odom_combined", "milk")
+
+    tf_publisher = publisher_ignoring_existing_frames(
+        world, rclpy_node, [str(odom.name)]
+    )
+
+    assert published_child_frames(tf_publisher) == {str(odom.name), str(milk.name)}
+
+
+def test_two_equally_named_bodies_another_publisher_broadcasts_get_a_frame_each(
+    rclpy_node,
+):
+    world, (first, second) = world_with_bodies("milk", "milk")
+
+    tf_publisher = publisher_ignoring_existing_frames(
+        world, rclpy_node, [str(first.name)]
+    )
+
+    assert published_child_frames(tf_publisher) == {
+        str(first.name),
+        f"{second.name}_{second.id.hex}",
+    }
 
 
 def test_two_equally_named_bodies_reach_the_tree_as_two_frames(rclpy_node):
