@@ -19,7 +19,7 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import BoundingBox
+from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -91,7 +91,7 @@ class GraphOfConvexSets(Generic[PointT, SearchSpaceT], SubClassSafeGeneric, ABC)
         """
         return BoundingBoxCollection(
             shapes=[
-                BoundingBox(
+                VolumetricBoundingBox(
                     min_x=-np.inf,
                     min_y=-np.inf,
                     min_z=-np.inf,

@@ -20,7 +20,11 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import Box, BoundingBox, Scale
+from semantic_digital_twin.world_description.geometry import (
+    Box,
+    VolumetricBoundingBox,
+    Scale,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     VolumetricGraphOfBoundingBoxes,
 )
@@ -155,7 +159,7 @@ def barrier_search_space_of(world: World) -> BoundingBoxCollection:
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     return BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -FLOOR_SIZE[0] / 2,
                 -FLOOR_SIZE[1] / 2,
                 0.0,
@@ -251,7 +255,7 @@ def test_the_third_dimension_connects_what_a_shallow_search_space_leaves_apart(
     origin = HomogeneousTransformationMatrix(reference_frame=barrier_world.root)
     shallow_search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -FLOOR_SIZE[0] / 2,
                 -FLOOR_SIZE[1] / 2,
                 0.0,

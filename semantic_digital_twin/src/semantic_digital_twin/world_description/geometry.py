@@ -341,10 +341,10 @@ class Scale:
 
         return simple_event
 
-    def to_bounding_box(self) -> BoundingBox:
+    def to_bounding_box(self) -> VolumetricBoundingBox:
         min_point = Point3(-self.x / 2, -self.y / 2, -self.z / 2)
         max_point = Point3(self.x / 2, self.y / 2, self.z / 2)
-        return BoundingBox.from_min_max(min_point, max_point, None)
+        return VolumetricBoundingBox.from_min_max(min_point, max_point, None)
 
     def to_np(self) -> np.ndarray:
         return np.array([self.x, self.y, self.z])
@@ -384,7 +384,7 @@ class Shape(ABC, SubclassJSONSerializer, HasSimulatorProperties):
 
     @property
     @abstractmethod
-    def local_frame_bounding_box(self) -> BoundingBox:
+    def local_frame_bounding_box(self) -> VolumetricBoundingBox:
         """
         Returns the bounding box of the shape.
         """
@@ -514,13 +514,13 @@ class Mesh(Shape):
         return self.mesh.volume
 
     @property
-    def local_frame_bounding_box(self) -> BoundingBox:
+    def local_frame_bounding_box(self) -> VolumetricBoundingBox:
         """
         Returns the local bounding box of the mesh.
 
         The bounding box is axis-aligned and centered at the origin.
         """
-        return BoundingBox.from_mesh(self.mesh, self.origin)
+        return VolumetricBoundingBox.from_mesh(self.mesh, self.origin)
 
     @staticmethod
     def _load_in_meters(filename: str, process: bool = True) -> trimesh.Trimesh:
@@ -973,11 +973,11 @@ class Sphere(Shape):
         return mesh
 
     @property
-    def local_frame_bounding_box(self) -> BoundingBox:
+    def local_frame_bounding_box(self) -> VolumetricBoundingBox:
         """
         Returns the bounding box of the sphere.
         """
-        return BoundingBox(
+        return VolumetricBoundingBox(
             -self.radius,
             -self.radius,
             -self.radius,
@@ -1033,7 +1033,7 @@ class Cylinder(Shape):
         return mesh
 
     @property
-    def local_frame_bounding_box(self) -> BoundingBox:
+    def local_frame_bounding_box(self) -> VolumetricBoundingBox:
         """
         Returns the bounding box of the cylinder.
 
@@ -1041,7 +1041,7 @@ class Cylinder(Shape):
         """
         half_width = self.width / 2
         half_height = self.height / 2
-        return BoundingBox(
+        return VolumetricBoundingBox(
             -half_width,
             -half_width,
             -half_height,
@@ -1092,7 +1092,7 @@ class Box(Shape):
         return mesh
 
     @property
-    def local_frame_bounding_box(self) -> BoundingBox:
+    def local_frame_bounding_box(self) -> VolumetricBoundingBox:
         """
         Returns the local bounding box of the box.
 
@@ -1101,7 +1101,7 @@ class Box(Shape):
         half_x = self.scale.x / 2
         half_y = self.scale.y / 2
         half_z = self.scale.z / 2
-        return BoundingBox(
+        return VolumetricBoundingBox(
             -half_x,
             -half_y,
             -half_z,
@@ -1152,7 +1152,7 @@ class Bounds(Generic[T], SubClassSafeGeneric):
         against this region, using the slab method.
 
         Assumes ``lower``/``upper`` are plain numeric arrays, as returned by
-        :meth:`BoundingBox.to_array_bounds`.
+        :meth:`VolumetricBoundingBox.to_array_bounds`.
 
         .. note::
             ``start``/``direction`` are plain arrays rather than :class:`Point3`/
@@ -1190,7 +1190,7 @@ class AxisAlignedBox(ABC):
     """
     Shared behaviour for an axis-aligned box expressed over a fixed set of spatial axes.
 
-    :class:`BoundingBox` and :class:`BoundingBox2D` differ only in which axes they
+    :class:`VolumetricBoundingBox` and :class:`PlanarBoundingBox` differ only in which axes they
     cover -- x, y, z versus x, y. Everything that depends only on that set of axes is
     implemented here once; each subclass keeps its own fields (their count differs) and
     the extras that are genuinely dimension-specific (``bloat``, ``dimensions``,
@@ -1242,7 +1242,7 @@ class AxisAlignedBox(ABC):
     def get_points(self) -> List[Point3] | List[Point2]:
         """
         :return: This box's corners, in its own local frame -- ``Point3`` for
-            :class:`BoundingBox`, ``Point2`` for :class:`BoundingBox2D`.
+            :class:`VolumetricBoundingBox`, ``Point2`` for :class:`PlanarBoundingBox`.
         """
         raise NotImplementedError
 
@@ -1372,7 +1372,7 @@ class AxisAlignedBox(ABC):
 
 
 @dataclass(eq=False)
-class BoundingBox(AxisAlignedBox):
+class VolumetricBoundingBox(AxisAlignedBox):
     """
     An axis-aligned box in three-dimensional space.
     """
@@ -1515,7 +1515,7 @@ class BoundingBox(AxisAlignedBox):
 
     def bloat(
         self, x_amount: float = 0.0, y_amount: float = 0, z_amount: float = 0
-    ) -> BoundingBox:
+    ) -> VolumetricBoundingBox:
         """
         Enlarges the bounding box by a given amount in all dimensions.
 
@@ -1670,7 +1670,7 @@ class BoundingBox(AxisAlignedBox):
         )
         return Box(origin=origin, scale=scale)
 
-    def __eq__(self, other: BoundingBox) -> bool:
+    def __eq__(self, other: VolumetricBoundingBox) -> bool:
         return (
             np.isclose(self.min_x, other.min_x)
             and np.isclose(self.min_y, other.min_y)
@@ -1683,13 +1683,13 @@ class BoundingBox(AxisAlignedBox):
 
 
 @dataclass(eq=False)
-class BoundingBox2D(AxisAlignedBox):
+class PlanarBoundingBox(AxisAlignedBox):
     """
     An axis-aligned box in the x-y plane, with no z-extent.
 
-    The planar counterpart to :class:`BoundingBox`: it represents a floor-plan region
-    rather than a volume, for graphs of convex sets that decompose free space onto a
-    single navigable plane instead of in three dimensions.
+    The planar counterpart to :class:`VolumetricBoundingBox`: it represents a floor-plan
+    region rather than a volume, for graphs of convex sets that decompose free space
+    onto a single navigable plane instead of in three dimensions.
     """
 
     min_x: float
@@ -1775,7 +1775,7 @@ class BoundingBox2D(AxisAlignedBox):
             reference_frame=self.origin.reference_frame,
         )
 
-    def bloat(self, x_amount: float = 0.0, y_amount: float = 0.0) -> BoundingBox2D:
+    def bloat(self, x_amount: float = 0.0, y_amount: float = 0.0) -> PlanarBoundingBox:
         """
         Enlarges the bounding box by a given amount in both dimensions.
 
@@ -1801,7 +1801,7 @@ class BoundingBox2D(AxisAlignedBox):
         x, y = float(point_in_bb.x), float(point_in_bb.y)
         return self.simple_event.contains((x, y))
 
-    def extrude(self, half_height: float) -> BoundingBox:
+    def extrude(self, half_height: float) -> VolumetricBoundingBox:
         """
         Extrude this floor-plan box into a 3D slab, centered on the plane it was built
         on.
@@ -1809,7 +1809,7 @@ class BoundingBox2D(AxisAlignedBox):
         :param half_height: Half the thickness of the resulting slab.
         :return: The slab, in the same frame as ``origin``.
         """
-        return BoundingBox(
+        return VolumetricBoundingBox(
             self.min_x,
             self.min_y,
             -half_height,
@@ -1851,7 +1851,7 @@ class BoundingBox2D(AxisAlignedBox):
             for y in (self.min_y, self.max_y)
         ]
 
-    def __eq__(self, other: BoundingBox2D) -> bool:
+    def __eq__(self, other: PlanarBoundingBox) -> bool:
         return (
             np.isclose(self.min_x, other.min_x)
             and np.isclose(self.min_y, other.min_y)

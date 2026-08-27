@@ -77,7 +77,10 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import BoundingBox, Shape
+from semantic_digital_twin.world_description.geometry import (
+    VolumetricBoundingBox,
+    Shape,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     VolumetricGraphOfBoundingBoxes,
 )
@@ -380,7 +383,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
 
         def _materialise_free_space():
             return BoundingBoxCollection.from_event(
-                BoundingBox, reference_frame=world.root, event=free_space
+                VolumetricBoundingBox, reference_frame=world.root, event=free_space
             )
 
         free_space_collection, materialise_elapsed = self._measure(
@@ -526,7 +529,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
         return result, elapsed_times
 
     @staticmethod
-    def _collect_obstacles(world: World) -> List[BoundingBox]:
+    def _collect_obstacles(world: World) -> List[VolumetricBoundingBox]:
         """
         Return all obstacle bounding boxes from world expressed at the world root frame.
 
@@ -559,7 +562,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
         ]
 
     @staticmethod
-    def _box_volume(box: BoundingBox) -> float:
+    def _box_volume(box: VolumetricBoundingBox) -> float:
         """
         :param box: The bounding box to measure.
         :return: The volume enclosed by box.
@@ -589,7 +592,9 @@ class GraphOfConvexSetsFreespaceBenchmark:
 
     @staticmethod
     def _compute_minimal_search_space(
-        obstacle_bounding_boxes: List[BoundingBox], world, xy_widen: float = 1.0
+        obstacle_bounding_boxes: List[VolumetricBoundingBox],
+        world,
+        xy_widen: float = 1.0,
     ) -> BoundingBoxCollection:
         """
         Derive a search-space bounding box as the minimal box covering every obstacle,
@@ -608,7 +613,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
         if not obstacle_bounding_boxes:
             return BoundingBoxCollection(
                 shapes=[
-                    BoundingBox(
+                    VolumetricBoundingBox(
                         min_x=-2.0,
                         min_y=-2.0,
                         min_z=-2.0,
@@ -629,7 +634,7 @@ class GraphOfConvexSetsFreespaceBenchmark:
         half_xy_widen = xy_widen / 2.0
         return BoundingBoxCollection(
             shapes=[
-                BoundingBox(
+                VolumetricBoundingBox(
                     min_x=all_min_x - half_xy_widen,
                     min_y=all_min_y - half_xy_widen,
                     min_z=all_min_z,

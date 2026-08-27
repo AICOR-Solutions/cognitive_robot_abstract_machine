@@ -29,15 +29,16 @@ from semantic_digital_twin.exceptions import MismatchingWorld
 from semantic_digital_twin.world_description.geometry import (
     Shape,
     AxisAlignedBox,
-    BoundingBox,
+    VolumetricBoundingBox,
     Color,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 
 BoxT = TypeVar("BoxT", bound=AxisAlignedBox)
 """
-The bounding-box type a :class:`BoundingBoxCollection` holds -- :class:`BoundingBox` for
-a volumetric collection, :class:`BoundingBox2D` for a planar one.
+The bounding-box type a :class:`BoundingBoxCollection` holds --
+:class:`VolumetricBoundingBox` for a volumetric collection, :class:`PlanarBoundingBox`
+for a planar one.
 """
 
 if TYPE_CHECKING:
@@ -181,7 +182,7 @@ class ShapeCollection(SubclassJSONSerializer):
         for shape in self.shapes:
             if shape.origin.reference_frame is None:
                 continue
-            local_bb: BoundingBox = shape.local_frame_bounding_box
+            local_bb: VolumetricBoundingBox = shape.local_frame_bounding_box
             world_bb = local_bb.transform_to_origin(origin)
             world_bboxes.append(world_bb)
 
@@ -255,11 +256,11 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
     """
     A collection of axis-aligned bounding boxes, sharing one reference frame.
 
-    Generic over the box type -- :class:`BoundingBox` for a volumetric collection,
-    :class:`BoundingBox2D` for a planar one -- since every operation here depends only
+    Generic over the box type -- :class:`VolumetricBoundingBox` for a volumetric collection,
+    :class:`PlanarBoundingBox` for a planar one -- since every operation here depends only
     on the shared :class:`AxisAlignedBox` interface. ``as_shapes``/``from_shapes``
     additionally need :meth:`AxisAlignedBox.as_shape`, so they are only meaningful for
-    a :class:`BoundingBox` collection.
+    a :class:`VolumetricBoundingBox` collection.
     """
 
     shapes: List[BoxT] = field(default_factory=list)
@@ -333,8 +334,9 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
         """
         Create a collection of bounding boxes from a simple random event.
 
-        :param box_type: The bounding box type to build -- :class:`BoundingBox` for a
-            volumetric collection, :class:`BoundingBox2D` for a planar one.
+        :param box_type: The bounding box type to build --
+            :class:`VolumetricBoundingBox` for a volumetric collection,
+            :class:`PlanarBoundingBox` for a planar one.
         :param reference_frame: The reference frame of the bounding boxes.
         :param simple_event: The random event.
         :param keep_surface: Whether to keep boxes that are infinitely thin.
@@ -394,7 +396,9 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
         )
 
     @classmethod
-    def from_shapes(cls, shapes: ShapeCollection) -> BoundingBoxCollection[BoundingBox]:
+    def from_shapes(
+        cls, shapes: ShapeCollection
+    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
         """
         Create a bounding box collection from a list of shapes.
 

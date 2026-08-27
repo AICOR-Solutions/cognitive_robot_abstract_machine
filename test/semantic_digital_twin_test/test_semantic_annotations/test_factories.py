@@ -76,7 +76,10 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import BoundingBox, Scale
+from semantic_digital_twin.world_description.geometry import (
+    VolumetricBoundingBox,
+    Scale,
+)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -555,7 +558,9 @@ class TestFactories(unittest.TestCase):
             table = Table.create_with_new_body_in_world(name="table", world=world)
         table_scale = Scale(1.0, 1.0, 0.1)
         table.root.collision = BoundingBoxCollection.from_event(
-            BoundingBox, table.root, table_scale.to_simple_event().as_composite_set()
+            VolumetricBoundingBox,
+            table.root,
+            table_scale.to_simple_event().as_composite_set(),
         ).as_shapes()
         table.root.visual = table.root.collision
 
@@ -577,7 +582,9 @@ class TestFactories(unittest.TestCase):
             )
         table_scale = Scale(1.0, 1.0, 0.5)
         table.root.collision = BoundingBoxCollection.from_event(
-            BoundingBox, table.root, table_scale.to_simple_event().as_composite_set()
+            VolumetricBoundingBox,
+            table.root,
+            table_scale.to_simple_event().as_composite_set(),
         ).as_shapes()
         table.root.visual = table.root.collision
 

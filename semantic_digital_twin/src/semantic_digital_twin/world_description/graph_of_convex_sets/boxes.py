@@ -45,8 +45,8 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import (
     AxisAlignedBox,
-    BoundingBox,
-    BoundingBox2D,
+    VolumetricBoundingBox,
+    PlanarBoundingBox,
     Bounds,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
@@ -66,8 +66,8 @@ logger = logging.getLogger(__name__)
 BoxT = TypeVar("BoxT", bound=AxisAlignedBox)
 """
 The bounding-box type a :class:`GraphOfBoundingBoxes` subclass decomposes free space
-into -- :class:`BoundingBox` for a volumetric decomposition,
-:class:`BoundingBox2D` for a planar one.
+into -- :class:`VolumetricBoundingBox` for a volumetric decomposition,
+:class:`PlanarBoundingBox` for a planar one.
 """
 
 
@@ -128,8 +128,8 @@ class GraphOfBoundingBoxes(
     def box_type(cls) -> Type[BoxT]:
         """
         :return: The concrete box type this subclass decomposes free space into --
-            :class:`BoundingBox` for :class:`VolumetricGraphOfBoundingBoxes`,
-            :class:`BoundingBox2D` for :class:`PlanarGraphOfBoundingBoxes`.
+            :class:`VolumetricBoundingBox` for :class:`VolumetricGraphOfBoundingBoxes`,
+            :class:`PlanarBoundingBox` for :class:`PlanarGraphOfBoundingBoxes`.
         """
         return cls.get_generic_type_parameters()[0]
 
@@ -179,7 +179,7 @@ class GraphOfBoundingBoxes(
         if not node_list:
             return
 
-        # BoundingBox.x_interval/y_interval/z_interval (and their planar counterparts)
+        # VolumetricBoundingBox.x_interval/y_interval/z_interval (and their planar counterparts)
         # recompute symbolic arithmetic on every access, so every node's bounds are read
         # as plain floats exactly once here rather than once per pair below.
         bounds_list = [node.to_array_bounds() for node in node_list]
@@ -511,20 +511,22 @@ class GraphOfBoundingBoxes(
 
 
 @dataclass
-class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
+class VolumetricGraphOfBoundingBoxes(
+    GraphOfBoundingBoxes[VolumetricBoundingBox, Point3]
+):
     """
     A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
     free space in all three dimensions.
     """
 
-    def _default_search_space(self) -> BoundingBoxCollection[BoundingBox]:
+    def _default_search_space(self) -> BoundingBoxCollection[VolumetricBoundingBox]:
         """
         :return: A search space spanning the entire three-dimensional space around
             ``self.world.root``.
         """
         return BoundingBoxCollection(
             shapes=[
-                BoundingBox(
+                VolumetricBoundingBox(
                     min_x=-np.inf,
                     min_y=-np.inf,
                     min_z=-np.inf,
@@ -542,7 +544,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
     @classmethod
     def free_space_from_bounding_boxes(
         cls,
-        bounding_boxes: BoundingBoxCollection[BoundingBox],
+        bounding_boxes: BoundingBoxCollection[VolumetricBoundingBox],
         search_space_event: Event,
     ) -> Event:
         """
@@ -573,7 +575,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
     @classmethod
     def free_space_from_semantic_annotation(
         cls,
-        search_space: BoundingBoxCollection[BoundingBox],
+        search_space: BoundingBoxCollection[VolumetricBoundingBox],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
         semantic_wall_annotation: Optional[Wall] = None,
         tolerance=0.001,
@@ -639,7 +641,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
     def free_space_from_world(
         cls,
         world: World,
-        search_space: BoundingBoxCollection[BoundingBox],
+        search_space: BoundingBoxCollection[VolumetricBoundingBox],
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
     ) -> Self:
@@ -667,7 +669,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
 
 
 @dataclass
-class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
+class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]):
     """
     A graph of convex sets whose nodes are axis-aligned bounding boxes, partitioning
     free space on a single navigable plane.
@@ -678,14 +680,14 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
     space above it, not just its floor-level silhouette.
     """
 
-    def _default_search_space(self) -> BoundingBoxCollection[BoundingBox2D]:
+    def _default_search_space(self) -> BoundingBoxCollection[PlanarBoundingBox]:
         """
         :return: A search space spanning the entire two-dimensional plane around
             ``self.world.root``.
         """
         return BoundingBoxCollection(
             shapes=[
-                BoundingBox2D(
+                PlanarBoundingBox(
                     min_x=-np.inf,
                     min_y=-np.inf,
                     max_x=np.inf,
@@ -701,7 +703,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
     @classmethod
     def free_space_from_bounding_boxes(
         cls,
-        bounding_boxes: BoundingBoxCollection[BoundingBox],
+        bounding_boxes: BoundingBoxCollection[VolumetricBoundingBox],
         search_space_event: Event,
     ) -> Event:
         """
@@ -742,7 +744,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
     @classmethod
     def free_space_from_semantic_annotation(
         cls,
-        search_space: BoundingBoxCollection[BoundingBox],
+        search_space: BoundingBoxCollection[VolumetricBoundingBox],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
         semantic_wall_annotation: Optional[Wall] = None,
         tolerance=0.001,
@@ -812,7 +814,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         cls,
         world: World,
         tolerance=0.001,
-        search_space: Optional[BoundingBoxCollection[BoundingBox]] = None,
+        search_space: Optional[BoundingBoxCollection[VolumetricBoundingBox]] = None,
         bloat_obstacles: float = 0.0,
     ) -> Self:
         """
@@ -868,7 +870,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         :return: The navigation map.
         """
         search_space = BoundingBoxCollection.from_simple_event(
-            BoundingBox,
+            VolumetricBoundingBox,
             reference_frame=target,
             simple_event=SimpleEvent.from_data(
                 {

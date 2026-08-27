@@ -40,7 +40,10 @@ from matplotlib.patches import Rectangle
 from typing_extensions import Iterable, List, Optional, Sequence, Self, Union
 
 from semantic_digital_twin.spatial_types import Point2, Point3
-from semantic_digital_twin.world_description.geometry import BoundingBox, BoundingBox2D
+from semantic_digital_twin.world_description.geometry import (
+    VolumetricBoundingBox,
+    PlanarBoundingBox,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
 )
@@ -211,7 +214,7 @@ class Footprint:
     """
 
     @classmethod
-    def of(cls, bounding_box: Union[BoundingBox, BoundingBox2D]) -> Self:
+    def of(cls, bounding_box: Union[VolumetricBoundingBox, PlanarBoundingBox]) -> Self:
         """
         :param bounding_box: The bounding box to project.
         :return: The projection of that box onto the x-y plane.
@@ -451,7 +454,7 @@ class NavigationScene:
         return Footprint.of(self.search_space.bounding_box())
 
     @property
-    def convex_sets(self) -> List[Union[BoundingBox, BoundingBox2D]]:
+    def convex_sets(self) -> List[Union[VolumetricBoundingBox, PlanarBoundingBox]]:
         """
         :return: The convex sets partitioning free space.
         """

@@ -64,7 +64,11 @@ from semantic_digital_twin.spatial_types import (
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
-from semantic_digital_twin.world_description.geometry import BoundingBox, Color, Scale
+from semantic_digital_twin.world_description.geometry import (
+    VolumetricBoundingBox,
+    Color,
+    Scale,
+)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -1136,7 +1140,7 @@ class HasSupportingSurface(IsStorageSpace):
 
     def spawn_bounding_boxes_as_region(
         self,
-        boxes: BoundingBoxCollection[BoundingBox],
+        boxes: BoundingBoxCollection[VolumetricBoundingBox],
         name: Optional[PrefixedName] = None,
         color: Optional[Color] = None,
     ) -> Region:
@@ -1211,7 +1215,7 @@ class HasSupportingSurface(IsStorageSpace):
         surface_top = surface_box.max_z + 2 * obstacle_height_clearance
         search_space = BoundingBoxCollection(
             [
-                BoundingBox(
+                VolumetricBoundingBox(
                     surface_box.min_x,
                     surface_box.min_y,
                     surface_top,

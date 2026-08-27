@@ -24,8 +24,8 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import (
     Box,
-    BoundingBox,
-    BoundingBox2D,
+    VolumetricBoundingBox,
+    PlanarBoundingBox,
     Scale,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
@@ -151,7 +151,7 @@ def room_scene_of(world: World, clearance: float = CLEARANCE) -> NavigationScene
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -ROOM_HALF_EXTENT,
                 -ROOM_HALF_EXTENT,
                 0.0,
@@ -195,7 +195,7 @@ class BoxRowFixture:
     """
 
     graph: VolumetricGraphOfBoundingBoxes
-    boxes: list[BoundingBox]
+    boxes: list[VolumetricBoundingBox]
 
 
 @pytest.fixture
@@ -210,7 +210,7 @@ def box_row() -> BoxRowFixture:
     graph = VolumetricGraphOfBoundingBoxes(world)
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     boxes = [
-        BoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin)
+        VolumetricBoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin)
         for offset in (0.0, 1.0, 2.0)
     ]
     for box in boxes:
@@ -228,7 +228,9 @@ def test_footprint_projects_a_bounding_box_including_its_origin():
     extent relative to that origin.
     """
     origin = HomogeneousTransformationMatrix.from_xyz_rpy(2.0, -1.0, 5.0)
-    footprint = Footprint.of(BoundingBox(-0.5, -0.25, 0.0, 0.5, 0.25, 1.0, origin))
+    footprint = Footprint.of(
+        VolumetricBoundingBox(-0.5, -0.25, 0.0, 0.5, 0.25, 1.0, origin)
+    )
 
     assert (footprint.min_x, footprint.max_x) == (1.5, 2.5)
     assert (footprint.min_y, footprint.max_y) == (-1.25, -0.75)
@@ -294,7 +296,9 @@ def test_a_graph_with_no_connected_pair_has_nothing_to_plan_between():
     graph = VolumetricGraphOfBoundingBoxes(world)
     origin = HomogeneousTransformationMatrix(reference_frame=world.root)
     for offset in (0.0, 10.0):
-        graph.add_node(BoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin))
+        graph.add_node(
+            VolumetricBoundingBox(offset, 0.0, 0.0, offset + 1.0, 1.0, 1.0, origin)
+        )
     graph.calculate_connectivity()
 
     with pytest.raises(UnconnectedGraphError):
@@ -355,7 +359,7 @@ def test_query_measures_distance_along_the_graph_not_across_it():
     ]
     for offset_x, offset_y in corner_offsets:
         graph.add_node(
-            BoundingBox(
+            VolumetricBoundingBox(
                 offset_x, offset_y, 0.0, offset_x + 1.0, offset_y + 1.0, 1.0, origin
             )
         )
@@ -433,7 +437,7 @@ def test_navigation_scene_derives_a_planar_obstacle_collection_for_a_planar_grap
     origin = HomogeneousTransformationMatrix(reference_frame=room_world.root)
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -ROOM_HALF_EXTENT,
                 -ROOM_HALF_EXTENT,
                 0.0,
@@ -458,7 +462,9 @@ def test_navigation_scene_derives_a_planar_obstacle_collection_for_a_planar_grap
     )
 
     assert len(scene.obstacles.bounding_boxes) > 0
-    assert all(isinstance(box, BoundingBox2D) for box in scene.obstacles.bounding_boxes)
+    assert all(
+        isinstance(box, PlanarBoundingBox) for box in scene.obstacles.bounding_boxes
+    )
 
 
 # %% the figure

@@ -23,8 +23,8 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import (
-    BoundingBox,
-    BoundingBox2D,
+    VolumetricBoundingBox,
+    PlanarBoundingBox,
     Box,
     Scale,
 )
@@ -76,7 +76,7 @@ def graph_of_convex_sets_unit_box() -> VolumetricGraphOfBoundingBoxesFixture:
 
     graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
-    obstacle = BoundingBox(0, 0, 0, 1, 1, 1, world.root.global_pose)
+    obstacle = VolumetricBoundingBox(0, 0, 0, 1, 1, 1, world.root.global_pose)
 
     z_lim = SimpleInterval.from_data(0.45, 0.55)
     x_lim = SimpleInterval.from_data(-2, 3)
@@ -89,7 +89,7 @@ def graph_of_convex_sets_unit_box() -> VolumetricGraphOfBoundingBoxesFixture:
         }
     )
     obstacles = BoundingBoxCollection.from_event(
-        BoundingBox,
+        VolumetricBoundingBox,
         world.root,
         ~obstacle.simple_event.as_composite_set() & limiting_event.as_composite_set(),
     )
@@ -141,7 +141,7 @@ def test_from_world(table_world: World):
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 min_x=-5,
                 max_x=-2,
                 min_y=-1,
@@ -185,7 +185,7 @@ def test_constrain_to_free_space_requires_floatlike_fields(table_world: World):
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -1,
                 -1,
                 0,
@@ -217,7 +217,7 @@ def test_constrain_to_free_space_adds_a_where_condition(table_world: World):
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -1,
                 -1,
                 0,
@@ -251,7 +251,7 @@ def test_constrain_to_free_space_rejects_a_query_selecting_multiple_variables(
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 -1,
                 -1,
                 0,
@@ -279,7 +279,7 @@ def test_navigation_map_from_world(table_world: World):
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 min_x=-5,
                 max_x=-2,
                 min_y=-1,
@@ -303,10 +303,11 @@ def test_navigation_map_from_world(table_world: World):
     # decomposition never touches z, so its nodes and search space are genuinely
     # two-dimensional rather than 3-D boxes with a fake z=reals() extent.
     assert all(
-        isinstance(node, BoundingBox2D) for node in graph_of_convex_sets.graph.nodes()
+        isinstance(node, PlanarBoundingBox)
+        for node in graph_of_convex_sets.graph.nodes()
     )
     assert all(
-        isinstance(box, BoundingBox2D)
+        isinstance(box, PlanarBoundingBox)
         for box in graph_of_convex_sets.search_space.bounding_boxes
     )
 
@@ -318,7 +319,7 @@ def test_navigation_map_path_returns_point2_waypoints(table_world: World):
     """
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 min_x=-5,
                 max_x=-2,
                 min_y=-1,
@@ -387,7 +388,7 @@ def test_from_world_with_rotated_box():
 
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 min_x=-5,
                 max_x=5,
                 min_y=-5,
@@ -443,20 +444,22 @@ def test_path_from_to_prefers_shorter_distance_over_fewer_hops():
     graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
     origin = world.root.global_pose
-    start_box = BoundingBox(0, 0, 0, 1, 1, 1, origin)
-    goal_box = BoundingBox(10, 0, 0, 11, 1, 1, origin)
+    start_box = VolumetricBoundingBox(0, 0, 0, 1, 1, 1, origin)
+    goal_box = VolumetricBoundingBox(10, 0, 0, 11, 1, 1, origin)
     # No boxes exist at y=[0, 1] between start_box and goal_box - a "wall" that rules
     # out a direct line of sight, so reaching goal_box always requires a detour.
 
     # Short way: hop over the wall through a chain of ten small boxes.
-    over_the_wall = [BoundingBox(i, 1, 0, i + 1, 2, 1, origin) for i in range(10)]
+    over_the_wall = [
+        VolumetricBoundingBox(i, 1, 0, i + 1, 2, 1, origin) for i in range(10)
+    ]
 
     # Long way: dip far below the wall and back up through three huge boxes. Costs
     # only four hops overall, but each hop's center-to-center distance is huge.
     below_the_wall = [
-        BoundingBox(0, -100, 0, 1, 1, 1, origin),
-        BoundingBox(0, -100, 0, 11, -99, 1, origin),
-        BoundingBox(10, -100, 0, 11, 1, 1, origin),
+        VolumetricBoundingBox(0, -100, 0, 1, 1, 1, origin),
+        VolumetricBoundingBox(0, -100, 0, 11, -99, 1, origin),
+        VolumetricBoundingBox(10, -100, 0, 11, 1, 1, origin),
     ]
 
     for box in [start_box, goal_box, *over_the_wall, *below_the_wall]:
@@ -490,10 +493,10 @@ def test_path_from_to_shortcuts_redundant_waypoints():
     graph_of_convex_sets = VolumetricGraphOfBoundingBoxes(world)
 
     origin = world.root.global_pose
-    start_box = BoundingBox(0, 0, 0, 1, 1, 1, origin)
+    start_box = VolumetricBoundingBox(0, 0, 0, 1, 1, 1, origin)
     # Ten boxes tiling one straight, unobstructed corridor from start_box to goal_box.
-    chain = [BoundingBox(i, 0, 0, i + 1, 1, 1, origin) for i in range(1, 10)]
-    goal_box = BoundingBox(10, 0, 0, 11, 1, 1, origin)
+    chain = [VolumetricBoundingBox(i, 0, 0, i + 1, 1, 1, origin) for i in range(1, 10)]
+    goal_box = VolumetricBoundingBox(10, 0, 0, 11, 1, 1, origin)
 
     for box in [start_box, *chain, goal_box]:
         graph_of_convex_sets.add_node(box)
@@ -522,7 +525,7 @@ def test_path_from_to_scales_to_a_real_apartment_scene():
     world = MJCFParser(os.path.join(MJCF_DIR, "iai_apartment.xml")).parse()
     search_space = BoundingBoxCollection(
         [
-            BoundingBox(
+            VolumetricBoundingBox(
                 min_x=-0.2,
                 max_x=3.0,
                 min_y=1.0,

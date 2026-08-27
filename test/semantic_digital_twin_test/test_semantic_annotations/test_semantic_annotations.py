@@ -29,7 +29,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
 )
 from semantic_digital_twin.testing import *
-from semantic_digital_twin.world_description.geometry import BoundingBox
+from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -178,7 +178,7 @@ def test_build_bloated_obstacle_collection_includes_bloated_walls():
 
     origin = HomogeneousTransformationMatrix(reference_frame=root)
     search_space = BoundingBoxCollection(
-        [BoundingBox(-5, -5, -5, 5, 5, 5, origin)], root
+        [VolumetricBoundingBox(-5, -5, -5, 5, 5, 5, origin)], root
     )
 
     obstacle_annotation = SemanticEnvironmentAnnotation(

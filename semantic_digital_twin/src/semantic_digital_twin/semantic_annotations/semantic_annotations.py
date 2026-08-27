@@ -52,7 +52,11 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import BoundingBox, Scale, Color
+from semantic_digital_twin.world_description.geometry import (
+    VolumetricBoundingBox,
+    Scale,
+    Color,
+)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
@@ -220,7 +224,7 @@ class Aperture(HasRootRegion):
         ).event
         new_wall_event = wall_event - hole_event
         new_bounding_box_collection = BoundingBoxCollection.from_event(
-            BoundingBox, parent.root, new_wall_event
+            VolumetricBoundingBox, parent.root, new_wall_event
         ).as_shapes()
 
         parent.root.collision = new_bounding_box_collection
@@ -925,7 +929,7 @@ class Wall(HasApertures):
         origin: HomogeneousTransformationMatrix,
         bloat_amount: float,
         obstacle_height_clearance: float = 0.01,
-    ) -> BoundingBoxCollection[BoundingBox]:
+    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
         """
         Bloat this wall's bounding boxes along their thinner dimension only -- the
         side that faces the room -- rather than symmetrically in x and y.
@@ -1486,7 +1490,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
     """
 
     def obstacle_entities(
-        self, search_space: BoundingBoxCollection[BoundingBox]
+        self, search_space: BoundingBoxCollection[VolumetricBoundingBox]
     ) -> List[Body]:
         """
         Collect the obstacle bodies to consider within ``search_space``.
@@ -1507,12 +1511,12 @@ class SemanticEnvironmentAnnotation(HasRootBody):
 
     def build_bloated_obstacle_collection(
         self,
-        search_space: BoundingBoxCollection[BoundingBox],
+        search_space: BoundingBoxCollection[VolumetricBoundingBox],
         semantic_wall_annotation: Optional[Wall] = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
         obstacle_height_clearance: float = 0.01,
-    ) -> BoundingBoxCollection[BoundingBox]:
+    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
         """
         Collect and bloat this annotation's obstacle bounding boxes.
 

@@ -61,7 +61,7 @@ def hardest_path_query(
     path_lengths = rx.all_pairs_dijkstra_path_lengths(
         graph.graph, edge_cost_fn=lambda adjacency: adjacency.distance
     )
-    # BoundingBox.center recomputes symbolic arithmetic on every access, and the
+    # VolumetricBoundingBox.center recomputes symbolic arithmetic on every access, and the
     # tie-break below reads one per pair, so every center is resolved to floats once
     # here instead.
     coordinates = {
