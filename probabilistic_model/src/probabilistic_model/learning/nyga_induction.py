@@ -7,7 +7,7 @@ from typing import Optional, List, Deque, Tuple, Dict, Any
 import numpy as np
 import numpy.typing as npt
 import random_events
-from random_events.interval import closed, closed_open, SimpleInterval, Bound
+from random_events.interval import closed, closed_open, reals, SimpleInterval, Bound
 from random_events.product_algebra import SimpleEvent, Event
 from random_events.variable import Continuous
 from typing_extensions import Self
@@ -160,32 +160,28 @@ class InductionStep:
         :attr:`NygaInduction.support`, so that widening the support to absorb float
         instabilities - or narrowing it to stay clear of a sibling distribution
         elsewhere in a larger circuit - is expressed entirely through that one
-        interval rather than through a separate adjustment step. If no support is
-        set, the piece keeps the exact bounds implied by the data, unchanged.
+        interval rather than through a separate adjustment step.
 
         :param begin_index: The index of the first datapoint.
         :param end_index: The index of the last datapoint.
         """
         is_last_piece = end_index == len(self.data)
-        support = self.nyga_induction.support
 
-        lower = self.left_connecting_point_from_index(begin_index)
+        lower = (
+            -float("inf")
+            if begin_index == 0
+            else self.left_connecting_point_from_index(begin_index)
+        )
         upper = (
-            self.right_connecting_point()
+            float("inf")
             if is_last_piece
             else self.right_connecting_point_from_index(end_index)
         )
-        if support is not None:
-            if begin_index == 0:
-                lower = -float("inf")
-            if is_last_piece:
-                upper = float("inf")
 
         interval = SimpleInterval.from_data(
             lower, upper, Bound.CLOSED, Bound.CLOSED if is_last_piece else Bound.OPEN
         )
-        if support is not None:
-            interval = interval.intersection_with(support)
+        interval = interval.intersection_with(self.nyga_induction.support)
         return UniformDistribution(variable=self.variable, interval=interval)
 
     def sum_weights_from_indices(self, begin_index: int, end_index: int) -> float:
@@ -425,7 +421,7 @@ class NygaInduction:
     float precision.
     """
 
-    support: Optional[SimpleInterval] = None
+    support: SimpleInterval = field(default_factory=lambda: reals().simple_sets[0])
     """
     The allowed span of the distribution's support. Every uniform piece the induction
     creates is intersected with this interval, so a sibling distribution for the same
@@ -433,8 +429,8 @@ class NygaInduction:
     :class:`~probabilistic_model.learning.jpt.jpt.JointProbabilityTree`) can be kept
     from being overlapped by simply narrowing this interval instead of it.
 
-    If left as `None`, :meth:`fit` sets it to the data's own range widened by
-    `tolerance_at_extremes` on both sides.
+    Defaults to the entire real line; :meth:`fit` always narrows it further to at
+    most the data's own range widened by `tolerance_at_extremes` on both sides.
     """
 
     probabilistic_circuit: ProbabilisticCircuit = field(
@@ -473,14 +469,15 @@ class NygaInduction:
 
             return self.probabilistic_circuit
 
-        # default the support to the data's own range widened by tolerance_at_extremes
-        if self.support is None:
-            self.support = SimpleInterval.from_data(
+        # narrow the support to at most the data's own range widened by tolerance_at_extremes
+        self.support = self.support.intersection_with(
+            SimpleInterval.from_data(
                 sorted_unique_data[0] - self.tolerance_at_extremes,
                 sorted_unique_data[-1] + self.tolerance_at_extremes,
                 Bound.CLOSED,
                 Bound.CLOSED,
             )
+        )
 
         # if the log_weights are not given
         if weights is None:
