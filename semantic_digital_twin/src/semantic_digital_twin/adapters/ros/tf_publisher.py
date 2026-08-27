@@ -74,9 +74,8 @@ class TfFrameNames:
 
     def assign(self, entity: KinematicStructureEntity) -> str:
         """
-        Return the tf frame name of an entity, giving it one if it has none yet.
-
         :param entity: The entity about to be published.
+        :return: the tf frame name of an entity, giving it one if it has none yet.
         """
         if entity.id in self._frame_name_per_entity:
             return self._frame_name_per_entity[entity.id]
@@ -88,9 +87,8 @@ class TfFrameNames:
 
     def _unused_frame_name_for(self, entity: KinematicStructureEntity) -> str:
         """
-        Work out the frame name a not yet published entity should get.
-
         :param entity: The entity about to be published.
+        :return: the frame name a not yet published entity should get.
         """
         frame_name = str(entity.name)
         if frame_name in self.frames_of_other_publishers:
