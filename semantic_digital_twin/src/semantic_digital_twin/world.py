@@ -93,6 +93,7 @@ from semantic_digital_twin.world_description.visitors import (
 from semantic_digital_twin.world_description.world_entity import (
     Connection,
     SemanticAnnotation,
+    WorldEntityWithClassBasedID,
     WorldEntityWithID,
     KinematicStructureEntity,
     Region,
