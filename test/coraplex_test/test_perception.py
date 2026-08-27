@@ -76,6 +76,19 @@ Offset from where the fixture spawns it (2.37, 2.0, 1.05) so that a body which d
 move fails the assertions.
 """
 
+# %% a body described by more than one annotation
+
+
+@dataclass(eq=False)
+class SpecializedMilk(Milk):
+    """
+    A milk annotation narrower than :class:`Milk` itself.
+
+    A query for the base type answers with both, which is how one body comes to carry
+    several annotations of the queried type.
+    """
+
+
 # %% choosing a source
 
 
@@ -301,6 +314,26 @@ def test_world_perception_reports_the_pose_the_world_holds(
         milk_body.global_pose.to_position().to_np().flatten()[:3],
         atol=1e-9,
     )
+
+
+def test_a_body_carrying_several_annotations_is_reported_once(
+    mutable_model_world, whole_scene_region
+):
+    """
+    Two annotations describing the same body name one object, so the world answers with
+    that object once rather than with a candidate per annotation.
+    """
+    world, view, context = mutable_model_world
+    milk_body = world.get_body_by_name("milk.stl")
+    with world.modify_world():
+        world.add_semantic_annotation(SpecializedMilk(root=milk_body))
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    assert query.from_world() == [milk_body]
+
+    detection = WorldPerception().detect(query)
+
+    assert detection.semantic_annotation is Milk
 
 
 def test_world_perception_follows_the_robots_head(

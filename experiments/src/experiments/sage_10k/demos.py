@@ -188,7 +188,13 @@ class Sage10kGymDemo(Sage10kAbstractDemoHSRB):
         [body] = self.world.get_bodies_by_global_position(
             self.world_P_object_of_interest, 0.1
         )
-        object_of_interest = body.get_semantic_annotations_by_type(HasRootBody)[0]
+        object_of_interest = an(
+            entity(
+                semantic_annotation := variable(
+                    HasRootBody, domain=self.world.semantic_annotations
+                )
+            ).where(semantic_annotation.root == body)
+        ).first()
 
         plan = sequential(
             [

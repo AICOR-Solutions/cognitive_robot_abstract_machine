@@ -91,15 +91,16 @@ class PerceptionQuery(SubclassJSONSerializer):
         Answer this query from the world model alone.
 
         :return: The bodies of the queried annotation that lie inside the region and are
-            visible to the robot's camera.
+            visible to the robot's camera. A body several matching annotations describe
+            is one object, so it is reported once.
         """
-        bodies = [
+        bodies = dict.fromkeys(
             body
-            for sem_instance in self.world.get_semantic_annotations_by_type(
+            for semantic_annotation in self.world.get_semantic_annotations_by_type(
                 self.semantic_annotation
             )
-            for body in sem_instance.bodies
-        ]
+            for body in semantic_annotation.bodies
+        )
         region_bodies = [
             body
             for body in bodies

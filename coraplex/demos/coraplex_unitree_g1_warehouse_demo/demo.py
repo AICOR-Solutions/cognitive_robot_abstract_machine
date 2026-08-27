@@ -23,6 +23,7 @@ from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from coraplex.testing import start_visualization
 from coraplex.view_manager import ViewManager
+from krrood.entity_query_language.factories import an, entity, variable
 from semantic_digital_twin.api import (
     BodySpecification,
     RobotSpecification,
@@ -137,7 +138,13 @@ def build_plan(world: World, robot: UnitreeG1) -> Plan:
     :return: The plan transporting the parcel from one pallet stack to the other.
     """
     parcel = world.get_body_by_name("parcel")
-    parcel_annotation = parcel.get_semantic_annotations_by_type(HasRootBody)[0]
+    parcel_annotation = an(
+        entity(
+            semantic_annotation := variable(
+                HasRootBody, domain=world.semantic_annotations
+            )
+        ).where(semantic_annotation.root == parcel)
+    ).first()
     grasp = GraspDescription(
         ApproachDirection.FRONT,
         VerticalAlignment.NoAlignment,
@@ -186,7 +193,13 @@ def build_plan2(world: World, robot: UnitreeG1) -> Plan:
     :return: The plan transporting the parcel from one pallet stack to the other.
     """
     parcel = world.get_body_by_name("parcel")
-    parcel_annotation = parcel.get_semantic_annotations_by_type(HasRootBody)[0]
+    parcel_annotation = an(
+        entity(
+            semantic_annotation := variable(
+                HasRootBody, domain=world.semantic_annotations
+            )
+        ).where(semantic_annotation.root == parcel)
+    ).first()
     grasp = GraspDescription(
         ApproachDirection.FRONT,
         VerticalAlignment.NoAlignment,

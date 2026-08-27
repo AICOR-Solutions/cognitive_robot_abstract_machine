@@ -130,8 +130,9 @@ def test_pick_up_post_condition(mutable_model_world):
             view.left_arm.end_effector,
         ),
     )
+    # The standing pose test_pick_up_pre_condition establishes as reaching the milk.
     view.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        1.8, 2, 0
+        1.9, 1.4, 0
     )
 
     plan = sequential([pick_action], context)
