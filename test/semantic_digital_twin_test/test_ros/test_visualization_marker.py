@@ -307,7 +307,9 @@ def test_a_tf_publisher_is_started_while_nothing_publishes_tf(rclpy_node):
 
     viz = VizMarkerPublisher(_world=world, node=rclpy_node)
 
-    assert TFPublisher.all_of_world(world) == [viz.tf_publisher]
+    assert TFPublisher.all_callbacks_of_this_type_from_world(world) == [
+        viz.tf_publisher
+    ]
 
 
 def test_the_given_tf_publisher_is_kept(rclpy_node):
@@ -409,7 +411,7 @@ def test_a_stopped_marker_publisher_is_no_longer_notified(rclpy_node):
 
     viz.stop()
 
-    assert VizMarkerPublisher.all_of_world(world) == []
+    assert VizMarkerPublisher.all_callbacks_of_this_type_from_world(world) == []
 
 
 def test_stopping_the_marker_publisher_stops_the_tf_publisher_it_started(rclpy_node):
@@ -418,7 +420,7 @@ def test_stopping_the_marker_publisher_stops_the_tf_publisher_it_started(rclpy_n
 
     viz.stop()
 
-    assert TFPublisher.all_of_world(world) == []
+    assert TFPublisher.all_callbacks_of_this_type_from_world(world) == []
 
 
 def test_stopping_the_marker_publisher_keeps_the_tf_publisher_it_was_given(rclpy_node):
@@ -428,4 +430,4 @@ def test_stopping_the_marker_publisher_keeps_the_tf_publisher_it_was_given(rclpy
 
     viz.stop()
 
-    assert TFPublisher.all_of_world(world) == [tf_publisher]
+    assert TFPublisher.all_callbacks_of_this_type_from_world(world) == [tf_publisher]

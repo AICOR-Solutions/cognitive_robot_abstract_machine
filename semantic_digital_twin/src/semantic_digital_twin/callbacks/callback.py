@@ -37,22 +37,38 @@ class Callback(WorldEntityWithClassBasedID, SubclassJSONSerializer, ABC):
 
     @classmethod
     @abstractmethod
-    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+    def _all_callbacks_from_world(cls, world: World) -> List[Callback]:
         """
-        :param world: The world whose callbacks are asked for.
-        :return: every callback the world notifies of the change this kind reacts to.
+        The list a world notifies when the change this kind of callback reacts to
+        happens.
+
+        A world keeps one such list per kind of change. A callback puts itself on the
+        list of its own kind when it is created and takes itself off again when it is
+        stopped, so the list is also what decides whether a callback is still live.
+
+        :param world: The world whose list is asked for.
+        :return: the callbacks on that list, of whatever class, in the order they were
+            created.
         """
         raise NotImplementedError
 
     @classmethod
-    def all_of_world(cls, world: World) -> List[Self]:
+    def all_callbacks_of_this_type_from_world(cls, world: World) -> List[Self]:
         """
-        :param world: The world whose callbacks are searched.
-        :return: every registered callback of this kind, in registration order.
+        The callbacks of this class that the given world still notifies.
+
+        Two parts that share a world can find each other this way instead of one being
+        handed a reference to the other, which is what lets them be created in either
+        order and by unrelated code. A callback that has been stopped is no longer among
+        them, and neither is one attached to a different world.
+
+        :param world: The world to search.
+        :return: every callback of this class the world notifies, in the order they were
+            created.
         """
         return [
             callback
-            for callback in cls._callbacks_of_world(world)
+            for callback in cls._all_callbacks_from_world(world)
             if isinstance(callback, cls)
         ]
 
@@ -103,7 +119,11 @@ class StateChangeCallback(Callback, ABC):
         self.update_previous_world_state()
 
     @classmethod
-    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+    def _all_callbacks_from_world(cls, world: World) -> List[Callback]:
+        """
+        :param world: The world whose state change callbacks are asked for.
+        :return: everything the world notifies whenever its state changes.
+        """
         return world.state.state_change_callbacks
 
     def notify_state_change(self, **kwargs):
@@ -139,7 +159,11 @@ class ModelChangeCallback(Callback, ABC):
         self._world.get_world_model_manager().model_change_callbacks.append(self)
 
     @classmethod
-    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+    def _all_callbacks_from_world(cls, world: World) -> List[Callback]:
+        """
+        :param world: The world whose model change callbacks are asked for.
+        :return: everything the world notifies whenever its model changes.
+        """
         return world.get_world_model_manager().model_change_callbacks
 
     def notify_model_change(self, **kwargs):

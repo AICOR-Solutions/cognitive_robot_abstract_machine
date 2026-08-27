@@ -141,7 +141,7 @@ class VizMarkerPublisher(ModelChangeCallback):
         :return: the publisher of the world's tf tree, started here while nothing
             publishes it.
         """
-        publishers = TFPublisher.all_of_world(self._world)
+        publishers = TFPublisher.all_callbacks_of_this_type_from_world(self._world)
         if len(publishers) > 1:
             raise WorldHasMultipleTfPublishersError(
                 world=self._world, publisher_count=len(publishers)

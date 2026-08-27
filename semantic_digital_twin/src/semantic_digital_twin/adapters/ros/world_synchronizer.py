@@ -414,7 +414,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         :raises WorldHasMultipleSynchronizersError: If several synchronizers publish the
             changes of the world, leaving it undecided which stream to refer to.
         """
-        synchronizers = cls.all_of_world(world)
+        synchronizers = cls.all_callbacks_of_this_type_from_world(world)
         if not synchronizers:
             raise WorldHasNoSynchronizerError(world=world)
         if len(synchronizers) > 1:
