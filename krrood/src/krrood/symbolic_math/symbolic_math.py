@@ -456,8 +456,8 @@ class SymbolicMathType(ABC):
     Reference to the casadi data structure of type casadi.SX.
     """
 
-    pinned_free_variables: Optional[List[FloatVariable]] = field(
-        kw_only=True, default=None, repr=False
+    pinned_free_variables: List[FloatVariable] = field(
+        kw_only=True, repr=False, default_factory=list
     )
     """
     Strong references to this expression's free variables, keeping them alive.
@@ -470,9 +470,7 @@ class SymbolicMathType(ABC):
 
     def __post_init__(self):
         # constants have no free variables, so skip the casadi graph scan for them.
-        if self.is_constant():
-            self.pinned_free_variables = []
-        else:
+        if not self.is_constant():
             self.pinned_free_variables = self.free_variables()
 
     @classmethod

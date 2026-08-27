@@ -18,7 +18,6 @@ from typing_extensions import (
     Tuple,
     Callable,
     TypeVar,
-    ClassVar,
 )
 
 import krrood.symbolic_math.symbolic_math as sm
@@ -44,8 +43,7 @@ if TYPE_CHECKING:
     )
 
 
-@dataclass
-class _ConstantMatrixParts:
+class _ConstantMatrixParts(Enum):
     """
     The entries a homogeneous matrix always holds, whatever it represents.
 
@@ -54,15 +52,23 @@ class _ConstantMatrixParts:
     element write costs about as much as the whole slice.
     """
 
-    HOMOGENEOUS_BOTTOM_ROW: ClassVar[ca.SX] = ca.SX([[0.0, 0.0, 0.0, 1.0]])
+    HOMOGENEOUS_BOTTOM_ROW = ca.SX([[0.0, 0.0, 0.0, 1.0]])
     """
     The last row every 4x4 homogeneous matrix ends in.
     """
 
-    ZERO_TRANSLATION: ClassVar[ca.SX] = ca.SX([[0.0], [0.0], [0.0]])
+    ZERO_TRANSLATION = ca.SX([[0.0], [0.0], [0.0]])
     """
     The translation column of a matrix that carries rotation only.
     """
+
+    matrix: ca.SX
+
+    def __new__(cls, matrix: ca.SX) -> Self:
+        obj = object.__new__(cls)
+        obj._value_ = id(obj)
+        obj.matrix = matrix
+        return obj
 
 
 @dataclass(eq=False, repr=False)
@@ -225,7 +231,7 @@ class HomogeneousTransformationMatrix(
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
@@ -579,8 +585,8 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[:3, 3] = _ConstantMatrixParts.ZERO_TRANSLATION
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
+        self[:3, 3] = _ConstantMatrixParts.ZERO_TRANSLATION.matrix
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
@@ -1936,7 +1942,7 @@ class Pose(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
