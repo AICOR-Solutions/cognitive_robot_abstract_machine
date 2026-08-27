@@ -6,7 +6,6 @@ from krrood.entity_query_language.core.mapped_variable import CanBehaveLikeAVari
 
 from semantic_digital_twin.exceptions import UsageError
 from semantic_digital_twin.spatial_types import Point2, Point3
-from semantic_digital_twin.world_description.geometry import AxisAlignedBox
 
 
 @dataclass
@@ -84,33 +83,6 @@ class AmbiguousSelectedVariableError(UsageError):
 
     def suggest_correction(self) -> str:
         return "pass the specific variable to constrain instead of its query."
-
-
-@dataclass
-class InconsistentBoxDimensionalityError(UsageError):
-    """
-    Raised when adding a box to a graph of convex sets whose other boxes are expressed
-    over a different number of spatial axes.
-    """
-
-    box: AxisAlignedBox
-    """
-    The box that was to be added.
-    """
-
-    expected_dimensionality: int
-    """
-    The number of spatial axes the graph's existing boxes are expressed over.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"{self.box} spans {self.box.dimensionality()} axes, but this graph's "
-            f"boxes span {self.expected_dimensionality}."
-        )
-
-    def suggest_correction(self) -> str:
-        return "only add boxes of the same type this graph was built with."
 
 
 @dataclass

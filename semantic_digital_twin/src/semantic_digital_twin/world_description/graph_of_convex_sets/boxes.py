@@ -21,6 +21,7 @@ from typing_extensions import (
     Dict,
     Sequence,
     Self,
+    Type,
     TypeVar,
 )
 
@@ -43,6 +44,7 @@ from semantic_digital_twin.spatial_types import (
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import (
+    AxisAlignedBox,
     BoundingBox,
     BoundingBox2D,
     Bounds,
@@ -53,7 +55,6 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     AmbiguousSelectedVariableError,
-    InconsistentBoxDimensionalityError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
@@ -62,7 +63,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 logger = logging.getLogger(__name__)
 
-BoxT = TypeVar("BoxT")
+BoxT = TypeVar("BoxT", bound=AxisAlignedBox)
 """
 The bounding-box type a :class:`GraphOfBoundingBoxes` subclass decomposes free space
 into -- :class:`BoundingBox` for a volumetric decomposition,
@@ -123,12 +124,21 @@ class GraphOfBoundingBoxes(
     def _default_search_space(self) -> BoundingBoxCollection[BoxT]:
         raise NotImplementedError
 
+    @classmethod
+    def box_type(cls) -> Type[BoxT]:
+        """
+        :return: The concrete box type this subclass decomposes free space into --
+            :class:`BoundingBox` for :class:`VolumetricGraphOfBoundingBoxes`,
+            :class:`BoundingBox2D` for :class:`PlanarGraphOfBoundingBoxes`.
+        """
+        return cls.get_generic_type_parameters()[0]
+
     @property
     def dimensionality(self) -> int:
         """
         :return: The number of spatial axes this graph's boxes are expressed over.
         """
-        return type(self.search_space.bounding_boxes[0]).dimensionality()
+        return self.box_type().dimensionality()
 
     def create_subgraph(self, nodes: Sequence[int]) -> Self:
         """
@@ -147,11 +157,7 @@ class GraphOfBoundingBoxes(
     def add_node(self, box: BoxT):
         """
         :param box: The box to add as a node.
-        :raises InconsistentBoxDimensionalityError: If ``box`` is expressed over a
-            different number of spatial axes than this graph's other boxes.
         """
-        if box.dimensionality() != self.dimensionality:
-            raise InconsistentBoxDimensionalityError(box, self.dimensionality)
         self.box_to_index_map[box] = self.graph.add_node(box)
 
     def calculate_connectivity(self, tolerance: float = 0.001):
@@ -613,7 +619,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
         [
             result.add_node(bounding_box)
             for bounding_box in BoundingBoxCollection.from_event(
-                BoundingBox,
+                cls.box_type(),
                 reference_frame=search_space.reference_frame,
                 event=free_space,
             )
@@ -757,7 +763,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         """
         world = search_space.reference_frame._world
         floor_search_space = BoundingBoxCollection.from_event(
-            BoundingBox2D,
+            cls.box_type(),
             search_space.reference_frame,
             search_space.event.marginal(SpatialVariables.xy),
         )
@@ -779,7 +785,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         # create a connectivity graph from the free space and calculate the edges
         result = cls(world=world, search_space=floor_search_space)
         free_space_boxes = BoundingBoxCollection.from_event(
-            BoundingBox2D, search_space.reference_frame, free_space
+            cls.box_type(), search_space.reference_frame, free_space
         )
         [result.add_node(bounding_box) for bounding_box in free_space_boxes]
         result.calculate_connectivity(tolerance)
@@ -803,7 +809,10 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
 
         :param world: The belief state.
         :param search_space: The three-dimensional search space for the connectivity
-            graph.
+            graph -- three-dimensional, not planar, because its height range bounds
+            which obstacles count as blocking: the robot has to fit through the entire
+            space, not just the floor-level obstacles. The graph's own
+            :attr:`~GraphOfConvexSets.search_space` is this volume's floor footprint.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
         :param bloat_obstacles: The amount to bloat the obstacles.
