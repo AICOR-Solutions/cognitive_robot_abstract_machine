@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         Selectable,
     )
     from krrood.entity_query_language.core.mapped_variable import (
-        CanBehaveLikeAVariable,
+        Attribute,
         MappedVariable,
     )
     from krrood.entity_query_language.core.variable import Variable
@@ -286,35 +286,27 @@ class AmbiguousQueryAttribute(UsageError):
 class NotNumberLikeFieldError(UsageError):
     """
     Raised when accessing a field expected to be number-like (see
-    :meth:`~krrood.entity_query_language.core.mapped_variable.CanBehaveLikeAVariable.number_like_field`),
+    :meth:`~krrood.entity_query_language.core.mapped_variable.Attribute.number_like_field`),
     but it does not exist or resolves to a non-numeric type.
     """
 
-    variable: CanBehaveLikeAVariable
+    attribute: Attribute
     """
-    The variable the field was accessed on.
-    """
-
-    field_name: str
-    """
-    The name of the missing or wrongly-typed field.
+    The attribute that was accessed.
     """
 
     resolved_type: Optional[Type]
     """
-    The field's resolved type, or None if the field does not exist at all.
+    The attribute's resolved type, or None if it does not exist at all.
     """
 
     def error_message(self) -> str:
         if self.resolved_type is None:
-            return f"{self.variable} has no field named '{self.field_name}'."
-        return (
-            f"{self.variable}'s field '{self.field_name}' is {self.resolved_type}, "
-            "not number-like."
-        )
+            return f"{self.attribute} does not exist."
+        return f"{self.attribute} is {self.resolved_type}, not number-like."
 
     def suggest_correction(self) -> str:
-        return f"give the queried type a number-valued '{self.field_name}' field."
+        return f"give the queried type a number-valued '{self.attribute._attribute_name_}' field."
 
 
 @dataclass

@@ -115,39 +115,6 @@ class CanBehaveLikeAVariable(Selectable[T], ABC):
         all_kwargs = merge_args_and_kwargs(type_, args, kwargs, ignore_first=True)
         return convert_args_and_kwargs_into_hashable_key(all_kwargs)
 
-    def number_like_field(self, field_name: str) -> Attribute:
-        """
-        Access ``field_name`` on this variable, asserting it resolves to a number-like
-        (integer or continuous) type.
-
-        :param field_name: The name of the field to access.
-        :return: The field, accessed symbolically on this variable.
-        :raises AmbiguousQueryAttribute: If this variable is (or is chain-rooted at) a
-            query that selects more than one variable, so the field has no single
-            subject to resolve its type from.
-        :raises NotNumberLikeFieldError: If the field does not exist or is not number-
-            like.
-        """
-        from krrood.entity_query_language.query.query import Query
-
-        field = self._get_mapped_variable_(Attribute, field_name)
-        resolved_type = field._type_
-        if resolved_type is None:
-            root = field._chain_root_
-            if isinstance(root, Query):
-                resolved_type = root._rerooted_on_selection_(field)._type_
-        is_number_like = (
-            resolved_type is not None
-            and issubclass(resolved_type, compatible_types)
-            and isinstance(
-                variable_from_name_and_type(field_name, resolved_type),
-                (Integer, Continuous),
-            )
-        )
-        if not is_number_like:
-            raise NotNumberLikeFieldError(self, field_name, resolved_type)
-        return field
-
     def __getattr__(self, name: str) -> Attribute[T]:
         # Dunder names are never symbolic attribute access. Mapping them would (a) let copy/pickle
         # and other machinery that probes optional dunder hooks recurse into endless variable
@@ -567,6 +534,36 @@ class Attribute(SingleValueMapping[T]):
 
     def _set_child_instance_value_(self, obj: Any, value: Any):
         setattr(obj, self._attribute_name_, value)
+
+    def number_like_field(self) -> Self:
+        """
+        Assert this attribute resolves to a number-like (integer or continuous) type.
+
+        :return: This attribute.
+        :raises AmbiguousQueryAttribute: If this attribute is chain-rooted at a query
+            that selects more than one variable, so it has no single subject to resolve
+            its type from.
+        :raises NotNumberLikeFieldError: If this attribute does not exist or is not
+            number-like.
+        """
+        from krrood.entity_query_language.query.query import Query
+
+        resolved_type = self._type_
+        if resolved_type is None:
+            root = self._chain_root_
+            if isinstance(root, Query):
+                resolved_type = root._rerooted_on_selection_(self)._type_
+        is_number_like = (
+            resolved_type is not None
+            and issubclass(resolved_type, compatible_types)
+            and isinstance(
+                variable_from_name_and_type(self._attribute_name_, resolved_type),
+                (Integer, Continuous),
+            )
+        )
+        if not is_number_like:
+            raise NotNumberLikeFieldError(self, resolved_type)
+        return self
 
 
 @dataclass(eq=False, repr=False)

@@ -434,7 +434,9 @@ class GraphOfBoundingBoxes(
 
         free_space_event = self.free_space_event
         fields = {
-            spatial_variable.name: variable.number_like_field(spatial_variable.name)
+            spatial_variable.name: getattr(
+                variable, spatial_variable.name
+            ).number_like_field()
             for spatial_variable in free_space_event.variables
         }
 
