@@ -676,7 +676,7 @@ class SemanticAnnotation(WorldEntityWithSimulatorProperties):
         if self.name is None:
             self.name = PrefixedName(
                 name=f"{self.__class__.__name__}",
-                prefix=self._world.name if self._world is not None else None,
+                prefix=self._world.namespace if self._world is not None else None,
             )
 
     @classmethod

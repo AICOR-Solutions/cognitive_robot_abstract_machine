@@ -1088,7 +1088,7 @@ class RobotSpecification:
     If None, identity is used.
     """
 
-    def spawn(self, world: World) -> AbstractRobot:
+    def spawn(self, world: World, namespace: str | None = None) -> AbstractRobot:
         """
         Parse the robot from its own description and merge it into ``world`` as
         ``world.root -> odom -> connection -> robot``.
@@ -1103,13 +1103,17 @@ class RobotSpecification:
         of a robot already present in ``world``.
 
         :param world: The world the robot is merged into.
+        :param namespace: The namespace the robot's own world is parsed into. A
+            namespaced world only takes in content namespaced apart from itself, and two
+            robots of one type would otherwise be given the same identifiers, so
+            whoever places them decides.
         :return: The semantic annotation of the merged robot.
         """
         connection_type = self.semantic_annotation_type.get_drive_connection_type()
         is_active = issubclass(connection_type, ActiveConnection)
 
         robot_world = URDFParser.from_file(
-            self.semantic_annotation_type.get_ros_file_path()
+            self.semantic_annotation_type.get_ros_file_path(), namespace=namespace
         ).parse()
         robot_id = self.semantic_annotation_type.from_world(robot_world).id
 
@@ -1167,6 +1171,23 @@ class WorldSpecification:
     with :meth:`from_urdf`, :meth:`from_mjcf` or :meth:`from_gazebo`). Applying it
     (:meth:`to_domain_object`) parses the environment anew, merges every robot into it,
     then spawns all starting objects, and returns the augmented environment world.
+    """
+
+    namespace: str | None = None
+    """
+    The namespace of the world this specification builds.
+
+    Left out, the world belongs to no process in particular and draws random
+    identifiers. Set, the world and everything spawned into it draw reproducible ones,
+    so that running the same program twice builds the same identifiers.
+    """
+
+    _built_world_count: int = field(init=False, default=0, repr=False)
+    """
+    How many worlds this specification has built.
+
+    Applying a specification again must not repeat the identifiers of the world it built
+    before, so each world after the first is named apart from it.
     """
 
     world_parser: WorldModelParser | None = None
@@ -1296,14 +1317,67 @@ class WorldSpecification:
 
         :return: The augmented environment world.
         """
+        namespace = self._namespace_for_the_next_world()
         if self.world_parser is not None:
+            self.world_parser.namespace = namespace
             world = self.world_parser.parse()
         else:
-            world = World.create_with_root_body()
-        for robot_specification in self.robots:
-            robot_specification.spawn(world)
+            world = World.create_with_root_body(namespace=namespace)
+        for index, robot_specification in enumerate(self.robots):
+            robot_specification.spawn(
+                world, namespace=self._namespace_for_robot(world, index)
+            )
 
         for object_specification in self.objects:
             object_specification.spawn(world)
 
         return world
+
+    def _namespace_for_robot(self, world: World, index: int) -> str | None:
+        """
+        The namespace the robot at ``index`` is parsed into.
+
+        Robots are merged into the world, which only takes in content namespaced apart
+        from itself, and two robots parsed from one description would otherwise be given
+        the same identifiers. Their position in :attr:`robots` is what tells them apart,
+        so that the same specification names them the same way every time.
+
+        :param world: The world the robot is merged into.
+        :param index: The position of the robot in :attr:`robots`.
+        """
+        if world.namespace is None:
+            return None
+        robot_name = self.robots[index].semantic_annotation_type.__name__.lower()
+        return f"{world.namespace}/{robot_name}_{index}"
+
+    def _namespace_for_the_next_world(self) -> str | None:
+        """
+        The namespace of the world this specification is about to build.
+
+        The first world gets the namespace as given; every later one is named apart from
+        it, so that applying a specification twice does not build two worlds whose
+        entities share identifiers. Running the same program again starts the count
+        over, which is what makes the identifiers reproducible.
+        """
+        self._built_world_count += 1
+        if self.namespace is None:
+            return None
+        if self._built_world_count == 1:
+            return self.namespace
+        return f"{self.namespace}_{self._built_world_count}"
+
+    def _namespace_for_robot(self, world: World, index: int) -> str | None:
+        """
+        The namespace the robot at ``index`` is parsed into.
+
+        Two specifications for the same kind of robot each count their own spawns, so
+        without being named apart here they would parse two worlds carrying the same
+        namespace, and the second robot's identifiers would collide with the first's.
+
+        :param world: The world the robot is merged into.
+        :param index: The position of the robot in :attr:`robots`.
+        """
+        if world.namespace is None:
+            return None
+        robot_name = self.robots[index].semantic_annotation_type.__name__.lower()
+        return f"{world.namespace}/{robot_name}_{index}"

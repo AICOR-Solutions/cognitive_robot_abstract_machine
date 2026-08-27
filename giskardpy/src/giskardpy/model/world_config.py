@@ -4,6 +4,7 @@ import abc
 from abc import ABC
 from dataclasses import dataclass, field
 from functools import partial
+from typing_extensions import Optional
 
 import numpy as np
 from sqlalchemy import select
@@ -41,6 +42,21 @@ class WorldConfig(ABC):
     under.
     """
 
+    def namespace_for(self, part: str) -> Optional[str]:
+        """
+        The namespace of a world built to be merged into this configuration's world.
+
+        A namespaced world only takes in content carrying a namespace of its own, so a
+        part is named underneath the world it joins. A configuration whose world has no
+        namespace builds its parts without one too.
+
+        :param part: What the part holds, such as the name of the robot.
+        :return: The namespace for that part, or ``None`` outside a namespace.
+        """
+        if self.world.namespace is None:
+            return None
+        return f"{self.world.namespace}/{part}"
+
     @abc.abstractmethod
     def setup_world(self, *args, **kwargs):
         """
@@ -73,7 +89,11 @@ class WorldWithFixedRobot(WorldConfig):
         map = Body(name=self.root_name)
         self.world.add_body(map)
 
-        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
+        urdf_parser = URDFParser(
+            urdf=self.urdf,
+            prefix="",
+            namespace=self.namespace_for(self.robot_name.name),
+        )
         world_with_robot = urdf_parser.parse()
         self.urdf_view.from_world(world_with_robot)
         self.robot_root = world_with_robot.root
@@ -100,7 +120,11 @@ class WorldWithOmniDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
+        urdf_parser = URDFParser(
+            urdf=self.urdf,
+            prefix="",
+            namespace=self.namespace_for(self.robot_name.name),
+        )
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 
@@ -133,7 +157,11 @@ class WorldWithDiffDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
+        urdf_parser = URDFParser(
+            urdf=self.urdf,
+            prefix="",
+            namespace=self.namespace_for(self.robot_name.name),
+        )
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 

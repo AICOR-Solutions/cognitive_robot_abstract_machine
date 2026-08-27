@@ -426,8 +426,9 @@ class MismatchingWorld(UsageError):
 
     def error_message(self) -> str:
         return (
-            f"The two entities have mismatching worlds: expected world '{self.expected_world.name}', "
-            f"given world '{self.given_world.name}'. Entities can only reference each other when they belong to "
+            f"The two entities have mismatching worlds: expected the world in namespace "
+            f"'{self.expected_world.namespace}', given the one in '{self.given_world.namespace}'. "
+            f"Entities can only reference each other when they belong to "
             f"the same world."
         )
 
@@ -1266,6 +1267,34 @@ class WorldWithoutNamespaceCannotBeMergedError(UsageError):
 
 
 @dataclass
+class WorldsShareEntityIdentifiersError(UsageError):
+    """
+    Raised when two worlds holding entities with the same identifiers are merged.
+
+    Merging them would let entities that are not the same be taken for one another, and
+    the world would silently end up holding fewer entities than were put into it.
+    """
+
+    shared_identifiers: List[UUID]
+    """
+    The identifiers both worlds hand out.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Both worlds hold entities carrying {len(self.shared_identifiers)} of the "
+            f"same identifiers, for example {self.shared_identifiers[0]}, so merging "
+            f"them would merge entities that are not the same."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "build the two worlds in namespaces that differ, so that they hand out "
+            "identifiers of their own."
+        )
+
+
+@dataclass
 class WorldsShareANamespaceError(UsageError):
     """
     Raised when two worlds carrying the same namespace are merged.
@@ -1374,7 +1403,7 @@ class AlreadyBelongsToAWorldError(UsageError):
     def error_message(self) -> str:
         return (
             f"Cannot add this {self.type_trying_to_add.__name__} because it already belongs to the world "
-            f"'{self.world.name}'. A world entity can belong to at most one world."
+            f"in namespace '{self.world.namespace}'. A world entity can belong to at most one world."
         )
 
     def suggest_correction(self) -> str:
@@ -1535,7 +1564,7 @@ class AtomicWorldModificationNotAtomic(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"World '{self.world.name}' is already being modified atomically by "
+            f"The world in namespace '{self.world.namespace}' is already being modified atomically by "
             f"'{self.world._current_active_atomic_world_modification.__name__}' while "
             f"'{self.modification.__name__}' attempted another atomic world modification. "
             f"Atomic world modifications must never trigger each other."

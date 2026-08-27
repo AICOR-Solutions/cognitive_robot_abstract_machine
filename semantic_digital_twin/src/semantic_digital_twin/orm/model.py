@@ -43,7 +43,6 @@ class WorldMapping(HasSimulatorProperties, AlternativeMapping[World]):
     semantic_annotations: List[SemanticAnnotation]
     degrees_of_freedom: List[DegreeOfFreedom]
     state: WorldState
-    name: Optional[str]
     modification_history: List[WorldModelModificationBlock]
 
     @classmethod
@@ -54,13 +53,12 @@ class WorldMapping(HasSimulatorProperties, AlternativeMapping[World]):
             semantic_annotations=obj.semantic_annotations,
             degrees_of_freedom=list(obj.degrees_of_freedom),
             state=obj.state,
-            name=obj.name,
             simulator_additional_properties=obj.simulator_additional_properties,
             modification_history=obj._model_manager.model_modification_blocks,
         )
 
     def to_domain_object(self) -> World:
-        result = World(name=self.name)
+        result = World()
 
         with result.modify_world():
             for modification_block in self.modification_history:

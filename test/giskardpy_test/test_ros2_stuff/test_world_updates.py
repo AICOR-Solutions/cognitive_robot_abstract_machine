@@ -408,8 +408,8 @@ def add_moving_connection(world: World) -> None:
 
 @pytest.fixture()
 def control_loop(init_rospy) -> ControlLoopFixture:
-    controlled_world = World(name="controlled")
-    remote_world = World(name="remote")
+    controlled_world = World()
+    remote_world = World()
     controlled_synchronizer = WorldSynchronizer(
         node=rospy.node, _world=controlled_world
     )

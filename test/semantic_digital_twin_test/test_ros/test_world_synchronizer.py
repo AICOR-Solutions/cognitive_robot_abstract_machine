@@ -301,8 +301,8 @@ def test_model_reload(rclpy_node, in_memory_session_maker):
 
 def test_model_synchronization_body_only(rclpy_node):
 
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -330,8 +330,8 @@ def test_model_synchronization_body_only(rclpy_node):
 
 def test_model_synchronization_creation_only(rclpy_node):
 
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -392,8 +392,8 @@ def test_model_synchronization_merge_full_world_stress_test(rclpy_node):
             f"World synchronization timed out after {i+1} attempts. bodylen: {len(body_hash_1)} vs {len(body_hash_2)}"
         )
 
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -432,8 +432,8 @@ def test_model_synchronization_merge_full_world_stress_test(rclpy_node):
 
 def test_callback_pausing(rclpy_node):
 
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     ws2 = WorldSynchronizer(node=rclpy_node, _world=w2)
@@ -477,7 +477,7 @@ def test_synchronizer_keeps_receiving_while_its_world_is_modified(rclpy_node):
     world must therefore not pause it: outgoing publications are already deferred by
     :meth:`WorldSynchronizer._publish_or_defer`.
     """
-    world = World(name="modified_world", namespace="modified_world")
+    world = World(namespace="modified_world")
     synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
     with world.modify_world():
@@ -495,7 +495,7 @@ def test_modify_world_preserves_a_deliberate_pause(rclpy_node):
     ``modify_world`` block, so buffered updates are not silently applied behind its
     back.
     """
-    world = World(name="paused_world", namespace="paused_world")
+    world = World(namespace="paused_world")
     synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
     synchronizer.pause()
 
@@ -508,8 +508,8 @@ def test_modify_world_preserves_a_deliberate_pause(rclpy_node):
 
 
 def test_ChangeDifHasHardwareInterface(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -561,8 +561,8 @@ def test_ChangeDifHasHardwareInterface(rclpy_node):
 
 
 def test_semantic_annotation_modifications(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -589,7 +589,7 @@ def test_semantic_annotation_modifications(rclpy_node):
 
 
 def test_semantic_annotation_modifications_merge_world(rclpy_node):
-    w0 = World(name="w0", namespace="w0")
+    w0 = World(namespace="w0")
     root = Body(name=PrefixedName("root"))
     with w0.modify_world():
         w0.add_body(root)
@@ -605,8 +605,8 @@ def test_semantic_annotation_modifications_merge_world(rclpy_node):
         )
         door.add(handle)
 
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -629,8 +629,8 @@ def test_semantic_annotation_modifications_merge_world(rclpy_node):
 def test_semantic_annotation_change_parameter_during_same_modification_block(
     rclpy_node,
 ):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -667,8 +667,8 @@ def test_semantic_annotation_change_parameter_during_same_modification_block(
 
 
 def test_synchronize_6dof(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     ws2 = WorldSynchronizer(node=rclpy_node, _world=w2)
@@ -737,8 +737,8 @@ def test_compute_state_changes_nan_handling(rclpy_node):
 
 
 def test_attribute_updates(rclpy_node):
-    world1 = World(name="w1", namespace="w1")
-    world2 = World(name="w2", namespace="w2")
+    world1 = World(namespace="w1")
+    world2 = World(namespace="w2")
     world1._id = uuid.UUID(int=1)
     world2._id = uuid.UUID(int=2)
 
@@ -803,8 +803,8 @@ class TestAnnotation(SemanticAnnotation):
 
 
 def test_synchronized_attribute_modification(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
     sync1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     sync2 = WorldSynchronizer(node=rclpy_node, _world=w2)
 
@@ -877,7 +877,7 @@ def test_synchronized_attribute_modification(rclpy_node):
 
 
 def test_attribute_update_modification_apply_direct():
-    w = World(name="w", namespace="w")
+    w = World(namespace="w")
     b1 = Body(name=PrefixedName("b1"))
     anno = TestAnnotation(name=PrefixedName("anno"))
     with w.modify_world():
@@ -930,8 +930,8 @@ def test_attribute_update_modification_apply_direct():
 
 
 def test_skipping_incorrect_message(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -967,8 +967,8 @@ def test_skipping_incorrect_message(rclpy_node):
 def test_world_simultaneous_synchronization_stress_test(
     rclpy_node, before_w2, in_w2, after_w2
 ):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -1008,8 +1008,8 @@ def test_world_simultaneous_synchronization_stress_test(
 
 
 def test_nested_modify_world_publish_changes_true_false(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -1047,8 +1047,8 @@ def test_nested_modify_world_publish_changes_true_false(rclpy_node):
 
 
 def test_dont_publish_changes(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node,
@@ -1111,8 +1111,8 @@ def test_load_model_serialization_round_trip():
 
 
 def test_simultaneous_state_and_model_updates(rclpy_node):
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     b1 = Body(name=PrefixedName("b1"))
     b2 = Body(name=PrefixedName("b2"))
@@ -1147,7 +1147,7 @@ def test_two_parallel_modify_world_on_same_instance_are_serialized():
     """
     Two threads enter modify_world concurrently; operations must not interleave.
     """
-    w = World(name="solo", namespace="solo")
+    w = World(namespace="solo")
 
     # Seed a single root so the world remains a tree.
     with w.modify_world():
@@ -1198,8 +1198,8 @@ def test_state_changed_inside_a_model_change_arrives_with_the_model(rclpy_node):
     time.sleep(0.1)
 
     try:
-        w1 = World(name="w1", namespace="w1")
-        w2 = World(name="w2", namespace="w2")
+        w1 = World(namespace="w1")
+        w2 = World(namespace="w2")
 
         ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
         ws2 = WorldSynchronizer(node=receiver_node, _world=w2)
@@ -1239,8 +1239,8 @@ def test_model_change_arrives_while_state_updates_are_published(rclpy_node):
     time.sleep(0.1)
 
     try:
-        w1 = World(name="w1", namespace="w1")
-        w2 = World(name="w2", namespace="w2")
+        w1 = World(namespace="w1")
+        w2 = World(namespace="w2")
 
         ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
         ws2 = WorldSynchronizer(node=receiver_node, _world=w2)
@@ -1293,7 +1293,7 @@ def test_read_operations_inside_modify_world_do_not_deadlock():
     """
     Read operations inside a write block must not deadlock.
     """
-    w = World(name="w", namespace="w")
+    w = World(namespace="w")
     with w.modify_world():
         b1 = Body(name=PrefixedName("b1"))
         b2 = Body(name=PrefixedName("b2"))
@@ -1310,7 +1310,7 @@ def test_state_diff_during_concurrent_dof_add_remove_is_consistent(rclpy_node):
     """
     When DOFs change concurrently, state diff must not observe torn shapes.
     """
-    w = World(name="w", namespace="w")
+    w = World(namespace="w")
     ss = WorldSynchronizer(node=rclpy_node, _world=w)
 
     with w.modify_world():
@@ -1363,8 +1363,8 @@ def test_bidirectional_nested_modify_worlds_no_deadlock(rclpy_node):
     """
     Nested modify_world across two Worlds must not deadlock.
     """
-    w1 = World(name="w1", namespace="w1")
-    w2 = World(name="w2", namespace="w2")
+    w1 = World(namespace="w1")
+    w2 = World(namespace="w2")
 
     ms1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     ms2 = WorldSynchronizer(node=rclpy_node, _world=w2)
@@ -1412,7 +1412,7 @@ def test_reentrant_modify_world_same_thread():
     """
     Nested modify_world on the same thread must be allowed and safe.
     """
-    w = World(name="w", namespace="w")
+    w = World(namespace="w")
     with w.modify_world():
         outer = Body(name=PrefixedName("outer"))
         w.add_body(outer)
@@ -1481,8 +1481,8 @@ def test_world_synchronizer_basic_model_sync(rclpy_node):
     """
     Model changes on w1 (new bodies + connection) are applied on w2.
     """
-    w1 = World(name="ws_model_w1", namespace="ws_model_w1")
-    w2 = World(name="ws_model_w2", namespace="ws_model_w2")
+    w1 = World(namespace="ws_model_w1")
+    w2 = World(namespace="ws_model_w2")
 
     ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     ws2 = WorldSynchronizer(node=rclpy_node, _world=w2)
@@ -1510,8 +1510,8 @@ def test_world_synchronizer_ordering_no_key_error_after_model_change(rclpy_node)
     Single-topic ordering guarantee: state update is never applied before the model
     update that introduced the DOF UUIDs, so no KeyError or silent data loss occurs.
     """
-    w1 = World(name="ws_order_w1", namespace="ws_order_w1")
-    w2 = World(name="ws_order_w2", namespace="ws_order_w2")
+    w1 = World(namespace="ws_order_w1")
+    w2 = World(namespace="ws_order_w2")
 
     ws1 = WorldSynchronizer(node=rclpy_node, _world=w1)
     ws2 = WorldSynchronizer(node=rclpy_node, _world=w2)
@@ -1585,7 +1585,7 @@ def test_stop_is_idempotent(rclpy_node):
     """
     Calling stop() twice must not raise ValueError.
     """
-    world = World(name="idempotent_stop_world", namespace="idempotent_stop_world")
+    world = World(namespace="idempotent_stop_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
     world_synchronizer.stop()
@@ -1598,7 +1598,7 @@ def test_stop_without_close_leaves_ros_resources_alive(rclpy_node):
     """
     Stop() deregisters callbacks but must not destroy the ROS subscriber or publisher.
     """
-    world = World(name="stop_no_close_world", namespace="stop_no_close_world")
+    world = World(namespace="stop_no_close_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
     world_synchronizer.stop()
@@ -1617,9 +1617,7 @@ def test_stop_deregisters_from_model_change_callbacks(rclpy_node):
     """
     After stop(), the synchronizer must no longer be in model_change_callbacks.
     """
-    world = World(
-        name="stop_deregister_model_world", namespace="stop_deregister_model_world"
-    )
+    world = World(namespace="stop_deregister_model_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
     assert world_synchronizer in world.get_world_model_manager().model_change_callbacks
@@ -1637,9 +1635,7 @@ def test_stop_deregisters_from_state_change_callbacks(rclpy_node):
     """
     After stop(), the synchronizer must no longer be in state_change_callbacks.
     """
-    world = World(
-        name="stop_deregister_state_world", namespace="stop_deregister_state_world"
-    )
+    world = World(namespace="stop_deregister_state_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
     assert world_synchronizer in world.state.state_change_callbacks
@@ -1657,8 +1653,8 @@ def test_apply_missed_messages_interleaved_model_and_state(rclpy_node):
     messages are interleaved — the model message must be applied before the state
     message that references its DOFs.
     """
-    world_1 = World(name="interleaved_w1", namespace="interleaved_w1")
-    world_2 = World(name="interleaved_w2", namespace="interleaved_w2")
+    world_1 = World(namespace="interleaved_w1")
+    world_2 = World(namespace="interleaved_w2")
 
     world_synchronizer_1 = WorldSynchronizer(node=rclpy_node, _world=world_1)
     world_synchronizer_2 = WorldSynchronizer(node=rclpy_node, _world=world_2)
@@ -1745,8 +1741,8 @@ def test_apply_missed_messages_inside_modify_world_raises(rclpy_node):
     ApplyMissedMessagesWhileWorldIsBeingModifiedError before attempting to apply any
     message (which would otherwise cause a MismatchingPublishChangesAttribute crash).
     """
-    world_1 = World(name="missed_in_modify_w1", namespace="missed_in_modify_w1")
-    world_2 = World(name="missed_in_modify_w2", namespace="missed_in_modify_w2")
+    world_1 = World(namespace="missed_in_modify_w1")
+    world_2 = World(namespace="missed_in_modify_w2")
 
     world_synchronizer_1 = WorldSynchronizer(node=rclpy_node, _world=world_1)
     world_synchronizer_2 = WorldSynchronizer(node=rclpy_node, _world=world_2)
@@ -2208,8 +2204,8 @@ def create_connected_worlds(
     The receiver applies inline while it is being set up; the caller switches it to
     deferring afterwards.
     """
-    publisher_world = World(name=f"{name}_publisher", namespace=f"{name}_publisher")
-    receiver_world = World(name=f"{name}_receiver", namespace=f"{name}_receiver")
+    publisher_world = World(namespace=f"{name}_publisher")
+    receiver_world = World(namespace=f"{name}_receiver")
     publisher_synchronizer = WorldSynchronizer(node=rclpy_node, _world=publisher_world)
     receiver_synchronizer = WorldSynchronizer(node=rclpy_node, _world=receiver_world)
     time.sleep(0.2)
@@ -2253,12 +2249,8 @@ def test_deferring_incoming_updates_keeps_outgoing_publishing_alive(rclpy_node):
     publish its own model and state changes, so an owner of the world does not have to
     reach around the callbacks to publish.
     """
-    world_1 = World(
-        name="one_directional_deferring_1", namespace="one_directional_deferring_1"
-    )
-    world_2 = World(
-        name="one_directional_deferring_2", namespace="one_directional_deferring_2"
-    )
+    world_1 = World(namespace="one_directional_deferring_1")
+    world_2 = World(namespace="one_directional_deferring_2")
     synchronizer_1 = WorldSynchronizer(
         node=rclpy_node, _world=world_1, defer_incoming_updates=True
     )
@@ -2413,7 +2405,7 @@ def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
     The buffer is appended to on the subscription thread while its owner drains it, so
     the drain must remove exactly the messages it applied and keep the rest.
     """
-    world = World(name="drain_race", namespace="drain_race")
+    world = World(namespace="drain_race")
     synchronizer = DelayedApplyWorldSynchronizer(
         node=rclpy_node,
         _world=world,
@@ -2468,7 +2460,7 @@ def test_every_publication_advances_the_stream_position(rclpy_node):
     Positions count the messages one synchronizer sent, so a reader of the stream can
     tell how much of it it has seen.
     """
-    world = World(name="stream_position", namespace="stream_position")
+    world = World(namespace="stream_position")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/stream_position_{uuid4().hex}"
     )
@@ -2535,7 +2527,7 @@ def test_a_publisher_that_was_never_heard_from_is_at_the_start_of_its_stream(
     """
     Nothing of an unknown publisher was applied, so its first message is still awaited.
     """
-    world = World(name="unknown_publisher", namespace="unknown_publisher")
+    world = World(namespace="unknown_publisher")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/unknown_publisher_{uuid4().hex}"
     )
@@ -2585,7 +2577,7 @@ def test_the_synchronizer_of_a_world_is_found_through_the_world(rclpy_node):
     A client that was handed a world, but not the synchronizer publishing its changes,
     still has to name the stream its positions belong to.
     """
-    world = World(name="synchronizer_lookup", namespace="synchronizer_lookup")
+    world = World(namespace="synchronizer_lookup")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/synchronizer_lookup_{uuid4().hex}"
     )
@@ -2599,7 +2591,7 @@ def test_a_world_that_publishes_nowhere_has_no_synchronizer():
     """
     Referring to the stream of a world that has none is a mistake worth naming.
     """
-    world = World(name="no_synchronizer", namespace="no_synchronizer")
+    world = World(namespace="no_synchronizer")
 
     with pytest.raises(WorldHasNoSynchronizerError):
         WorldSynchronizer.of_world(world)
@@ -2610,7 +2602,7 @@ def test_several_synchronizers_leave_the_stream_of_a_world_undecided(rclpy_node)
     Positions name one stream, so a world publishing through several synchronizers
     cannot answer which one is meant.
     """
-    world = World(name="ambiguous_synchronizer", namespace="ambiguous_synchronizer")
+    world = World(namespace="ambiguous_synchronizer")
     first = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/ambiguous_a_{uuid4().hex}"
     )

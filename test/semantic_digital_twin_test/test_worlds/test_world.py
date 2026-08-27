@@ -27,6 +27,7 @@ from semantic_digital_twin.exceptions import (
     WorldNamespaceIsImmutableError,
     WorldsShareANamespaceError,
     WorldWithoutNamespaceCannotBeMergedError,
+    WorldsShareEntityIdentifiersError,
 )
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
@@ -2189,7 +2190,7 @@ def world_with_branch(branch_length: int) -> Tuple[World, Body]:
     :param branch_length: Number of bodies hanging below the branch root.
     :return: The world and the root of its branch.
     """
-    world = World(name="source")
+    world = World()
     branch_root = Body(name=PrefixedName("branch_root"))
     with world.modify_world():
         world.add_connection(
@@ -2222,7 +2223,7 @@ def assert_rebuilds_to_same_structure(world: World, other_world: World) -> None:
         with world_to_release.modify_world():
             world_to_release._clear_world_entities()
 
-    rebuilt = World(name=world.name)
+    rebuilt = World()
     with rebuilt.modify_world():
         for block in recorded_blocks:
             block.apply(rebuilt)
@@ -2290,7 +2291,7 @@ def test_world_does_not_record_removing_a_connection_it_does_not_hold():
     """
     world, branch_root = world_with_branch(branch_length=1)
     connection = branch_root.parent_connection
-    other_world = World(name="other")
+    other_world = World()
 
     with other_world.modify_world():
         other_world.remove_connection(connection)
@@ -2322,11 +2323,11 @@ def test_world_does_not_record_removing_a_kinematic_structure_entity_it_does_not
     """
     A world only records the removal of a kinematic_structure_entity it actually holds.
     """
-    world = World(name="source")
+    world = World()
     body = Body(name=PrefixedName("body"))
     with world.modify_world():
         world.add_body(body)
-    other_world = World(name="other")
+    other_world = World()
 
     with other_world.modify_world():
         other_world.remove_kinematic_structure_entity(body)
@@ -2344,7 +2345,7 @@ def test_world_does_not_record_removing_a_degree_of_freedom_it_does_not_hold(
     world, l1, l2, bf, r1, r2 = world_setup
     connection: PrismaticConnection = world.get_connection(r1, r2)
     dof = connection.dof
-    other_world = World(name="other")
+    other_world = World()
 
     with other_world.modify_world():
         other_world.remove_degree_of_freedom(dof)
@@ -2357,11 +2358,11 @@ def test_world_does_not_record_removing_a_semantic_annotation_it_does_not_hold()
     """
     A world only records the removal of a semantic annotation it actually holds.
     """
-    world = World(name="source")
+    world = World()
     annotation = SemanticAnnotation(name=PrefixedName("annotation"))
     with world.modify_world():
         world.add_semantic_annotation(annotation)
-    other_world = World(name="other")
+    other_world = World()
 
     with other_world.modify_world():
         other_world.remove_semantic_annotation(annotation)
@@ -2374,11 +2375,11 @@ def test_world_does_not_record_removing_an_actuator_it_does_not_hold():
     """
     A world only records the removal of an actuator it actually holds.
     """
-    world = World(name="source")
+    world = World()
     actuator = Actuator(name=PrefixedName("actuator"))
     with world.modify_world():
         world.add_actuator(actuator)
-    other_world = World(name="other")
+    other_world = World()
 
     with other_world.modify_world():
         other_world.remove_actuator(actuator)
@@ -2533,3 +2534,20 @@ def test_merging_between_worlds_without_namespaces_is_allowed():
     world.merge_world(other)
 
     assert [str(body.name) for body in world.bodies] == ["milk"]
+
+
+def test_merging_worlds_holding_the_same_identifiers_is_refused():
+    """
+    Identifiers can be given from outside, so two worlds can hold the same ones even
+    when their namespaces differ.
+    """
+    shared_body = Body(name=PrefixedName("milk"), id=uuid4())
+    world = World()
+    other = World()
+    with world.modify_world():
+        world.add_body(shared_body)
+    with other.modify_world():
+        other.add_body(Body(name=PrefixedName("milk"), id=shared_body.id))
+
+    with pytest.raises(WorldsShareEntityIdentifiersError):
+        world.merge_world(other)

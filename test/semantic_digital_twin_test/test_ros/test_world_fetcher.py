@@ -181,7 +181,7 @@ def test_semantic_annotation_modifications(rclpy_node):
 
     resolves the issue
     """
-    w1 = World(name="w1")
+    w1 = World()
     b1 = Body(name=PrefixedName("b1"))
     v1 = Handle(root=b1)
     v2 = Door(root=b1, handle=v1)

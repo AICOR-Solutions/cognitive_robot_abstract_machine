@@ -142,6 +142,7 @@ class GazeboParser(WorldModelParser):
         file_path: str,
         prefix: Optional[str] = None,
         path_resolver: Optional[PathResolver] = None,
+        namespace: Optional[str] = None,
     ) -> GazeboParser:
         """
         Creates a parser for a description file.
@@ -229,8 +230,7 @@ class GazeboParser(WorldModelParser):
         :return: The world holding every model the element contains.
         """
         world_name = self.prefix or element.get("name")
-        world = World()
-        world.name = world_name
+        world = World(namespace=self.namespace)
         with world.modify_world():
             world.add_kinematic_structure_entity(Body(name=PrefixedName(world_name)))
 
@@ -448,8 +448,7 @@ class GazeboParser(WorldModelParser):
             for joint_element in joint_elements
         ]
 
-        world = World()
-        world.name = instance_name
+        world = World(namespace=self.namespace_for(instance_name))
         root_body = self.root_body_of(bodies, child_link_names, instance_name)
 
         with world.modify_world():

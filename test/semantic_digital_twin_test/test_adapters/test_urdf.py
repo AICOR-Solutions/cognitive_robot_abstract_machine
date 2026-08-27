@@ -8,6 +8,7 @@ from urdf_parser_py import urdf as urdfpy
 
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world import World
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
 from semantic_digital_twin.robots.tiago import Tiago, TiagoJoint
 from semantic_digital_twin.world_description.connections import FixedConnection
@@ -195,3 +196,42 @@ def test_xacro():
     assert len(world.kinematic_structure_entities) > 0
     assert len(world.connections) > 0
     assert world.root.name.name == "base_footprint"
+
+
+# %% parsing into a namespace
+
+
+def test_parsed_world_has_no_namespace_by_default(urdf_paths):
+    parser = URDFParser.from_file(urdf_paths.table)
+
+    assert parser.parse().namespace is None
+
+
+def test_parsed_world_is_built_in_the_given_namespace(urdf_paths):
+    parser = URDFParser.from_file(urdf_paths.table, namespace="giskard/table")
+
+    assert parser.parse().namespace == "giskard/table"
+
+
+def test_a_parsed_world_can_be_merged_into_the_namespace_it_was_built_under(urdf_paths):
+    """
+    A namespaced world only takes in content that carries a namespace of its own, which
+    is what the parser's namespace is for.
+    """
+    world = World(namespace="giskard")
+    parsed = URDFParser.from_file(urdf_paths.table, namespace="giskard/table").parse()
+    parsed_body_names = [str(body.name) for body in parsed.bodies]
+
+    world.merge_world(parsed)
+
+    assert [str(body.name) for body in world.bodies] == parsed_body_names
+
+
+def test_parts_of_a_parsed_world_are_named_underneath_it(urdf_paths):
+    parser = URDFParser.from_file(urdf_paths.table, namespace="giskard/scene")
+
+    assert parser.namespace_for("milk") == "giskard/scene/milk"
+
+
+def test_parts_of_an_unnamespaced_parser_stay_unnamespaced(urdf_paths):
+    assert URDFParser.from_file(urdf_paths.table).namespace_for("milk") is None

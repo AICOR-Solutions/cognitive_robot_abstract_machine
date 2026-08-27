@@ -53,6 +53,7 @@ from semantic_digital_twin.exceptions import (
     WorldEntityWithIDNotFoundError,
     WorldNamespaceIsImmutableError,
     WorldsShareANamespaceError,
+    WorldsShareEntityIdentifiersError,
     WorldWithoutNamespaceCannotBeMergedError,
     MissingReferenceFrameError,
     MismatchingPublishChangesAttribute,
@@ -589,14 +590,6 @@ class World(HasSimulatorProperties):
     Hands out the identifiers of entities that join this world without one.
     """
 
-    name: Optional[str] = None
-    """
-    Name of the world.
-
-    May act as default namespace for all bodies and semantic annotations in the world
-    which do not have a prefix.
-    """
-
     collision_manager: CollisionManager = field(init=False)
     """
     Class that manages collision detection related stuff for this world.
@@ -685,16 +678,20 @@ class World(HasSimulatorProperties):
 
     @classmethod
     def create_with_root_body(
-        cls, root_body_name: str = "map", prefix: Optional[str] = None
+        cls,
+        root_body_name: str = "map",
+        prefix: Optional[str] = None,
+        namespace: Optional[str] = None,
     ) -> World:
         """
         Creates a new instance of the World class with a root body.
 
         :param root_body_name: The root body's name.
         :param prefix: Optional namespace prefix for the root body's name.
+        :param namespace: The namespace the world belongs to.
         """
         root_body = Body(name=PrefixedName(root_body_name, prefix))
-        world = World()
+        world = World(namespace=namespace)
         with world.modify_world():
             world.add_body(root_body)
         return world
@@ -1723,6 +1720,7 @@ class World(HasSimulatorProperties):
                 raise WorldWithoutNamespaceCannotBeMergedError(self.namespace)
             if other.namespace == self.namespace:
                 raise WorldsShareANamespaceError(self.namespace)
+        self._raise_error_if_entity_identifiers_are_shared_with(other)
 
         with self.modify_world(), other.modify_world():
             self_root = self.root
@@ -1748,6 +1746,31 @@ class World(HasSimulatorProperties):
                 self.add_connection(root_connection)
 
             other.clear()
+
+    def _raise_error_if_entity_identifiers_are_shared_with(self, other: World) -> None:
+        """
+        Refuse to take in a world holding entities this one already has identifiers for.
+
+        Namespaces are what normally keep two worlds apart, but identifiers can be given
+        from outside as well, so the identifiers themselves are what is checked here.
+        Merging past a clash would quietly drop the entities that appear to be already
+        present.
+
+        :param other: The world about to be merged into this one.
+        """
+        shared = [
+            self._world_entity_hash_table[entity_hash].id
+            for entity_hash in set(self._world_entity_hash_table)
+            & set(other._world_entity_hash_table)
+            # Every world runs the same managers, and an identifier derived from a class
+            # is meant to be the same wherever that class is used.
+            if not isinstance(
+                self._world_entity_hash_table[entity_hash], WorldEntityWithClassBasedID
+            )
+        ]
+        if not shared:
+            return
+        raise WorldsShareEntityIdentifiersError(shared)
 
     def is_kinematic_structure_entity_in_world_by_name(self, name: str) -> bool:
         """
@@ -1932,7 +1955,7 @@ class World(HasSimulatorProperties):
         :param new_root: The root body of the subgraph to be copied.
         :return: A new `World` instance containing the copied subgraph.
         """
-        new_world = World(name=self.name, namespace=self.namespace)
+        new_world = World(namespace=self.namespace)
         child_bodies = self.compute_descendent_child_kinematic_structure_entities(
             new_root
         )
@@ -2542,7 +2565,7 @@ class World(HasSimulatorProperties):
         if me_id in memo:
             return memo[me_id]
 
-        new_world = World(name=self.name, namespace=self.namespace)
+        new_world = World(namespace=self.namespace)
         memo[me_id] = new_world
 
         with new_world.modify_world():

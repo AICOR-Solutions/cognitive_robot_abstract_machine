@@ -22,7 +22,6 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose
 def test_ref_chain_after_copy(immutable_model_world):
     world, view, c = immutable_model_world
     copy_world = deepcopy(world)
-    copy_world.name = "copy_world"
     chain = objgraph.find_ref_chain(world, lambda x: x is copy_world)
     assert chain == [world]
 
@@ -30,7 +29,6 @@ def test_ref_chain_after_copy(immutable_model_world):
 def test_ref_chain_after_copy_with_execute(immutable_model_world):
     world, view, c = immutable_model_world
     copy_world = deepcopy(world)
-    copy_world.name = "copy_world"
 
     copy_context = Context(
         copy_world, copy_world.get_semantic_annotation_by_id(view.id)
@@ -52,7 +50,6 @@ def test_ref_chain_after_copy_with_execute(immutable_model_world):
 def test_ref_chain_after_copy_with_execute_complex_plan(mutable_model_world):
     world, view, context = mutable_model_world
     copy_world = deepcopy(world)
-    copy_world.name = "copy_world"
 
     copy_context = Context(
         copy_world, copy_robot := copy_world.get_semantic_annotation_by_id(view.id)
