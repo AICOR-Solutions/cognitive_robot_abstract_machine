@@ -15,6 +15,7 @@ from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.spatial_types import Point2, Point3, Pose
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -544,3 +545,37 @@ def test_path_from_to_scales_to_a_real_apartment_scene():
 
     assert path is not None
     assert len(path) > 1
+
+
+def test_floor_navigation_map_uses_its_own_footprint_as_search_space():
+    """
+    Floor.navigation_map must derive its search space from its own body's collision
+    geometry, rather than requiring the caller to build one.
+    """
+    world = World.create_with_root_body("root")
+    with world.modify_world():
+        floor = Floor.create_with_new_body_in_world(
+            name="floor", world=world, scale=Scale(4, 4, 0.01)
+        )
+        obstacle = Body(name=PrefixedName("obstacle"))
+        world.add_connection(
+            FixedConnection.create_with_dofs(
+                world,
+                world.root,
+                obstacle,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    0.0, 0.0, 0.5, reference_frame=world.root
+                ),
+            )
+        )
+        obstacle.collision.append(Box(scale=Scale(0.4, 0.4, 1.0)))
+
+    graph = floor.navigation_map(max_height=2.0)
+
+    assert isinstance(graph, PlanarGraphOfBoundingBoxes)
+    search_box = graph.search_space.bounding_box()
+    assert search_box.min_x == pytest.approx(-2.0)
+    assert search_box.max_x == pytest.approx(2.0)
+    assert search_box.min_y == pytest.approx(-2.0)
+    assert search_box.max_y == pytest.approx(2.0)
+    assert len(graph.graph.nodes()) > 0

@@ -706,10 +706,17 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         Compute the floor-plan free space by subtracting each obstacle's floor
         footprint from the search space's floor footprint incrementally
         (subtract_disjoint), the same way :meth:`VolumetricGraphOfBoundingBoxes.free_space_from_bounding_boxes`
-        does in three dimensions, but marginalized onto the x,y plane first: an
-        obstacle blocks a footprint at every height, since the robot has to fit
-        through the entire column of space above it, not just its floor-level
-        silhouette.
+        does in three dimensions: an obstacle blocks a footprint at every height
+        within the search space, since the robot has to fit through the entire column
+        of space above it, not just its floor-level silhouette -- but an obstacle
+        outside the search space's own height range (e.g. the floor itself, sitting
+        below where the robot's navigable space begins) does not block anything.
+
+        Intersecting each obstacle with the full, three-dimensional search space
+        before marginalizing onto x,y is what makes the height range matter: doing it
+        the other way around -- marginalizing the obstacle first -- would drop its
+        z-extent before ever comparing it to the search space's, so no obstacle could
+        ever be excluded by height.
 
         :param bounding_boxes: The obstacle bounding boxes to subtract.
         :param search_space_event: The three-dimensional search space; the result is
@@ -718,10 +725,12 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         """
         free_space = search_space_event.marginal(SpatialVariables.xy)
         for bounding_box in bounding_boxes:
-            obstacle = bounding_box.simple_event.as_composite_set().marginal(
-                SpatialVariables.xy
+            obstacle_in_search_space = (
+                bounding_box.simple_event.as_composite_set() & search_space_event
             )
-            obstacle_in_search = obstacle & free_space
+            if obstacle_in_search_space.is_empty():
+                continue
+            obstacle_in_search = obstacle_in_search_space.marginal(SpatialVariables.xy)
             if not obstacle_in_search.is_empty():
                 free_space = free_space.subtract_disjoint(obstacle_in_search)
             if free_space.is_empty():
