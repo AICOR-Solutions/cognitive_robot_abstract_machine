@@ -1,9 +1,10 @@
 import unittest
+from typing import Optional
 
 import numpy as np
 import plotly.graph_objects as go
 from numpy import testing
-from random_events.interval import closed, closed_open, Bound
+from random_events.interval import closed, closed_open, Bound, SimpleInterval
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from random_events.variable import Continuous
 from scipy.special import logsumexp
@@ -325,92 +326,106 @@ class FittedNygaDistributionTestCase(unittest.TestCase):
         self.assertGreater(likelihood.min(), -np.inf)
 
 
-class SafeExtremePointTestCase(unittest.TestCase):
+class SupportedUniformDistributionTestCase(unittest.TestCase):
     """
-    Tests for `NygaInduction.safe_extreme_point`, which bounds how far an extreme point
-    of a Nyga distribution's support may be widened by `tolerance_at_extremes` without
-    entering a given forbidden region.
-    """
-
-    variable: Continuous = Continuous("x")
-    model: NygaInduction
-
-    def setUp(self) -> None:
-        self.model = NygaInduction(self.variable)
-
-    def test_lower_bound_uses_full_tolerance_when_no_forbidden_region(self):
-        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
-            5.0, -1, None
-        )
-        self.assertEqual(new_bound, 5.0 - self.model.tolerance_at_extremes)
-        self.assertFalse(touches_forbidden_region)
-
-    def test_upper_bound_uses_full_tolerance_when_clear_of_forbidden_region(self):
-        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
-            5.0, 1, closed(10.0, 20.0)
-        )
-        self.assertEqual(new_bound, 5.0 + self.model.tolerance_at_extremes)
-        self.assertFalse(touches_forbidden_region)
-
-    def test_lower_bound_clips_exactly_onto_forbidden_region_edge(self):
-        # unclipped would be 5.0000005 - 1e-6 = 4.9999995, inside the forbidden region
-        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
-            5.0000005, -1, closed(0.0, 5.0)
-        )
-        self.assertEqual(new_bound, 5.0)
-        self.assertTrue(touches_forbidden_region)
-
-    def test_upper_bound_clips_exactly_onto_forbidden_region_edge(self):
-        # unclipped would be 4.9999995 + 1e-6 = 5.0000005, inside the forbidden region
-        new_bound, touches_forbidden_region = self.model.safe_extreme_point(
-            4.9999995, 1, closed(5.0, 10.0)
-        )
-        self.assertEqual(new_bound, 5.0)
-        self.assertTrue(touches_forbidden_region)
-
-
-class AdjustExtremePointsTestCase(unittest.TestCase):
-    """
-    Tests for `NygaInduction.adjust_extreme_points`, which widens a Nyga
-    distribution's support without letting it overlap a given forbidden region - the
-    support already claimed by another leaf for the same variable elsewhere in a
-    larger circuit, as happens when :class:`JointProbabilityTree` mounts one
-    independently fitted distribution per decision-tree leaf.
+    Tests for how `InductionStep.create_uniform_distribution_from_indices` uses
+    `NygaInduction.support`: the piece touching the globally first or last datapoint is
+    intersected with it, which is what lets a leaf's tolerance widening be capped
+    without a separate adjustment step.
     """
 
     variable: Continuous = Continuous("x")
+    sorted_data: np.array = np.array([1, 2, 3, 4, 7, 9])
 
-    def model_with_single_piece(self, lower: float, upper: float) -> NygaInduction:
-        model = NygaInduction(self.variable)
-        root = SumUnit(probabilistic_circuit=model.probabilistic_circuit)
-        leaf_node = leaf(
+    def induction_step_with_support(
+        self, support: Optional[SimpleInterval]
+    ) -> InductionStep:
+        nyga_distribution = NygaInduction(
+            self.variable, min_samples_per_quantile=1, support=support
+        )
+        weights = np.ones((len(self.sorted_data),))
+        cumulative_weights = np.append(0, np.cumsum(weights))
+        cumulative_log_weights = np.append(0, np.cumsum(np.log(weights)))
+        return InductionStep(
+            self.sorted_data,
+            cumulative_weights,
+            cumulative_log_weights,
+            0,
+            len(self.sorted_data),
+            nyga_distribution,
+        )
+
+    def test_edge_piece_uses_exact_data_bounds_without_a_support(self):
+        distribution = self.induction_step_with_support(
+            None
+        ).create_uniform_distribution()
+        self.assertEqual(
+            distribution,
             UniformDistribution(
-                variable=self.variable, interval=closed(lower, upper).simple_sets[0]
+                variable=self.variable, interval=closed(1, 9).simple_sets[0]
             ),
-            model.probabilistic_circuit,
         )
-        root.add_subcircuit(leaf_node, 0.0)
-        return model
 
-    def test_widens_by_full_tolerance_without_forbidden_region(self):
-        model = self.model_with_single_piece(0.0, 5.0)
-        model.adjust_extreme_points()
-        widened = model.probabilistic_circuit.leaves[0].distribution.interval
-        self.assertEqual(widened.lower, -model.tolerance_at_extremes)
-        self.assertEqual(widened.upper, 5.0 + model.tolerance_at_extremes)
+    def test_edge_piece_is_clipped_to_a_given_support(self):
+        support = closed(0.0, 5.0).simple_sets[0]
+        distribution = self.induction_step_with_support(
+            support
+        ).create_uniform_distribution()
+        self.assertEqual(distribution.interval, support)
 
-    def test_clips_upper_bound_to_avoid_overlapping_forbidden_region(self):
-        # the raw leaf already sits closer to the neighbor than tolerance_at_extremes
-        model = self.model_with_single_piece(0.0, 4.9999995)
-        forbidden_region = closed(5.0, 10.0)
-        model.adjust_extreme_points(forbidden_region)
-        widened = model.probabilistic_circuit.leaves[0].distribution.interval
-
-        self.assertEqual(widened.upper, 5.0)
-        self.assertEqual(widened.right, Bound.OPEN)
-        self.assertTrue(
-            widened.as_composite_set().intersection_with(forbidden_region).is_empty()
+    def test_internal_piece_is_unaffected_by_a_wider_support(self):
+        induction_step = self.induction_step_with_support(
+            closed(-10.0, 20.0).simple_sets[0]
         )
+        distribution = induction_step.create_uniform_distribution_from_indices(3, 5)
+        self.assertEqual(
+            distribution,
+            UniformDistribution(
+                variable=self.variable, interval=closed_open(3.5, 8.0).simple_sets[0]
+            ),
+        )
+
+
+class NygaInductionSupportTestCase(unittest.TestCase):
+    """
+    Tests for how `NygaInduction.fit` establishes `support` when none is given, and
+    respects one that is - the mechanism that lets a sibling leaf's data (e.g.
+    another leaf of a :class:`JointProbabilityTree`) keep this distribution's support
+    from overlapping it.
+    """
+
+    variable: Continuous = Continuous("x")
+
+    def test_fit_defaults_support_to_data_range_widened_by_tolerance(self):
+        model = NygaInduction(
+            self.variable, min_samples_per_quantile=1, min_likelihood_improvement=0
+        )
+        model.fit([1.0, 2.0, 3.0])
+        # SimpleInterval stores its bounds as single-precision floats, so the exact
+        # value picks up rounding noise around the scale of tolerance_at_extremes itself
+        self.assertAlmostEqual(
+            model.support.lower, 1.0 - model.tolerance_at_extremes, delta=1e-5
+        )
+        self.assertAlmostEqual(
+            model.support.upper, 3.0 + model.tolerance_at_extremes, delta=1e-5
+        )
+
+    def test_fit_keeps_a_given_support(self):
+        given_support = closed(0.0, 10.0).simple_sets[0]
+        model = NygaInduction(
+            self.variable,
+            support=given_support,
+            min_samples_per_quantile=1,
+            min_likelihood_improvement=0,
+        )
+        model.fit([1.0, 2.0, 3.0])
+
+        self.assertEqual(model.support, given_support)
+        widest_leaf = max(
+            model.probabilistic_circuit.leaves,
+            key=lambda leaf: leaf.distribution.interval.upper,
+        )
+        self.assertEqual(widest_leaf.distribution.interval.upper, 10.0)
 
 
 if __name__ == "__main__":
