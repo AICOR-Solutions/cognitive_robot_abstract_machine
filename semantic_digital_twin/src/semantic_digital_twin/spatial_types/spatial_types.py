@@ -18,6 +18,7 @@ from typing_extensions import (
     Tuple,
     Callable,
     TypeVar,
+    ClassVar,
 )
 
 import krrood.symbolic_math.symbolic_math as sm
@@ -42,21 +43,23 @@ if TYPE_CHECKING:
         KinematicStructureEntity,
     )
 
-# %% normalisation constants
-
 
 @dataclass
-class _ConstantMatrixParts(Enum, ca.SX):
-    HOMOGENEOUS_BOTTOM_ROW: ca.SX = ca.SX([[0.0, 0.0, 0.0, 1.0]])
+class _ConstantMatrixParts:
     """
-    The last row every 4x4 homogeneous matrix ends in.
-    
-    Written as one row assignment rather than four element assignments, because
+    The entries a homogeneous matrix always holds, whatever it represents.
+
+    Assigned as whole rows and columns rather than element by element, because
     :meth:`SpatialType._verify_type` runs on every intermediate product and each casadi
-    element write costs about as much as the whole row.
+    element write costs about as much as the whole slice.
     """
 
-    ZERO_TRANSLATION: ca.SX = ca.SX([[0.0], [0.0], [0.0]])
+    HOMOGENEOUS_BOTTOM_ROW: ClassVar[ca.SX] = ca.SX([[0.0, 0.0, 0.0, 1.0]])
+    """
+    The last row every 4x4 homogeneous matrix ends in.
+    """
+
+    ZERO_TRANSLATION: ClassVar[ca.SX] = ca.SX([[0.0], [0.0], [0.0]])
     """
     The translation column of a matrix that carries rotation only.
     """
