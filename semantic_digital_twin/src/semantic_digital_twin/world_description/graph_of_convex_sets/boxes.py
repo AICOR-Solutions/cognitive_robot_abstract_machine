@@ -34,6 +34,7 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import PointOccupiedError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     SemanticEnvironmentAnnotation,
+    Wall,
 )
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -57,10 +58,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions imp
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
-from semantic_digital_twin.world_description.world_entity import (
-    Body,
-    SemanticAnnotation,
-)
+from semantic_digital_twin.world_description.world_entity import Body
 
 logger = logging.getLogger(__name__)
 
@@ -569,7 +567,7 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
         cls,
         search_space: BoundingBoxCollection[BoundingBox],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
-        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        semantic_wall_annotation: Optional[Wall] = None,
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
@@ -581,8 +579,8 @@ class VolumetricGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox, Point3]):
         :param search_space: The search space for the connectivity graph.
         :param semantic_obstacle_annotation: The semantic annotation containing the
             obstacles.
-        :param semantic_wall_annotation: An optional semantic annotation containing
-            walls to be considered as obstacles.
+        :param semantic_wall_annotation: An optional wall annotation to be considered
+            as an obstacle.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
         :param bloat_obstacles: The amount to bloat the obstacles.
@@ -729,7 +727,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
         cls,
         search_space: BoundingBoxCollection[BoundingBox],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
-        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        semantic_wall_annotation: Optional[Wall] = None,
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
@@ -748,8 +746,8 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[BoundingBox2D, Point2]):
             footprint.
         :param semantic_obstacle_annotation: The semantic annotation containing the
             obstacles.
-        :param semantic_wall_annotation: An optional semantic annotation containing
-            walls to be considered as obstacles.
+        :param semantic_wall_annotation: An optional wall annotation to be considered
+            as an obstacle.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
         :param bloat_obstacles: The amount to bloat the obstacles.

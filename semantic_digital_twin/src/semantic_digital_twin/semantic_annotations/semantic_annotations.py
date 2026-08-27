@@ -920,6 +920,31 @@ class Wall(HasApertures):
             connection_specification=connection_specification,
         )
 
+    def bloated_bounding_box_collection(
+        self,
+        origin: HomogeneousTransformationMatrix,
+        bloat_amount: float,
+    ) -> BoundingBoxCollection[BoundingBox]:
+        """
+        Bloat this wall's bounding boxes along their thinner dimension only -- the
+        side that faces the room -- rather than symmetrically in x and y.
+
+        :param origin: The origin to express the bounding boxes relative to.
+        :param bloat_amount: The amount to bloat by.
+        :return: The bloated bounding boxes.
+        """
+        return BoundingBoxCollection(
+            [
+                (
+                    bounding_box.bloat(bloat_amount, 0, 0.01)
+                    if bounding_box.width > bounding_box.depth
+                    else bounding_box.bloat(0, bloat_amount, 0.01)
+                )
+                for bounding_box in self.as_bounding_box_collection_at_origin(origin)
+            ],
+            origin.reference_frame,
+        )
+
 
 @dataclass(eq=False)
 class Bottle(HasRootBody):
@@ -1480,7 +1505,7 @@ class SemanticEnvironmentAnnotation(HasRootBody):
     def build_bloated_obstacle_collection(
         self,
         search_space: BoundingBoxCollection[BoundingBox],
-        semantic_wall_annotation: Optional[SemanticAnnotation] = None,
+        semantic_wall_annotation: Optional[Wall] = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
     ) -> BoundingBoxCollection[BoundingBox]:
@@ -1491,8 +1516,8 @@ class SemanticEnvironmentAnnotation(HasRootBody):
 
         :param search_space: The search space; its reference frame is used as the
             origin.
-        :param semantic_wall_annotation: An optional annotation containing wall
-            entities.
+        :param semantic_wall_annotation: An optional wall annotation, bloated by its
+            own rule (see :meth:`Wall.bloated_bounding_box_collection`).
         :param bloat_obstacles: Amount to expand each obstacle bounding box
             symmetrically in x and y.
         :param bloat_walls: Amount to expand wall bounding boxes in their thinner
@@ -1500,13 +1525,12 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         :return: A collection of the bloated obstacle and wall bounding boxes.
         """
         world_root = search_space.reference_frame
+        origin = HomogeneousTransformationMatrix(reference_frame=world_root)
 
         entities_to_consider = self.obstacle_entities(search_space)
 
         collections = (
-            entity.collision.as_bounding_box_collection_at_origin(
-                HomogeneousTransformationMatrix(reference_frame=world_root)
-            )
+            entity.collision.as_bounding_box_collection_at_origin(origin)
             for entity in entities_to_consider
         )
         obstacle_bounding_boxes = BoundingBoxCollection.merge_all(
@@ -1522,20 +1546,11 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         )
 
         if semantic_wall_annotation is not None:
-            bloated_walls = BoundingBoxCollection(
-                [
-                    (
-                        bounding_box.bloat(bloat_walls, 0, 0.01)
-                        if bounding_box.width > bounding_box.depth
-                        else bounding_box.bloat(0, bloat_walls, 0.01)
-                    )
-                    for bounding_box in semantic_wall_annotation.as_bounding_box_collection_at_origin(
-                        HomogeneousTransformationMatrix(reference_frame=world_root)
-                    )
-                ],
-                world_root,
+            bloated_obstacles = bloated_obstacles.merge(
+                semantic_wall_annotation.bloated_bounding_box_collection(
+                    origin, bloat_walls
+                )
             )
-            bloated_obstacles = bloated_obstacles.merge(bloated_walls)
 
         return bloated_obstacles
 

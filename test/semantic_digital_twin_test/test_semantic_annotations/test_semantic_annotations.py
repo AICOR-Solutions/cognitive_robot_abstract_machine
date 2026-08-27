@@ -184,7 +184,7 @@ def test_build_bloated_obstacle_collection_includes_bloated_walls():
     obstacle_annotation = SemanticEnvironmentAnnotation(
         root=obstacle_body, _world=world
     )
-    wall_annotation = SemanticEnvironmentAnnotation(root=wall_body, _world=world)
+    wall_annotation = Wall(root=wall_body, _world=world)
 
     result = obstacle_annotation.build_bloated_obstacle_collection(
         search_space, semantic_wall_annotation=wall_annotation, bloat_walls=0.5
