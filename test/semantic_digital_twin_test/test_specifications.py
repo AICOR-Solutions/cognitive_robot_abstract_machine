@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from typing_extensions import Optional
 
 from krrood.utils import recursive_subclasses
 from semantic_digital_twin.api import (
@@ -523,7 +522,7 @@ def test_spawn_positional_name(empty_world):
 
 def _odom_bodies(world: World) -> list[Body]:
     """
-    Every odom body of a world, which several robots name alike.
+    Every odom body of a world, regardless of the prefix disambiguating it.
     """
     return [body for body in world.bodies if body.name.name == "odom"]
 
@@ -605,9 +604,7 @@ def test_world_specification_with_several_robots():
 
     odom_bodies = _odom_bodies(world)
     assert len(odom_bodies) == 2
-    # Each robot names its own localization body the same; they stay distinct entities.
-    assert odom_bodies[0].name == odom_bodies[1].name
-    assert odom_bodies[0].id != odom_bodies[1].id
+    assert odom_bodies[0].name != odom_bodies[1].name
     for odom_body in odom_bodies:
         assert isinstance(odom_body.parent_connection, Connection6DoF)
         assert odom_body.parent_connection.parent is world.root
@@ -1839,89 +1836,3 @@ def test_annotation_specification_survives_orm_round_trip(empty_world):
     assert isinstance(drawer, Drawer)
     assert isinstance(drawer.handle, Handle)
     assert len(drawer.root.collision.shapes) > 0
-
-
-# %% specifications built in a namespace
-
-
-def _two_pr2_specification(namespace: Optional[str]) -> WorldSpecification:
-    return WorldSpecification(
-        namespace=namespace,
-        world_parser=None,
-        robots=[
-            RobotSpecification(
-                semantic_annotation_type=PR2,
-                world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.0),
-            ),
-            RobotSpecification(
-                semantic_annotation_type=PR2,
-                world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(x=-1.0),
-            ),
-        ],
-    )
-
-
-def test_a_specification_builds_its_world_in_the_given_namespace():
-    try:
-        world = _two_pr2_specification("coraplex").to_domain_object()
-    except ParsingError as error:
-        pytest.skip(f"PR2 URDF not available: {error}")
-
-    assert world.namespace == "coraplex"
-
-
-def test_spawning_the_same_robot_twice_gives_it_its_own_identifiers():
-    """
-    Both robots are parsed from one description, so without a namespace of its own each
-    spawn would repeat the identifiers of the one before it.
-    """
-    try:
-        world = _two_pr2_specification("coraplex").to_domain_object()
-    except ParsingError as error:
-        pytest.skip(f"PR2 URDF not available: {error}")
-
-    identifiers = [body.id for body in world.bodies]
-
-    assert len(set(identifiers)) == len(identifiers)
-
-
-def test_running_the_same_program_again_yields_the_same_identifiers():
-    """
-    Two specifications built the same way stand for the same program run twice.
-    """
-    try:
-        first = _two_pr2_specification("coraplex").to_domain_object()
-        second = _two_pr2_specification("coraplex").to_domain_object()
-    except ParsingError as error:
-        pytest.skip(f"PR2 URDF not available: {error}")
-
-    assert [body.id for body in first.bodies] == [body.id for body in second.bodies]
-
-
-def test_applying_one_specification_twice_yields_worlds_that_share_no_identifier():
-    """
-    Two worlds from one specification live side by side, so entities that are not the
-    same must not carry the same identifier.
-    """
-    specification = _two_pr2_specification("coraplex")
-    try:
-        first = specification.to_domain_object()
-        second = specification.to_domain_object()
-    except ParsingError as error:
-        pytest.skip(f"PR2 URDF not available: {error}")
-
-    assert {body.id for body in first.bodies}.isdisjoint(
-        body.id for body in second.bodies
-    )
-
-
-def test_a_specification_without_a_namespace_draws_random_identifiers():
-    try:
-        first = _two_pr2_specification(None).to_domain_object()
-        second = _two_pr2_specification(None).to_domain_object()
-    except ParsingError as error:
-        pytest.skip(f"PR2 URDF not available: {error}")
-
-    assert {body.id for body in first.bodies}.isdisjoint(
-        body.id for body in second.bodies
-    )

@@ -30,9 +30,6 @@ from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_se
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world import World
-from semantic_digital_twin.adapters.ros.world_synchronizer import (
-    WorldNamespace,
-)
 
 # %% ros session
 
@@ -112,11 +109,7 @@ class RobotDemonstrationRosSession:
 
         :param timeout_seconds: How long to wait for the service to answer.
         """
-        return fetch_world_from_service(
-            node=self.node,
-            timeout_seconds=timeout_seconds,
-            namespace=WorldNamespace.CORAPLEX,
-        )
+        return fetch_world_from_service(node=self.node, timeout_seconds=timeout_seconds)
 
     def stop(self) -> None:
         """

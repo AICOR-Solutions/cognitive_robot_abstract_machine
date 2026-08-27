@@ -37,7 +37,7 @@ class TestMotionGoalPayload:
 
     def test_a_goal_built_on_a_change_names_it(self):
         position = StreamPosition(
-            origin=MetaData(node_name="client", process_id=3, world_namespace="client"), sequence_number=11
+            origin=MetaData(node_name="client", process_id=3), sequence_number=11
         )
         goal = MotionGoal.for_motion_statechart(
             create_motion_statechart(), required_position=position

@@ -26,32 +26,16 @@ class WorldModelParser(ABC):
     Base for every parser that turns a world description format into a
     :class:`~semantic_digital_twin.world.World`.
 
-    Declares only the namespace, so each format keeps its own payload field (the
-    description text or the path it is read from) as its first constructor parameter.
+    Declares no fields, so each format keeps its own payload field (the description text
+    or the path it is read from) as its first constructor parameter.
 
     Every parse produces freshly created world entities, so a parser is the way to obtain
     a world that shares no identifiers with any previously parsed one.
     """
 
-    namespace: Optional[str] = field(default=None, kw_only=True)
-    """
-    The namespace of the world this parser builds.
-
-    Left out, the parsed world belongs to no process in particular and draws random
-    identifiers, which is all a world that is used on its own needs. A world that is
-    merged into a namespaced one has to be given a namespace of its own, because
-    :attr:`~semantic_digital_twin.world.World.namespace` is fixed when a world is built
-    and a namespaced world refuses content that is not namespaced too.
-    """
-
     @classmethod
     @abstractmethod
-    def from_file(
-        cls,
-        file_path: str,
-        prefix: Optional[str] = None,
-        namespace: Optional[str] = None,
-    ) -> Self:
+    def from_file(cls, file_path: str, prefix: Optional[str] = None) -> Self:
         """
         Create a parser for the world described by a file.
 
@@ -60,24 +44,8 @@ class WorldModelParser(ABC):
 
         :param file_path: The path of the file to parse.
         :param prefix: The prefix for every name used in the parsed world.
-        :param namespace: The namespace of the parsed world.
         :return: The parser for the described world.
         """
-
-    def namespace_for(self, part: str) -> Optional[str]:
-        """
-        The namespace of a world built as one part of the world being parsed.
-
-        A format that assembles its world by merging parts needs each part to carry a
-        namespace of its own, distinct from the one they are merged into. A parser
-        without a namespace builds its parts without one too.
-
-        :param part: What the part holds, such as the name of a model instance.
-        :return: The namespace for that part, or ``None`` outside a namespace.
-        """
-        if self.namespace is None:
-            return None
-        return f"{self.namespace}/{part}"
 
     @abstractmethod
     def parse(self) -> World:

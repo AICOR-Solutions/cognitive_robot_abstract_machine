@@ -484,7 +484,6 @@ class USDParser(WorldModelParser):
         file_path: str,
         prefix: Optional[str] = None,
         path_resolver: Optional[PathResolver] = None,
-        namespace: Optional[str] = None,
     ) -> USDParser:
         """
         Creates a parser for a USD stage file.
@@ -492,14 +491,11 @@ class USDParser(WorldModelParser):
         :param file_path: The path of the stage file to parse.
         :param prefix: The prefix for every name used in this world.
         :param path_resolver: The resolver for the asset references of the stage.
-        :param namespace: The namespace of the parsed world.
         :return: A parser for the described world.
         """
         path_resolver = path_resolver or CompositePathResolver()
         resolved_path = path_resolver.resolve(file_path)
-        parser = cls(
-            stage=Usd.Stage.Open(resolved_path), prefix=prefix, namespace=namespace
-        )
+        parser = cls(stage=Usd.Stage.Open(resolved_path), prefix=prefix)
         parser.path_resolver = path_resolver
         return parser
 
@@ -548,9 +544,7 @@ class USDParser(WorldModelParser):
         """
         root_prim = self._root_prim()
         root_body_name = root_prim.GetName() if root_prim is not None else self.prefix
-        world = World.create_with_root_body(
-            root_body_name, self.prefix, namespace=self.namespace
-        )
+        world = World.create_with_root_body(root_body_name, self.prefix)
         root_body = world.root
 
         # Every joint is described (and so validated) before the world is touched

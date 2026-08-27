@@ -6,7 +6,6 @@ import inspect
 import logging
 import threading
 import uuid
-from random import Random
 from contextlib import contextmanager
 from copy import deepcopy, copy
 from dataclasses import dataclass, field
@@ -51,10 +50,6 @@ from semantic_digital_twin.exceptions import (
     AlreadyBelongsToAWorldError,
     MissingWorldModificationContextError,
     WorldEntityWithIDNotFoundError,
-    WorldNamespaceIsImmutableError,
-    WorldsShareANamespaceError,
-    WorldsShareEntityIdentifiersError,
-    WorldWithoutNamespaceCannotBeMergedError,
     MissingReferenceFrameError,
     MismatchingPublishChangesAttribute,
     AtomicWorldModificationNotAtomic,
@@ -93,7 +88,6 @@ from semantic_digital_twin.world_description.visitors import (
 from semantic_digital_twin.world_description.world_entity import (
     Connection,
     SemanticAnnotation,
-    WorldEntityWithClassBasedID,
     WorldEntityWithID,
     KinematicStructureEntity,
     Region,
@@ -572,23 +566,12 @@ class World(HasSimulatorProperties):
     The ``publish_changes`` the currently open batch was entered with.
     """
 
-    namespace: Optional[str] = field(default=None, kw_only=True)
+    name: Optional[str] = None
     """
-    Name of the process this world belongs to, such as ``giskard`` or ``coraplex``.
+    Name of the world.
 
-    Entity identifiers are derived from it, which is what keeps the identifiers of two
-    worlds apart. Unlike :attr:`name`, which names the model the world holds, this names
-    its owner. ``None`` means the world belongs to no process in particular and hands
-    out random identifiers, which is all a world kept to itself needs.
-
-    Decided when the world is built and frozen afterwards, so that a world's namespace
-    is always the one it was constructed with. A world that has to be in one is built in
-    it and parsed content is merged in, the way :class:`WorldConfig` does.
-    """
-
-    _entity_id_source: Random = field(init=False, repr=False)
-    """
-    Hands out the identifiers of entities that join this world without one.
+    May act as default namespace for all bodies and semantic annotations in the world
+    which do not have a prefix.
     """
 
     collision_manager: CollisionManager = field(init=False)
@@ -658,41 +641,19 @@ class World(HasSimulatorProperties):
             ),
         )
         self.collision_manager.add_to_world(self)
-        self._entity_id_source = Random(self.namespace)
-
-    def __setattr__(self, attribute: str, value: Any) -> None:
-        # The constructor writes the namespace once, and that write is what puts it in
-        # the instance dictionary; the field's default lives on the class until then.
-        # Every assignment after it is therefore a move between namespaces.
-        if attribute == "namespace" and "namespace" in self.__dict__:
-            raise WorldNamespaceIsImmutableError(self.namespace, value)
-        super().__setattr__(attribute, value)
-
-    def generate_entity_id(self) -> UUID:
-        """
-        Hand out the identifier for an entity joining this world without one.
-
-        Within a namespace the identifiers repeat for the same sequence of entities, so
-        a program that builds its world the same way twice gets the same identifiers.
-        """
-        return UUID(int=self._entity_id_source.getrandbits(128), version=4)
 
     @classmethod
     def create_with_root_body(
-        cls,
-        root_body_name: str = "map",
-        prefix: Optional[str] = None,
-        namespace: Optional[str] = None,
+        cls, root_body_name: str = "map", prefix: Optional[str] = None
     ) -> World:
         """
         Creates a new instance of the World class with a root body.
 
         :param root_body_name: The root body's name.
         :param prefix: Optional namespace prefix for the root body's name.
-        :param namespace: The namespace the world belongs to.
         """
         root_body = Body(name=PrefixedName(root_body_name, prefix))
-        world = World(namespace=namespace)
+        world = World()
         with world.modify_world():
             world.add_body(root_body)
         return world
@@ -976,7 +937,6 @@ class World(HasSimulatorProperties):
         :param kinematic_structure_entity: The kinematic_structure_entity to add.
         """
         self._raise_error_if_belongs_to_other_world(kinematic_structure_entity)
-        kinematic_structure_entity.ensure_identifier(self)
         if not self.is_kinematic_structure_entity_in_world(kinematic_structure_entity):
             self._add_kinematic_structure_entity(kinematic_structure_entity)
 
@@ -1005,7 +965,6 @@ class World(HasSimulatorProperties):
         :param dof: The degree of freedom to register.
         """
         self._raise_error_if_belongs_to_other_world(dof)
-        dof.ensure_identifier(self)
         if not self.is_degree_of_freedom_in_world(dof):
             self._add_degree_of_freedom(dof)
 
@@ -1035,7 +994,6 @@ class World(HasSimulatorProperties):
             name must be unique within the current context.
         """
         self._raise_error_if_belongs_to_other_world(semantic_annotation)
-        semantic_annotation.ensure_identifier(self)
         if self.is_semantic_annotation_in_world(semantic_annotation):
             return
         self._add_semantic_annotation(semantic_annotation)
@@ -1053,7 +1011,6 @@ class World(HasSimulatorProperties):
             name must be unique within the current context.
         """
         self._raise_error_if_belongs_to_other_world(semantic_annotation)
-        semantic_annotation.ensure_identifier(self)
         if self.is_semantic_annotation_in_world(semantic_annotation):
             return
         introspector = DataclassOnlyIntrospector()
@@ -1112,7 +1069,6 @@ class World(HasSimulatorProperties):
             raise AlreadyBelongsToAWorldError(
                 world=actuator._world, type_trying_to_add=Actuator
             )
-        actuator.ensure_identifier(self)
         self._add_actuator(actuator)
 
     @atomic_world_modification(modification=AddActuatorModification)
@@ -1185,8 +1141,8 @@ class World(HasSimulatorProperties):
         """
         Removes a kinematic_structure_entity from the world.
 
-        Removing a kinematic_structure_entity this world does not own does nothing and
-        is not recorded, so a history can never open with the removal of a
+        Removing a kinematic_structure_entity this world does not own does nothing
+        and is not recorded, so a history can never open with the removal of a
         kinematic_structure_entity nothing added.
 
         :param kinematic_structure_entity: The kinematic_structure_entity to remove.
@@ -1214,9 +1170,9 @@ class World(HasSimulatorProperties):
         """
         Removes a degree of freedom from the world.
 
-        Removing a degree of freedom this world does not own does nothing and is not
-        recorded, so a history can never open with the removal of a degree of freedom
-        nothing added.
+        Removing a degree of freedom this world does not own does nothing and is
+        not recorded, so a history can never open with the removal of a degree of
+        freedom nothing added.
 
         :param dof: The degree of freedom to remove.
         """
@@ -1238,9 +1194,9 @@ class World(HasSimulatorProperties):
         Removes a semantic annotation from the current list of semantic annotations if
         it exists.
 
-        Removing a semantic annotation this world does not own does nothing and is not
-        recorded, so a history can never open with the removal of a semantic annotation
-        nothing added.
+        Removing a semantic annotation this world does not own does nothing and is
+        not recorded, so a history can never open with the removal of a semantic
+        annotation nothing added.
 
         :param semantic_annotation: The semantic annotation instance to be removed.
         """
@@ -1261,8 +1217,9 @@ class World(HasSimulatorProperties):
         """
         Removes an actuator from the current list of actuators if it exists.
 
-        Removing an actuator this world does not own does nothing and is not recorded,
-        so a history can never open with the removal of an actuator nothing added.
+        Removing an actuator this world does not own does nothing and is not
+        recorded, so a history can never open with the removal of an actuator
+        nothing added.
 
         :param actuator: The actuator instance to be removed.
         """
@@ -1647,32 +1604,37 @@ class World(HasSimulatorProperties):
         )
 
     def is_body_in_world(self, body: Body) -> bool:
-        return self._contains_entity(body)
+        return self._is_world_entity_with_hash_in_world_from_iterable(hash(body))
 
     def is_kinematic_structure_entity_in_world(
         self, kinematic_structure_entity: KinematicStructureEntity
     ) -> bool:
-        return self._contains_entity(kinematic_structure_entity)
+        return self._is_world_entity_with_hash_in_world_from_iterable(
+            hash(kinematic_structure_entity)
+        )
 
     def is_connection_in_world(self, connection: Connection) -> bool:
-        return self._contains_entity(connection)
+        return self._is_world_entity_with_hash_in_world_from_iterable(hash(connection))
 
     def is_degree_of_freedom_in_world(self, degree_of_freedom: DegreeOfFreedom) -> bool:
-        return self._contains_entity(degree_of_freedom)
+        return self._is_world_entity_with_hash_in_world_from_iterable(
+            hash(degree_of_freedom)
+        )
 
     def is_actuator_in_world(self, actuator: Actuator) -> bool:
-        return self._contains_entity(actuator)
+        return self._is_world_entity_with_hash_in_world_from_iterable(hash(actuator))
 
-    def _contains_entity(self, entity: WorldEntity) -> bool:
+    def _is_world_entity_with_hash_in_world_from_iterable(
+        self, entity_hash: int
+    ) -> bool:
         """
-        Check whether this world already holds an entity.
+        Check if a world entity with a given hash exists in the world based on a given
+        iterable.
 
-        :param entity: The entity to look for.
-        :return: True if the entity is part of this world, False otherwise.
+        :param entity_hash: The hash of the entity to retrieve.
+        :return: True if the entity exists, False otherwise.
         """
-        if not entity.has_identity:
-            return False
-        return hash(entity) in self._world_entity_hash_table
+        return entity_hash in self._world_entity_hash_table
 
     # %% World Merging
     def merge_world_at_pose(
@@ -1714,16 +1676,6 @@ class World(HasSimulatorProperties):
         :return: None
         """
         assert other is not self, "Cannot merge a world with itself."
-        # A world holding nothing has no identifiers of its own to keep apart, and what
-        # it ends up with is entirely the other world's, the namespaces are not important
-        if self.namespace is not None and not self.is_empty():
-            # A namespaced world stays reproducible only if everything merged into it
-            # was handed out by a namespace of its own, and a different one.
-            if other.namespace is None:
-                raise WorldWithoutNamespaceCannotBeMergedError(self.namespace)
-            if other.namespace == self.namespace:
-                raise WorldsShareANamespaceError(self.namespace)
-        self._raise_error_if_entity_identifiers_are_shared_with(other)
 
         with self.modify_world(), other.modify_world():
             self_root = self.root
@@ -1749,31 +1701,6 @@ class World(HasSimulatorProperties):
                 self.add_connection(root_connection)
 
             other.clear()
-
-    def _raise_error_if_entity_identifiers_are_shared_with(self, other: World) -> None:
-        """
-        Refuse to take in a world holding entities this one already has identifiers for.
-
-        Namespaces are what normally keep two worlds apart, but identifiers can be given
-        from outside as well, so the identifiers themselves are what is checked here.
-        Merging past a clash would quietly drop the entities that appear to be already
-        present.
-
-        :param other: The world about to be merged into this one.
-        """
-        shared = [
-            self._world_entity_hash_table[entity_hash].id
-            for entity_hash in set(self._world_entity_hash_table)
-            & set(other._world_entity_hash_table)
-            # Every world runs the same managers, and an identifier derived from a class
-            # is meant to be the same wherever that class is used.
-            if not isinstance(
-                self._world_entity_hash_table[entity_hash], WorldEntityWithClassBasedID
-            )
-        ]
-        if not shared:
-            return
-        raise WorldsShareEntityIdentifiersError(shared)
 
     def is_kinematic_structure_entity_in_world_by_name(self, name: str) -> bool:
         """
@@ -1958,7 +1885,7 @@ class World(HasSimulatorProperties):
         :param new_root: The root body of the subgraph to be copied.
         :return: A new `World` instance containing the copied subgraph.
         """
-        new_world = World(namespace=self.namespace)
+        new_world = World(name=self.name)
         child_bodies = self.compute_descendent_child_kinematic_structure_entities(
             new_root
         )
@@ -2568,7 +2495,7 @@ class World(HasSimulatorProperties):
         if me_id in memo:
             return memo[me_id]
 
-        new_world = World(namespace=self.namespace)
+        new_world = World(name=self.name)
         memo[me_id] = new_world
 
         with new_world.modify_world():

@@ -1,4 +1,3 @@
-from uuid import uuid4
 import os
 from copy import deepcopy
 
@@ -41,19 +40,9 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 
 
-def detached_body(name: str) -> Body:
-    """
-    A body standing for one that lives in another world, carrying its own identity.
-
-    Only a world hands out identifiers, so a body that never joins one is given the
-    identifier it is meant to be known by, the way a deserialized body carries its own.
-    """
-    return Body(name=PrefixedName(name), id=uuid4())
-
-
 def test_body_json_serialization():
     world = World()
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     collision = [
         Box(origin=HomogeneousTransformationMatrix.from_xyz_rpy(0, 1, 0, 0, 0, 1, body))
     ]
@@ -93,7 +82,7 @@ def test_body_json_serialization():
 
 
 def test_dof_hardware_interface_serialization():
-    dof = DegreeOfFreedom(has_hardware_interface=True, id=uuid4())
+    dof = DegreeOfFreedom(has_hardware_interface=True)
     rebuilt_dof = from_json(to_json(dof))
 
     assert dof.has_hardware_interface == rebuilt_dof.has_hardware_interface
@@ -101,8 +90,8 @@ def test_dof_hardware_interface_serialization():
 
 
 def test_transformation_matrix_json_serialization():
-    body = detached_body("body")
-    body2 = detached_body("body2")
+    body = Body(name=PrefixedName("body"))
+    body2 = Body(name=PrefixedName("body2"))
     transform = HomogeneousTransformationMatrix.from_xyz_rpy(
         x=1, y=2, z=3, roll=1, pitch=2, yaw=3, reference_frame=body, child_frame=body2
     )
@@ -118,7 +107,7 @@ def test_transformation_matrix_json_serialization():
 
 
 def test_point3_json_serialization():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     point = Point3(1, 2, 3, reference_frame=body)
     json_data = point.to_json()
     kwargs = {}
@@ -131,14 +120,14 @@ def test_point3_json_serialization():
 
 
 def test_point3_json_serialization_with_expression():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     point = Point3(f := FloatVariable(name="muh"), reference_frame=body)
     with pytest.raises(SpatialTypeNotJsonSerializable):
         point.to_json()
 
 
 def test_KinematicStructureEntityNotInKwargs():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     point = Point3(1, 2, 3, reference_frame=body)
     json_data = point.to_json()
     kwargs = {}
@@ -147,7 +136,7 @@ def test_KinematicStructureEntityNotInKwargs():
 
 
 def test_KinematicStructureEntityNotInKwargs2():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     point = Point3(1, 2, 3, reference_frame=body)
     json_data = point.to_json()
     tracker = WorldEntityWithIDKwargsTracker.from_world(World())
@@ -156,21 +145,21 @@ def test_KinematicStructureEntityNotInKwargs2():
 
 
 def test_vector3_json_serialization_with_expression():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     vector = Vector3(f := FloatVariable(name="muh"), reference_frame=body)
     with pytest.raises(SpatialTypeNotJsonSerializable):
         vector.to_json()
 
 
 def test_quaternion_json_serialization_with_expression():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     quaternion = Quaternion(f := FloatVariable(name="muh"), reference_frame=body)
     with pytest.raises(SpatialTypeNotJsonSerializable):
         quaternion.to_json()
 
 
 def test_rotation_matrix_json_serialization_with_expression():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     f = FloatVariable(name="muh")
     rotation = RotationMatrix.from_rpy(roll=f, reference_frame=body)
     with pytest.raises(SpatialTypeNotJsonSerializable):
@@ -178,7 +167,7 @@ def test_rotation_matrix_json_serialization_with_expression():
 
 
 def test_transformation_matrix_json_serialization_with_expression():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     transform = HomogeneousTransformationMatrix.from_xyz_rpy(
         f := FloatVariable(name="muh"), reference_frame=body
     )
@@ -187,7 +176,7 @@ def test_transformation_matrix_json_serialization_with_expression():
 
 
 def test_vector3_json_serialization():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     vector = Vector3(1, 2, 3, reference_frame=body)
     json_data = vector.to_json()
     kwargs = {}
@@ -200,7 +189,7 @@ def test_vector3_json_serialization():
 
 
 def test_quaternion_json_serialization():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     quaternion = Quaternion(1, 0, 0, 0, reference_frame=body)
     json_data = quaternion.to_json()
     kwargs = {}
@@ -213,7 +202,7 @@ def test_quaternion_json_serialization():
 
 
 def test_rotation_matrix_json_serialization():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     rotation = RotationMatrix.from_rpy(roll=1, pitch=2, yaw=3, reference_frame=body)
     json_data = rotation.to_json()
     kwargs = {}
@@ -226,7 +215,7 @@ def test_rotation_matrix_json_serialization():
 
 
 def test_pose_json_serialization():
-    body = detached_body("body")
+    body = Body(name=PrefixedName("body"))
     pose = Pose.from_xyz_rpy(
         x=4, y=5, z=7, roll=1, pitch=2, yaw=3, reference_frame=body
     )
@@ -242,8 +231,8 @@ def test_pose_json_serialization():
 
 def test_connection_json_serialization_with_world():
     world = World()
-    body = detached_body("body")
-    body2 = detached_body("body2")
+    body = Body(name=PrefixedName("body"))
+    body2 = Body(name=PrefixedName("body2"))
     with world.modify_world():
         world.add_kinematic_structure_entity(body)
         world.add_kinematic_structure_entity(body2)
@@ -278,8 +267,8 @@ def test_connection_json_serialization_with_world():
 
 def test_screw_connection_json_serialization_with_world():
     world = World()
-    body = detached_body("body")
-    body2 = detached_body("body2")
+    body = Body(name=PrefixedName("body"))
+    body2 = Body(name=PrefixedName("body2"))
     screw_pitch = 0.005
     with world.modify_world():
         world.add_kinematic_structure_entity(body)
@@ -312,8 +301,8 @@ def test_screw_connection_json_serialization_with_world():
 
 def test_transformation_matrix_json_serialization_with_world_in_kwargs():
     world = World()
-    body = detached_body("body")
-    body2 = detached_body("body2")
+    body = Body(name=PrefixedName("body"))
+    body2 = Body(name=PrefixedName("body2"))
     with world.modify_world():
         world.add_kinematic_structure_entity(body)
         world.add_kinematic_structure_entity(body2)

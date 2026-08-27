@@ -1,4 +1,3 @@
-from uuid import uuid4
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -765,25 +764,10 @@ class GeometryInspectionCounter:
 def create_body_with_collision(name: str) -> Body:
     """
     A body whose collision geometry is big enough to be checked.
-
-    Collision checks order and hash their bodies by identifier, which a world normally
-    hands out, so a body used on its own is given one.
     """
     return Body(
-        name=PrefixedName(name),
-        collision=ShapeCollection([Sphere(radius=0.1)]),
-        id=uuid4(),
+        name=PrefixedName(name), collision=ShapeCollection([Sphere(radius=0.1)])
     )
-
-
-def create_body_without_collision(name: str) -> Body:
-    """
-    A body that carries no collision geometry.
-
-    It is given an identifier for the same reason as
-    :func:`create_body_with_collision`.
-    """
-    return Body(name=PrefixedName(name), id=uuid4())
 
 
 class TestCollisionCheckConstruction:
@@ -819,7 +803,7 @@ class TestCollisionCheckConstruction:
     def test_a_body_without_geometry_is_rejected_when_validated(self):
         with pytest.raises(BodyHasNoGeometryError):
             CollisionCheck.create_and_validate(
-                create_body_with_collision("a"), create_body_without_collision("empty")
+                create_body_with_collision("a"), Body(name=PrefixedName("empty"))
             )
 
     def test_geometry_is_not_inspected_for_bodies_that_were_already_filtered(self):
@@ -828,7 +812,7 @@ class TestCollisionCheckConstruction:
         geometry again would only repeat an answer that is already known.
         """
         body_with_collision = create_body_with_collision("a")
-        body_without_collision = create_body_without_collision("empty")
+        body_without_collision = Body(name=PrefixedName("empty"))
 
         check = CollisionCheck.create_for_bodies_with_collision(
             body_with_collision, body_without_collision

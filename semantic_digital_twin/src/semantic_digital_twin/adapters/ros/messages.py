@@ -26,14 +26,6 @@ class MetaData(SubclassJSONSerializer):
     process_id: int
     """The id of the process that published this message."""
 
-    world_namespace: str
-    """
-    The namespace of the origin world.
-
-    Two worlds sharing it hand out the same entity identifiers, so a message arriving
-    with the namespace of the world receiving it means the namespaces were misconfigured.
-    """
-
     world_id: UUID = field(default_factory=uuid.uuid4)
     """The id of the origin world. This is used to identify messages that were published by the same publisher."""
 
@@ -44,7 +36,6 @@ class MetaData(SubclassJSONSerializer):
             "node_name": self.node_name,
             "process_id": self.process_id,
             "world_id": to_json(self.world_id),
-            "world_namespace": self.world_namespace,
         }
 
     @classmethod
@@ -53,7 +44,6 @@ class MetaData(SubclassJSONSerializer):
             node_name=data["node_name"],
             process_id=data["process_id"],
             world_id=from_json(data["world_id"]),
-            world_namespace=data["world_namespace"],
         )
 
     def __hash__(self):

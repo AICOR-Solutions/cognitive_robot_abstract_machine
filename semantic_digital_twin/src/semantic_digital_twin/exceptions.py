@@ -426,9 +426,8 @@ class MismatchingWorld(UsageError):
 
     def error_message(self) -> str:
         return (
-            f"The two entities have mismatching worlds: expected the world in namespace "
-            f"'{self.expected_world.namespace}', given the one in '{self.given_world.namespace}'. "
-            f"Entities can only reference each other when they belong to "
+            f"The two entities have mismatching worlds: expected world '{self.expected_world.name}', "
+            f"given world '{self.given_world.name}'. Entities can only reference each other when they belong to "
             f"the same world."
         )
 
@@ -1115,239 +1114,6 @@ class WorldEntityNotFoundError(UsageError):
 
 
 @dataclass
-class EntityIdNotAssignedError(UsageError):
-    """
-    Raised when a world entity is hashed or compared before it has an identifier.
-
-    A world assigns the identifier when the entity is added to it, so an entity that has
-    not joined a world yet has no identity to compare against.
-    """
-
-    entity: WorldEntity
-    """
-    The entity that is still without an identifier.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"The {type(self.entity).__name__} '{self.entity.name}' has no identifier "
-            f"yet, so it cannot be hashed or compared."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "add the entity to a world first, or construct it with an explicit id if it "
-            "has to carry one from elsewhere."
-        )
-
-
-@dataclass
-class WorldNamespaceIsImmutableError(UsageError):
-    """
-    Raised when the namespace of an already constructed world is assigned.
-
-    A world's namespace is decided when it is built, because the identifiers it hands
-    out come from the namespace it had at the time.
-    """
-
-    current_namespace: Optional[str]
-    """
-    The namespace the world was built with, if it was built with one.
-    """
-
-    rejected_namespace: Optional[str]
-    """
-    The namespace that was assigned to the already constructed world.
-    """
-
-    def error_message(self) -> str:
-        built = (
-            "without a namespace"
-            if self.current_namespace is None
-            else f"in namespace '{self.current_namespace}'"
-        )
-        rejected = (
-            "taken out of it"
-            if self.rejected_namespace is None
-            else f"moved to '{self.rejected_namespace}'"
-        )
-        return f"The world was built {built} and cannot be {rejected} afterwards."
-
-    def suggest_correction(self) -> str:
-        if self.rejected_namespace is None:
-            return "build a world without a namespace and merge this world's content into it."
-        return (
-            f"build the world in it, World(namespace='{self.rejected_namespace}'), and "
-            f"merge existing content into that world."
-        )
-
-
-@dataclass
-class WorldWithoutNamespaceCannotSynchronizeError(UsageError):
-    """
-    Raised when a world that was not placed in a namespace is synchronized.
-
-    Worlds sharing a namespace hand out the same entity identifiers, so every world
-    taking part in a synchronization has to say which process it belongs to.
-    """
-
-    world: World
-    """
-    The world that was about to be synchronized.
-    """
-
-    def error_message(self) -> str:
-        return (
-            "Only a world that was placed in a namespace can be synchronized, because "
-            "the entity identifiers of two worlds must not collide."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "construct the world with the namespace of the process it belongs to, for "
-            "example World(namespace=WorldNamespace.GISKARD)."
-        )
-
-
-@dataclass
-class WorldWithoutNamespaceCannotBeMergedError(UsageError):
-    """
-    Raised when a world without a namespace is merged into one that has a namespace.
-
-    A namespaced world hands out reproducible identifiers, so content arriving with the
-    random ones of an unnamespaced world would leave it reproducible only in part.
-    """
-
-    namespace: str
-    """
-    The namespace of the world being merged into.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"A world without a namespace cannot be merged into one in namespace "
-            f"'{self.namespace}', because its entities carry random identifiers while "
-            f"that world's are reproducible."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            f"build the world that is merged in with a namespace of its own, for "
-            f"example World(namespace='{self.namespace}/<what it holds>')."
-        )
-
-
-@dataclass
-class WorldWithoutNamespaceCannotBeMergedError(UsageError):
-    """
-    Raised when a world without a namespace is merged into one that has one.
-
-    A namespaced world hands out reproducible identifiers, and content brought in from a
-    world without a namespace carries random ones, which would leave the result
-    reproducible only in part.
-    """
-
-    namespace: str
-    """
-    The namespace of the world being merged into.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"The world being merged in has no namespace, while the world it is merged "
-            f"into is in '{self.namespace}', so only part of the result would have "
-            f"reproducible identifiers."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            f"build the world that is merged in with a namespace of its own, for "
-            f"example World(namespace='{self.namespace}/<what it holds>')."
-        )
-
-
-@dataclass
-class WorldsShareEntityIdentifiersError(UsageError):
-    """
-    Raised when two worlds holding entities with the same identifiers are merged.
-
-    Merging them would let entities that are not the same be taken for one another, and
-    the world would silently end up holding fewer entities than were put into it.
-    """
-
-    shared_identifiers: List[UUID]
-    """
-    The identifiers both worlds hand out.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Both worlds hold entities carrying {len(self.shared_identifiers)} of the "
-            f"same identifiers, for example {self.shared_identifiers[0]}, so merging "
-            f"them would merge entities that are not the same."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "build the two worlds in namespaces that differ, so that they hand out "
-            "identifiers of their own."
-        )
-
-
-@dataclass
-class WorldsShareANamespaceError(UsageError):
-    """
-    Raised when two worlds carrying the same namespace are merged.
-
-    A namespace hands out the same sequence of identifiers to every world that carries
-    it, so two of them hold entities that cannot be told apart once they sit in one
-    world.
-    """
-
-    namespace: str
-    """
-    The namespace both worlds carry.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Both worlds are in namespace '{self.namespace}' and therefore handed out "
-            f"the same entity identifiers, so merging them would merge entities that "
-            f"are not the same."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "build the world that is merged in without a namespace, which gives it "
-            "random identifiers, and keep the namespace on the world it is merged into."
-        )
-
-
-@dataclass
-class ConflictingWorldNamespaceError(UsageError):
-    """
-    Raised when a synchronized message arrives from a world sharing our namespace.
-
-    Two processes that both answer to one namespace hand out the same entity
-    identifiers, so their models cannot be told apart once they are merged.
-    """
-
-    namespace: str
-    """
-    The namespace both worlds were given.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Another process is synchronizing a world that is also in namespace "
-            f"'{self.namespace}', so both hand out the same entity identifiers."
-        )
-
-    def suggest_correction(self) -> str:
-        return "give each of the two processes a namespace of its own."
-
-
-@dataclass
 class MissingDefaultCameraError(UsageError):
     """
     Raised when trying to access the default camera of a robot that does not have a
@@ -1403,7 +1169,7 @@ class AlreadyBelongsToAWorldError(UsageError):
     def error_message(self) -> str:
         return (
             f"Cannot add this {self.type_trying_to_add.__name__} because it already belongs to the world "
-            f"in namespace '{self.world.namespace}'. A world entity can belong to at most one world."
+            f"'{self.world.name}'. A world entity can belong to at most one world."
         )
 
     def suggest_correction(self) -> str:
@@ -1564,7 +1330,7 @@ class AtomicWorldModificationNotAtomic(DataclassException):
 
     def error_message(self) -> str:
         return (
-            f"The world in namespace '{self.world.namespace}' is already being modified atomically by "
+            f"World '{self.world.name}' is already being modified atomically by "
             f"'{self.world._current_active_atomic_world_modification.__name__}' while "
             f"'{self.modification.__name__}' attempted another atomic world modification. "
             f"Atomic world modifications must never trigger each other."

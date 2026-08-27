@@ -24,7 +24,6 @@ from rclpy.action.client import ClientGoalHandle
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
-from semantic_digital_twin.adapters.ros.world_synchronizer import WorldNamespace
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -64,11 +63,7 @@ class GiskardWrapper:
             self.node_handle.get_logger().info(
                 "No world provided, fetching from service"
             )
-            self.world = fetch_world_from_service(
-                self.node_handle,
-                timeout_seconds=300,
-                namespace=WorldNamespace.GISKARD_CLIENT,
-            )
+            self.world = fetch_world_from_service(self.node_handle, timeout_seconds=300)
             self.node_handle.get_logger().info("world synced")
             WorldSynchronizer(_world=self.world, node=self.node_handle)
         self.world_updates = ClientWorldUpdates(

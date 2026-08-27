@@ -143,10 +143,9 @@ class URDFParser(WorldModelParser):
         file_path: str,
         prefix: Optional[str] = None,
         path_resolver: Optional[PathResolver] = None,
-        namespace: Optional[str] = None,
     ) -> URDFParser:
         if file_path.endswith(".xacro"):
-            return cls.from_xacro(file_path, prefix, namespace=namespace)
+            return cls.from_xacro(file_path, prefix)
 
         path_resolver = path_resolver or CompositePathResolver()
 
@@ -156,7 +155,7 @@ class URDFParser(WorldModelParser):
                 # Since parsing URDF causes a lot of warning messages which can't be deactivated, we suppress them
                 with suppress_stdout_stderr():
                     urdf = file.read()
-        urdf_parser = cls(urdf=urdf, prefix=prefix, namespace=namespace)
+        urdf_parser = cls(urdf=urdf, prefix=prefix)
         urdf_parser.path_resolver = path_resolver
         return urdf_parser
 
@@ -166,7 +165,6 @@ class URDFParser(WorldModelParser):
         xacro_path: str,
         prefix: Optional[str] = None,
         mappings: Optional[Dict[str, str]] = None,
-        namespace: Optional[str] = None,
     ) -> URDFParser:
         """
         Creates a parser from a xacro file by expanding it to URDF.
@@ -178,12 +176,11 @@ class URDFParser(WorldModelParser):
         :param prefix: The prefix for every name used in this world.
         :param mappings: The xacro substitution arguments to apply during expansion (the
             ``arg`` values, e.g. ``{"ur_type": "ur5"}``).
-        :param namespace: The namespace of the parsed world.
         :return: A parser for the world described by the expanded xacro file.
         """
         xacro_path = CompositePathResolver().resolve(xacro_path)
         urdf = process_file(xacro_path, mappings=mappings).toxml()
-        return URDFParser(urdf=urdf, prefix=prefix, namespace=namespace)
+        return URDFParser(urdf=urdf, prefix=prefix)
 
     def parse(self) -> World:
         prefix = self.parsed.name
@@ -192,7 +189,8 @@ class URDFParser(WorldModelParser):
             for link in self.parsed.links
         ]
         root = [link for link in links if link.name.name == self.parsed.get_root()][0]
-        world = World(namespace=self.namespace)
+        world = World()
+        world.name = self.prefix
         with world.modify_world():
             world.add_kinematic_structure_entity(root)
             main_joints = []

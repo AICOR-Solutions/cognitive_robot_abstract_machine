@@ -4,7 +4,6 @@ import json
 import os
 import threading
 from abc import ABC, abstractmethod
-from enum import StrEnum
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import ClassVar, Optional, Type, List, Dict
@@ -43,45 +42,11 @@ from semantic_digital_twin.exceptions import (
     StateUpdateContainsUnknownDegreesOfFreedomError,
     WorldHasMultipleSynchronizersError,
     WorldHasNoSynchronizerError,
-    WorldWithoutNamespaceCannotSynchronizeError,
-    ConflictingWorldNamespaceError,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityWithClassBasedID,
 )
-
-
-class WorldNamespace(StrEnum):
-    """
-    The processes that run a world of their own.
-
-    A namespace separates the entity identifiers a world hands out from those of every
-    other world, so that two processes exchanging model changes never mean two different
-    entities by one identifier. Any string does; the members are the ones we run
-    ourselves.
-    """
-
-    CORAPLEX = "coraplex"
-    """
-    The process running a plan against a world.
-    """
-
-    GISKARD = "giskard"
-    """
-    The process controlling the robot in a world.
-    """
-
-    GISKARD_CLIENT = "giskard_client"
-    """
-    A process driving the robot through the giskard client, which keeps a world of its
-    own alongside the one giskard controls.
-    """
-
-    ROBOKUDO = "robokudo"
-    """
-    The process controlling the perception framework in a world
-    """
 
 
 class PublicationProgress(ABC):
@@ -171,8 +136,6 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     """
 
     def __post_init__(self):
-        if self._world.namespace is None:
-            raise WorldWithoutNamespaceCannotSynchronizeError(self._world)
         self.subscriber = self.node.create_subscription(
             std_msgs.msg.String,
             topic=self.topic_name,
@@ -193,7 +156,6 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
             world_id=self._world._id,
             node_name=self.node.get_name(),
             process_id=os.getpid(),
-            world_namespace=self._world.namespace,
         )
 
     def subscription_callback(self, message: std_msgs.msg.String):
@@ -213,8 +175,6 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
 
             if deserialized_message.meta_data == self.meta_data:
                 return
-            if deserialized_message.meta_data.world_namespace == self._world.namespace:
-                raise ConflictingWorldNamespaceError(self._world.namespace)
 
             self._subscription_callback(deserialized_message)
 

@@ -61,6 +61,7 @@ def remove_root_and_move_children_into_new_worlds(world: World) -> List[World]:
         for world in worlds:
             if world.root is None:
                 ...
+            world.name = world.root.name.name
 
     return worlds
 

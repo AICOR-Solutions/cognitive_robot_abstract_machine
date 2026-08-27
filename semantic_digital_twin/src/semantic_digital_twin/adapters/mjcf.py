@@ -97,7 +97,6 @@ class MJCFParser(WorldModelParser):
         file_path: str,
         prefix: Optional[str] = None,
         mimic_joints: Optional[Dict[str, str]] = None,
-        namespace: Optional[str] = None,
     ) -> Self:
         """
         Creates a parser for a scene file.
@@ -106,15 +105,9 @@ class MJCFParser(WorldModelParser):
         :param prefix: The prefix for every name used in this world.
         :param mimic_joints: A mapping of joint names to the names of the joints they
             mimic.
-        :param namespace: The namespace of the parsed world.
         :return: A parser for the world described by that file.
         """
-        return cls(
-            file_path=file_path,
-            mimic_joints=mimic_joints or {},
-            prefix=prefix,
-            namespace=namespace,
-        )
+        return cls(file_path=file_path, mimic_joints=mimic_joints or {}, prefix=prefix)
 
     @classmethod
     def from_xml_string(cls, xml_string: str) -> Self:
@@ -132,7 +125,7 @@ class MJCFParser(WorldModelParser):
 
         :return: The World object representing the MJCF scene.
         """
-        self.world = World(namespace=self.namespace)
+        self.world = World()
         worldbody: mujoco.MjsBody = self.spec.worldbody
         with self.world.modify_world():
             self.parse_equalities()

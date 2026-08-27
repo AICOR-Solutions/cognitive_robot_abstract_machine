@@ -48,7 +48,7 @@ class ProcTHORTestCase(unittest.TestCase):
         with open(cls.file_path) as f:
             cls.house_json = json.load(f)
 
-        cls.world = World()
+        cls.world = World(name="TestWorld")
         world_root = Body(name=PrefixedName("TestWorldRoot"))
         with cls.world.modify_world():
             cls.world.add_kinematic_structure_entity(world_root)

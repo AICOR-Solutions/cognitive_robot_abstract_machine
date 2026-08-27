@@ -3,8 +3,6 @@ from __future__ import annotations
 import abc
 from abc import ABC
 from dataclasses import dataclass, field
-from functools import partial
-from typing_extensions import Optional
 
 import numpy as np
 from sqlalchemy import select
@@ -17,9 +15,6 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world import World
-from semantic_digital_twin.adapters.ros.world_synchronizer import (
-    WorldNamespace,
-)
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
     OmniDrive,
@@ -34,28 +29,7 @@ from semantic_digital_twin.world_description.world_entity import (
 
 @dataclass
 class WorldConfig(ABC):
-    world: World = field(
-        default_factory=partial(World, namespace=WorldNamespace.GISKARD)
-    )
-    """
-    The world this configuration builds, in the namespace giskard hands out identifiers
-    under.
-    """
-
-    def namespace_for(self, part: str) -> Optional[str]:
-        """
-        The namespace of a world built to be merged into this configuration's world.
-
-        A namespaced world only takes in content carrying a namespace of its own, so a
-        part is named underneath the world it joins. A configuration whose world has no
-        namespace builds its parts without one too.
-
-        :param part: What the part holds, such as the name of the robot.
-        :return: The namespace for that part, or ``None`` outside a namespace.
-        """
-        if self.world.namespace is None:
-            return None
-        return f"{self.world.namespace}/{part}"
+    world: World = field(default_factory=World)
 
     @abc.abstractmethod
     def setup_world(self, *args, **kwargs):
@@ -89,11 +63,7 @@ class WorldWithFixedRobot(WorldConfig):
         map = Body(name=self.root_name)
         self.world.add_body(map)
 
-        urdf_parser = URDFParser(
-            urdf=self.urdf,
-            prefix="",
-            namespace=self.namespace_for(self.robot_name.name),
-        )
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.urdf_view.from_world(world_with_robot)
         self.robot_root = world_with_robot.root
@@ -120,11 +90,7 @@ class WorldWithOmniDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(
-            urdf=self.urdf,
-            prefix="",
-            namespace=self.namespace_for(self.robot_name.name),
-        )
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 
@@ -157,11 +123,7 @@ class WorldWithDiffDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(
-            urdf=self.urdf,
-            prefix="",
-            namespace=self.namespace_for(self.robot_name.name),
-        )
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 
