@@ -3,15 +3,18 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any, Self, TYPE_CHECKING
 
 import numpy as np
-from typing_extensions import Dict
+from typing_extensions import Dict, List
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer
 from semantic_digital_twin.world_description.world_entity import (
     WorldEntityWithClassBasedID,
 )
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.world import World
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,27 @@ class Callback(WorldEntityWithClassBasedID, SubclassJSONSerializer, ABC):
     """
     Flag that indicates if the callback is paused.
     """
+
+    @classmethod
+    @abstractmethod
+    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+        """
+        :param world: The world whose callbacks are asked for.
+        :return: every callback the world notifies of the change this kind reacts to.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def all_of_world(cls, world: World) -> List[Self]:
+        """
+        :param world: The world whose callbacks are searched.
+        :return: every registered callback of this kind, in registration order.
+        """
+        return [
+            callback
+            for callback in cls._callbacks_of_world(world)
+            if isinstance(callback, cls)
+        ]
 
     def stop(self):
         """
@@ -78,6 +102,10 @@ class StateChangeCallback(Callback, ABC):
         self._world.state.state_change_callbacks.append(self)
         self.update_previous_world_state()
 
+    @classmethod
+    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+        return world.state.state_change_callbacks
+
     def notify_state_change(self, **kwargs):
         if not self._is_paused:
             self.on_state_change(**kwargs)
@@ -109,6 +137,10 @@ class ModelChangeCallback(Callback, ABC):
     def __post_init__(self):
         super().__post_init__()
         self._world.get_world_model_manager().model_change_callbacks.append(self)
+
+    @classmethod
+    def _callbacks_of_world(cls, world: World) -> List[Callback]:
+        return world.get_world_model_manager().model_change_callbacks
 
     def notify_model_change(self, **kwargs):
         if not self._is_paused:

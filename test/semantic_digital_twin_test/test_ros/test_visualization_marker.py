@@ -5,17 +5,23 @@ from time import sleep
 import pytest
 from rclpy.duration import Duration
 from rclpy.time import Time
+from typing_extensions import List, Set, Tuple
 from visualization_msgs.msg import MarkerArray, Marker
 
 from semantic_digital_twin.adapters.mesh import STLParser
-from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
+from semantic_digital_twin.adapters.ros.tf_publisher import (
+    TFPublisher,
+    TfPublisherModelCallback,
+)
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
     ShapeSource,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import WorldHasMultipleTfPublishersError
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     OmniDrive,
     FixedConnection,
@@ -117,10 +123,12 @@ def test_visualization_marker_pr2(rclpy_node, pr2_world_state_reset):
     assert len(callback.last_msg.markers) == 53
 
 
-def test_visualization_marker_tracy(rclpy_node, tracy_world):
+def test_visualization_marker_tracy(rclpy_node, tracy_world, ros_publishers):
     tf_wrapper = TFWrapper(node=rclpy_node)
-    tf_publisher = TFPublisher(node=rclpy_node, _world=tracy_world)
-    viz = VizMarkerPublisher(_world=tracy_world, node=rclpy_node)
+    tf_publisher = ros_publishers.adopt(
+        TFPublisher(node=rclpy_node, _world=tracy_world)
+    )
+    viz = ros_publishers.adopt(VizMarkerPublisher(_world=tracy_world, node=rclpy_node))
 
     callback = Callback()
 
@@ -234,3 +242,144 @@ def test_trimesh(rclpy_node):
         timeout=Duration(seconds=1.0),
         time=Time(),
     )
+
+
+# %% marker frames
+
+
+def world_with_visible_bodies(*names: str) -> Tuple[World, List[Body]]:
+    """
+    Build a world whose root carries one body with a visual shape per given name.
+    """
+    world = World()
+    root = Body(name=PrefixedName("map"))
+    bodies = [
+        Body(
+            name=PrefixedName(name),
+            visual=ShapeCollection(shapes=[Box(scale=Scale(0.1, 0.1, 0.1))]),
+        )
+        for name in names
+    ]
+    with world.modify_world():
+        world.add_body(root)
+        for body in bodies:
+            world.add_connection(FixedConnection(parent=root, child=body))
+    return world, bodies
+
+
+def marker_frames(viz: VizMarkerPublisher) -> Set[str]:
+    """
+    The tf frames the markers are positioned in.
+    """
+    return {marker.header.frame_id for marker in viz.markers.markers}
+
+
+def test_markers_are_stamped_with_the_frame_names_the_tf_publisher_publishes(
+    rclpy_node,
+):
+    world, _ = world_with_visible_bodies("milk", "milk")
+    tf_publisher = TFPublisher(node=rclpy_node, _world=world)
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    published_frames = {
+        transform.child_frame_id
+        for transform in tf_publisher.tf_model_callback.tf_message.transforms
+    }
+    assert marker_frames(viz) == published_frames
+
+
+def test_the_tf_publisher_of_the_world_is_adopted(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    tf_publisher = TFPublisher(node=rclpy_node, _world=world)
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    assert viz.tf_publisher is tf_publisher
+
+
+def test_a_tf_publisher_is_started_while_nothing_publishes_tf(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    assert TFPublisher.all_of_world(world) == [viz.tf_publisher]
+
+
+def test_the_given_tf_publisher_is_kept(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    tf_publisher = TFPublisher(node=rclpy_node, _world=world)
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node, tf_publisher=tf_publisher)
+
+    assert viz.tf_publisher is tf_publisher
+
+
+def test_markers_refuse_to_choose_between_several_tf_publishers(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    TFPublisher(node=rclpy_node, _world=world)
+    TFPublisher(node=rclpy_node, _world=world)
+
+    with pytest.raises(WorldHasMultipleTfPublishersError):
+        VizMarkerPublisher(_world=world, node=rclpy_node)
+
+
+def test_markers_are_stamped_by_the_tf_publisher_the_marker_publisher_starts(
+    rclpy_node,
+):
+    """
+    The connections run against the order the bodies were added, so both publishers pick
+    a different body for the plain name unless they share one assignment.
+    """
+    world = World()
+    root = Body(name=PrefixedName("map"))
+    bodies = [
+        Body(
+            name=PrefixedName("milk"),
+            visual=ShapeCollection(shapes=[Box(scale=Scale(0.1, 0.1, 0.1))]),
+        )
+        for _ in range(2)
+    ]
+    with world.modify_world():
+        world.add_body(root)
+        for body in bodies:
+            world.add_body(body)
+        for body in reversed(bodies):
+            world.add_connection(FixedConnection(parent=root, child=body))
+
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    tf_message = TfPublisherModelCallback.all_of_world(world)[0].tf_message
+    published_frames = {transform.child_frame_id for transform in tf_message.transforms}
+    assert marker_frames(viz) == published_frames
+
+
+# %% publisher lifetime
+
+
+def test_a_stopped_marker_publisher_is_no_longer_notified(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    viz.stop()
+
+    assert VizMarkerPublisher.all_of_world(world) == []
+
+
+def test_stopping_the_marker_publisher_stops_the_tf_publisher_it_started(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    viz.stop()
+
+    assert TFPublisher.all_of_world(world) == []
+
+
+def test_stopping_the_marker_publisher_keeps_the_tf_publisher_it_was_given(rclpy_node):
+    world, _ = world_with_visible_bodies("milk")
+    tf_publisher = TFPublisher(node=rclpy_node, _world=world)
+    viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+
+    viz.stop()
+
+    assert TFPublisher.all_of_world(world) == [tf_publisher]
