@@ -124,13 +124,17 @@ def test_tf_publisher_ignore_robot(rclpy_node, pr2_world_copy):
     assert transform.transform == transform2.transform
 
 
-def test_tf_publisher_kitchen(rclpy_node, pr2_apartment_world):
+def test_tf_publisher_kitchen(rclpy_node, pr2_apartment_world, ros_publishers):
     tf_wrapper = TFWrapper(node=rclpy_node)
-    tf_publisher = TFPublisher(
-        node=rclpy_node,
-        _world=pr2_apartment_world,
+    tf_publisher = ros_publishers.adopt(
+        TFPublisher(
+            node=rclpy_node,
+            _world=pr2_apartment_world,
+        )
     )
-    VizMarkerPublisher(_world=pr2_apartment_world, node=rclpy_node)
+    ros_publishers.adopt(
+        VizMarkerPublisher(_world=pr2_apartment_world, node=rclpy_node)
+    )
 
     milk = pr2_apartment_world.get_kinematic_structure_entities_by_name("milk.stl")[0]
 
