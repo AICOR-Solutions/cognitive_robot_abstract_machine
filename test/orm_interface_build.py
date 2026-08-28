@@ -62,23 +62,20 @@ class OrmBuild(StrEnum):
     When a run builds the ORM interfaces it reads.
     """
 
-    description: str
+    AUTO = "auto"
     """
-    What this choice does, as the help of the option says it.
+    Builds only what the checkout has not built since its sources changed.
     """
 
-    def __new__(cls, value: str, description: str) -> OrmBuild:
-        choice = str.__new__(cls, value)
-        choice._value_ = value
-        choice.description = description
-        return choice
+    ALWAYS = "always"
+    """
+    Builds every run, whatever the checkout holds.
+    """
 
-    AUTO = (
-        "auto",
-        "builds only what the checkout has not built since its sources changed",
-    )
-    ALWAYS = ("always", "builds every run, whatever the checkout holds")
-    NEVER = ("never", "builds nothing, and reads whatever the checkout holds")
+    NEVER = "never"
+    """
+    Builds nothing, and reads whatever the checkout holds.
+    """
 
     @classmethod
     def choices(cls) -> Tuple[str, ...]:

@@ -168,8 +168,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         ORM_BUILD_OPTION,
         choices=OrmBuild.choices(),
         default=None,
-        help="when to build the generated ORM interfaces; "
-        + ", ".join(f"'{choice}' {choice.description}" for choice in OrmBuild),
+        help=(
+            "when to build the generated ORM interfaces; "
+            f"'{OrmBuild.AUTO}' builds only what the checkout has not built since its "
+            f"sources changed, '{OrmBuild.ALWAYS}' builds every run, whatever the "
+            f"checkout holds, '{OrmBuild.NEVER}' builds nothing, and reads whatever the "
+            "checkout holds"
+        ),
     )
 
 
