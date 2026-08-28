@@ -145,7 +145,7 @@ class HasRootKinematicStructureEntity(
     @property
     def combined_mesh(self) -> trimesh.Trimesh:
         """
-        The collision geometry of every body of this annotation, merged into a single
+        :return: The collision geometry of every body of this annotation, merged into a single
         mesh expressed in the frame of :attr:`root`.
 
         ..note:: Rebuilt on every access, since the bodies move relative to each other
