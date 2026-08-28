@@ -15,6 +15,7 @@ from semantic_digital_twin.spatial_types import (
     RotationMatrix,
     Quaternion,
     Vector3,
+    Point,
     Point3,
     HomogeneousTransformationMatrix,
 )
@@ -549,6 +550,16 @@ class TestRotationMatrix:
             assert np.allclose(
                 det, 1.0, atol=1e-10
             ), f"Determinant {det} != 1.0 for operation"
+
+
+class TestPoint:
+    def test_cannot_be_constructed(self):
+        """
+        ``Point`` is the shared base :class:`Point2` and :class:`Point3` subclass --
+        it is not itself a usable point type.
+        """
+        with pytest.raises(TypeError):
+            Point()
 
 
 class TestPoint3:
