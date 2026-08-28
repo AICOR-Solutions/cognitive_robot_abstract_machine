@@ -396,9 +396,7 @@ class BoundingBoxCollection(Generic[BoxT], ShapeCollection):
         )
 
     @classmethod
-    def from_shapes(
-        cls, shapes: ShapeCollection
-    ) -> BoundingBoxCollection[VolumetricBoundingBox]:
+    def from_shapes(cls, shapes: ShapeCollection) -> Self:
         """
         Create a bounding box collection from a list of shapes.
 

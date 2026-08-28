@@ -37,12 +37,11 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
-from typing_extensions import Iterable, List, Optional, Sequence, Self, Union
+from typing_extensions import Iterable, List, Optional, Sequence, Self
 
-from semantic_digital_twin.spatial_types import Point2, Point3
+from semantic_digital_twin.spatial_types import Point
 from semantic_digital_twin.world_description.geometry import (
-    VolumetricBoundingBox,
-    PlanarBoundingBox,
+    AxisAlignedBox,
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     GraphOfBoundingBoxes,
@@ -214,7 +213,7 @@ class Footprint:
     """
 
     @classmethod
-    def of(cls, bounding_box: Union[VolumetricBoundingBox, PlanarBoundingBox]) -> Self:
+    def of(cls, bounding_box: AxisAlignedBox) -> Self:
         """
         :param bounding_box: The bounding box to project.
         :return: The projection of that box onto the x-y plane.
@@ -267,7 +266,7 @@ class NavigationPath:
     """
     A solved path through a graph of convex sets.
 
-    Kept as a class rather than a plain ``List[Point3]``: :attr:`length`,
+    Kept as a class rather than a plain ``List[Point]``: :attr:`length`,
     :attr:`vertical_travel`, :attr:`coordinates` and :attr:`spatial_coordinates` are each
     read from panels in both this module and
     :mod:`~semantic_digital_twin.world_description.graph_of_convex_sets.volume_figure`,
@@ -275,7 +274,7 @@ class NavigationPath:
     instead of recomputing it from a bare list.
     """
 
-    waypoints: List[Union[Point3, Point2]]
+    waypoints: List[Point]
     """
     The points to navigate to, starting at the query's start and ending at its goal.
     """
@@ -337,17 +336,17 @@ class ConvexSetAdjacency:
     convex set, through the portal the two sets share, to the center of the other.
     """
 
-    source_center: Union[Point3, Point2]
+    source_center: Point
     """
     The center of the convex set the edge starts at.
     """
 
-    portal_center: Union[Point3, Point2]
+    portal_center: Point
     """
     The center of the region where the two convex sets overlap.
     """
 
-    target_center: Union[Point3, Point2]
+    target_center: Point
     """
     The center of the convex set the edge ends at.
     """
@@ -454,7 +453,7 @@ class NavigationScene:
         return Footprint.of(self.search_space.bounding_box())
 
     @property
-    def convex_sets(self) -> List[Union[VolumetricBoundingBox, PlanarBoundingBox]]:
+    def convex_sets(self) -> List[AxisAlignedBox]:
         """
         :return: The convex sets partitioning free space.
         """
@@ -740,7 +739,7 @@ class EndpointsLayer(SceneLayer):
     def _draw_endpoint(
         self,
         axes: Axes,
-        endpoint: Union[Point3, Point2],
+        endpoint: Point,
         label: str,
         marker: str,
         color: str,

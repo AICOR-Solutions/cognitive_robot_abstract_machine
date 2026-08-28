@@ -7,14 +7,14 @@ import numpy as np
 from random_events.interval import Interval, SimpleInterval
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import Generic, List, Optional, TypeVar, Union
+from typing_extensions import Generic, List, Optional, TypeVar
 
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
-    Point2,
+    Point,
     Point3,
 )
 from semantic_digital_twin.world import World
@@ -25,7 +25,7 @@ from semantic_digital_twin.world_description.shape_collection import (
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
-PointT = TypeVar("PointT", bound=Union[Point3, Point2])
+PointT = TypeVar("PointT", bound=Point)
 """
 The point type a :class:`GraphOfConvexSets` subclass queries and returns paths in --
 :class:`~semantic_digital_twin.spatial_types.Point3` for a graph that plans in three

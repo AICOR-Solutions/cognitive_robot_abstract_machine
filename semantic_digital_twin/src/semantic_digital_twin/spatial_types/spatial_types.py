@@ -916,8 +916,46 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         return r_distance.to_angle()
 
 
+class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+    """
+    Shared x/y/z coordinate access for 2D and 3D points.
+
+    :class:`Point2` and :class:`Point3` both subclass this directly -- a
+    :class:`Point3` is not a :class:`Point2` -- so that code which only needs
+    coordinates (e.g. path plotting) can accept either without a ``Union``.
+    """
+
+    @property
+    def x(self) -> sm.Scalar:
+        return self[0]
+
+    @x.setter
+    def x(self, value: sm.ScalarData):
+        self[0] = value
+
+    @property
+    def y(self) -> sm.Scalar:
+        return self[1]
+
+    @y.setter
+    def y(self, value: sm.ScalarData):
+        self[1] = value
+
+    @property
+    def z(self) -> sm.Scalar:
+        """
+        Always 0, since a 2D point has no height of its own -- lets code that handles
+        both 2D and 3D points (e.g. path plotting) read ``.z`` uniformly instead of
+        branching by type. :class:`Point3` overrides this with its own real
+        z-coordinate.
+
+        :return: 0.
+        """
+        return 0
+
+
 @dataclass(eq=False, init=False, repr=False)
-class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+class Point3(Point):
     """
     Represents a 3D point with reference frame handling.
 
@@ -928,6 +966,12 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
 
     .. note:: this is represented as a 4d vector, where the last entry is always a 1.
     """
+
+    # Re-exported rather than merely inherited: EQL's field-type resolution
+    # (``get_field_type_endpoint``) looks these up via ``owner_class.__dict__``, which
+    # inherited descriptors don't populate.
+    x = Point.x
+    y = Point.y
 
     def __init__(
         self,
@@ -1035,22 +1079,6 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
 
     def norm(self) -> sm.Scalar:
         return sm.Scalar.from_casadi_sx(ca.norm_2(self[:3].casadi_sx))
-
-    @property
-    def x(self) -> sm.Scalar:
-        return self[0]
-
-    @x.setter
-    def x(self, value: sm.ScalarData):
-        self[0] = value
-
-    @property
-    def y(self) -> sm.Scalar:
-        return self[1]
-
-    @y.setter
-    def y(self, value: sm.ScalarData):
-        self[1] = value
 
     @property
     def z(self) -> sm.Scalar:
@@ -1167,7 +1195,7 @@ class Point3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
 
 
 @dataclass(eq=False, init=False, repr=False)
-class Point2(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+class Point2(Point):
     """
     Represents a 2D point with reference frame handling.
 
@@ -1176,6 +1204,13 @@ class Point2(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     frame's own x-y plane (z=0 relative to that frame); :meth:`to_point3` converts to
     the equivalent 3D :class:`Point3` whenever a 3D calculation is required.
     """
+
+    # Re-exported rather than merely inherited: EQL's field-type resolution
+    # (``get_field_type_endpoint``) looks these up via ``owner_class.__dict__``, which
+    # inherited descriptors don't populate.
+    x = Point.x
+    y = Point.y
+    z = Point.z
 
     def __init__(
         self,
@@ -1230,33 +1265,6 @@ class Point2(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             result["reference_frame_id"] = to_json(self.reference_frame.id)
         result["data"] = self.to_np().tolist()
         return result
-
-    @property
-    def x(self) -> sm.Scalar:
-        return self[0]
-
-    @x.setter
-    def x(self, value: sm.ScalarData):
-        self[0] = value
-
-    @property
-    def y(self) -> sm.Scalar:
-        return self[1]
-
-    @y.setter
-    def y(self, value: sm.ScalarData):
-        self[1] = value
-
-    @property
-    def z(self) -> float:
-        """
-        Always 0, since a 2D point has no height of its own -- lets code that handles
-        both 2D and 3D points (e.g. path plotting) read ``.z`` uniformly instead of
-        branching by type.
-
-        :return: 0.
-        """
-        return 0
 
     def to_point3(self, z: sm.ScalarData = 0) -> Point3:
         """
