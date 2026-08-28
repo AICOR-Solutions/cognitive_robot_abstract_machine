@@ -49,7 +49,7 @@ from semantic_digital_twin.datastructures.definitions import (
 )
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, EndEffector
-from typing_extensions import Tuple, Generator
+from typing_extensions import Iterable, Tuple, Generator
 
 try:
     from semantic_digital_twin.robots.garmi import Garmi
@@ -81,6 +81,49 @@ ALTERNATIVE_MOTION_MAPPINGS = [
     StretchClose,
     TiagoMoveSim,
 ]
+
+
+# %% standing a robot next to something
+
+
+def heading_towards(
+    world_P_stand: Iterable[float], world_P_target: Iterable[float], world: World
+) -> Pose:
+    """
+    A pose at ``world_P_stand`` whose x-axis points at ``world_P_target``.
+
+    This is the form
+    :class:`~coraplex.robot_plans.actions.core.navigation.NavigateAction` and
+    :meth:`~semantic_digital_twin.robots.robot_parts.MobileBase.pose_facing` read a
+    heading in: they turn it into a base orientation using the base's own forward axis,
+    so a test says where the robot should look rather than how far each base has to turn
+    to look there.
+    """
+    world_V_heading = np.asarray(world_P_target)[:2] - np.asarray(world_P_stand)[:2]
+    return Pose.from_xyz_rpy(
+        *np.asarray(world_P_stand)[:3],
+        yaw=float(np.arctan2(world_V_heading[1], world_V_heading[0])),
+        reference_frame=world.root,
+    )
+
+
+def stand_facing(
+    robot: AbstractRobot,
+    world_P_stand: Iterable[float],
+    world_P_target: Iterable[float],
+    world: World,
+) -> HomogeneousTransformationMatrix:
+    """
+    The base pose from which ``robot`` works on ``world_P_target``, standing at
+    ``world_P_stand``.
+
+    A robot reaches along its base's forward axis rather than along the direction it
+    drives in, so where a test drops it decides whether the target is in front of the
+    arm or off to its side.
+    """
+    return robot.mobile_base.pose_facing(
+        heading_towards(world_P_stand, world_P_target, world)
+    ).to_homogeneous_matrix()
 
 
 @pytest.fixture(
@@ -316,8 +359,8 @@ def test_reach_action_multi(immutable_multiple_robot_apartment):
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -2, 0.8, reference_frame=world.root
     )
-    view.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        0.3, -2.4, 0, reference_frame=world.root
+    view.root.parent_connection.origin = stand_facing(
+        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
     )
     world.notify_state_change()
 
@@ -426,8 +469,8 @@ def test_grasping(immutable_multiple_robot_apartment):
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -2, 0.8, reference_frame=world.root
     )
-    robot.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        0.3, -2.4, 0, reference_frame=world.root
+    robot.root.parent_connection.origin = stand_facing(
+        robot, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
     )
     world.notify_state_change()
 
@@ -462,8 +505,8 @@ def test_pick_up_multi(mutable_multiple_robot_apartment, rclpy_node):
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -2, 0.6, reference_frame=world.root
     )
-    view.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        0.3, -2.4, 0, reference_frame=world.root
+    view.root.parent_connection.origin = stand_facing(
+        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
     )
     world.notify_state_change()
 
@@ -514,8 +557,8 @@ def test_place_multi(mutable_multiple_robot_apartment):
     milk_body.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -2, 0.6, reference_frame=world.root
     )
-    view.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        0.3, -2.4, 0, reference_frame=world.root
+    view.root.parent_connection.origin = stand_facing(
+        view, (0.3, -2.4, 0), milk_body.global_pose.to_position().to_np(), world
     )
     world.notify_state_change()
 
@@ -633,20 +676,23 @@ def test_close(immutable_multiple_robot_apartment, rclpy_node):
     world.get_connection_by_name("cabinet10_drawer_middle_joint").position = 0.3
     world.notify_state_change()
 
-    navigate_position = [1.5, 1.85, 0] if isinstance(robot, Tiago) else [1.65, 2.0, 0]
+    handle = world.get_body_by_name("handle_cab10_m")
+    navigate_position = (
+        [1.5, 1.85, 0] if isinstance(robot, (Tiago, Stretch)) else [1.65, 2.0, 0]
+    )
 
     plan = sequential(
         [
             MoveTorsoAction(TorsoState.HIGH),
             ParkArmsAction(Arms.BOTH),
             NavigateAction(
-                Pose(
-                    Point3.from_iterable(navigate_position),
-                    Quaternion.from_iterable([0, 0, 0.4, 1]),
-                    reference_frame=world.root,
+                heading_towards(
+                    navigate_position,
+                    handle.global_pose.to_position().to_np(),
+                    world,
                 )
             ),
-            CloseAction(world.get_body_by_name("handle_cab10_m"), Arms.LEFT),
+            CloseAction(handle, Arms.LEFT),
         ],
         context,
     )
@@ -755,3 +801,4 @@ def test_transport_open_container(mutable_multiple_robot_apartment, rclpy_node):
     assert dist <= 0.02
 
     plan.plan.validate()
+

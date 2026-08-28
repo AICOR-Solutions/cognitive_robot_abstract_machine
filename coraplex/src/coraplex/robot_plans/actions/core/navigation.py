@@ -65,11 +65,11 @@ class NavigateAction(ActionDescription):
         variables: Dict[str, Variable], context: Context, kwargs: Dict[str, Any]
     ) -> ConditionType:
         """
-        The robot needs to be within 3 cm of the target location.
+        The robot needs to be within 3 cm of where the heading puts its base.
         """
         return allclose(
             variable_from(context.robot.root).global_pose,
-            kwargs["target_location"],
+            context.robot.mobile_base.pose_facing(kwargs["target_location"]),
             atol=0.03,
         )
 

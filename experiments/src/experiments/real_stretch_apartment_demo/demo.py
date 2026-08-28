@@ -1,5 +1,6 @@
 """
-Stretch fetches a cereal box from a shelf and places it on a bedside table.
+Stretch fetches a cereal box from a shelf, places it on a bedside table and puts it
+back again.
 
 Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the actual
 robot and fetches the world from the running world server. The default runs the whole plan
@@ -98,7 +99,9 @@ How often running this module as a script transports the cereal there and back a
 @dataclass
 class StretchApartmentDemonstration(RobotDemonstration):
     """
-    Stretch transports a cereal box from a shelf to a bedside table in the apartment.
+    Stretch transports a cereal box between a shelf and a bedside table in the apartment.
+
+    The plan ends where it started, so it can be repeated against the same scene.
     """
 
     ros_node_name: ClassVar[str] = "stretch_demo_node"
@@ -159,7 +162,7 @@ class StretchApartmentDemonstration(RobotDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Pick the cereal box off the shelf and place it on the bedside table.
+        Carry the cereal box from its shelf to the bedside table and back again.
         """
         world = context.world
 
