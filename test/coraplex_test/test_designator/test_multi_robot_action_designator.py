@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+from dataclasses import dataclass, field
+
 import numpy as np
 import pytest
 from coraplex.alternative_motion_mappings.hsrb_motion_mapping import HSRBMoveMotion
@@ -39,6 +41,7 @@ from coraplex.robot_plans.actions.core.robot_body import (
     ParkArmsAction,
     FollowToolCenterPointPathAction,
 )
+from coraplex.locations.base import Location, PoseGeneratorBackend, PoseValidator
 from coraplex.view_manager import ViewManager
 from giskardpy.utils.utils_for_tests import compare_axis_angle, compare_orientations
 from rustworkx.rustworkx import NoEdgeBetweenNodes
@@ -49,7 +52,7 @@ from semantic_digital_twin.datastructures.definitions import (
 )
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, EndEffector
-from typing_extensions import Iterable, Tuple, Generator
+from typing_extensions import Iterable, Iterator, List, Tuple, Generator
 
 try:
     from semantic_digital_twin.robots.garmi import Garmi
@@ -802,3 +805,56 @@ def test_transport_open_container(mutable_multiple_robot_apartment, rclpy_node):
 
     plan.plan.validate()
 
+
+# %% a location candidate is a heading, not a base pose
+
+
+@dataclass
+class SinglePoseGenerator(PoseGeneratorBackend):
+    """
+    Offers one fixed candidate, so a test can say exactly what is validated.
+    """
+
+    pose: Pose
+
+    def __iter__(self) -> Iterator[Pose]:
+        yield self.pose
+
+
+@dataclass
+class BasePoseRecorder(PoseValidator):
+    """
+    Accepts every candidate and records where the robot stood while it was checked.
+    """
+
+    base_poses: List[HomogeneousTransformationMatrix] = field(default_factory=list)
+
+    def __call__(self, *args, **kwargs) -> bool:
+        self.base_poses.append(self.robot.root.global_transform)
+        return True
+
+
+def test_a_location_validates_a_candidate_where_navigating_to_it_would_stand(
+    mutable_multiple_robot_apartment,
+):
+    """
+    A candidate is a heading, the same form
+    :class:`~coraplex.robot_plans.actions.core.navigation.NavigateAction` takes, so a
+    validator has to see the base pose that heading turns into.
+
+    A base that does not face along its x-axis is otherwise judged from an orientation
+    it never stands in.
+    """
+    world, robot, context = mutable_multiple_robot_apartment
+    # Somewhere every robot in the fixture fits, since a candidate in collision is
+    # dropped before any validator sees it.
+    heading = Pose.from_xyz_rpy(0.3, -2.4, 0, yaw=0.7, reference_frame=world.root)
+    recorder = BasePoseRecorder()
+    location = Location(context, heading, SinglePoseGenerator(heading), [recorder])
+
+    assert list(location) == [heading]
+    np.testing.assert_allclose(
+        recorder.base_poses[0].to_np(),
+        robot.mobile_base.pose_facing(heading).to_homogeneous_matrix().to_np(),
+        atol=1e-9,
+    )
