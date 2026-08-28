@@ -87,7 +87,6 @@ def test_loader(rclpy_node, sage10k_scene):
         _world=world,
         node=rclpy_node,
     )
-    pub.with_tf_publisher()
     verify_scene(world, scene)
     assert (
         len(world.get_semantic_annotations_by_type(NaturalLanguageWithTypeDescription))
@@ -117,7 +116,6 @@ def test_different_decomposition_methods(rclpy_node, sage10k_scene):
         node=rclpy_node,
         shape_source=ShapeSource.COLLISION_ONLY,
     )
-    pub.with_tf_publisher()
 
 
 def test_curated_sage10k_scenes_are_named_after_the_scene():
