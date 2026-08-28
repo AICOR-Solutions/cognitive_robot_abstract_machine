@@ -967,12 +967,6 @@ class Point3(Point):
     .. note:: this is represented as a 4d vector, where the last entry is always a 1.
     """
 
-    # Re-exported rather than merely inherited: EQL's field-type resolution
-    # (``get_field_type_endpoint``) looks these up via ``owner_class.__dict__``, which
-    # inherited descriptors don't populate.
-    x = Point.x
-    y = Point.y
-
     def __init__(
         self,
         x: sm.ScalarData = 0,
@@ -1204,13 +1198,6 @@ class Point2(Point):
     frame's own x-y plane (z=0 relative to that frame); :meth:`to_point3` converts to
     the equivalent 3D :class:`Point3` whenever a 3D calculation is required.
     """
-
-    # Re-exported rather than merely inherited: EQL's field-type resolution
-    # (``get_field_type_endpoint``) looks these up via ``owner_class.__dict__``, which
-    # inherited descriptors don't populate.
-    x = Point.x
-    y = Point.y
-    z = Point.z
 
     def __init__(
         self,
