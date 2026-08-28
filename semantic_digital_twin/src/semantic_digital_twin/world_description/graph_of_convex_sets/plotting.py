@@ -39,7 +39,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from typing_extensions import Iterable, List, Optional, Sequence, Self
 
-from semantic_digital_twin.spatial_types import Point
+from semantic_digital_twin.spatial_types import Point, Point3
 from semantic_digital_twin.world_description.geometry import (
     AxisAlignedBox,
 )
@@ -280,17 +280,34 @@ class NavigationPath:
     """
 
     @property
+    def _is_volumetric(self) -> bool:
+        """
+        :return: Whether these waypoints carry a real z-coordinate (:class:`Point3`,
+            a 3D path) rather than lying flat on a floor plan (:class:`Point2`, which
+            has no ``z`` at all).
+        """
+        return isinstance(self.waypoints[0], Point3)
+
+    @property
     def length(self) -> float:
         """
         :return: The distance travelled along the path.
         """
+        if self._is_volumetric:
+            return sum(
+                float(
+                    (
+                        (following.x - current.x) ** 2
+                        + (following.y - current.y) ** 2
+                        + (following.z - current.z) ** 2
+                    )
+                    ** 0.5
+                )
+                for current, following in zip(self.waypoints, self.waypoints[1:])
+            )
         return sum(
             float(
-                (
-                    (following.x - current.x) ** 2
-                    + (following.y - current.y) ** 2
-                    + (following.z - current.z) ** 2
-                )
+                ((following.x - current.x) ** 2 + (following.y - current.y) ** 2)
                 ** 0.5
             )
             for current, following in zip(self.waypoints, self.waypoints[1:])
@@ -302,6 +319,8 @@ class NavigationPath:
         :return: The height gained and lost along the path, which is zero for a path
             planned on a floor plan.
         """
+        if not self._is_volumetric:
+            return 0.0
         return sum(
             abs(float(following.z) - float(current.z))
             for current, following in zip(self.waypoints, self.waypoints[1:])

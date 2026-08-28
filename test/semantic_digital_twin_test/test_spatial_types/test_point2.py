@@ -20,13 +20,18 @@ class TestPoint2Construction:
         assert p.x.to_np() == pytest.approx(1.0)
         assert p.y.to_np() == pytest.approx(2.0)
 
-    def test_fixed_z(self):
-        p = Point2(x=1, y=2)
-        assert p.z == 0
-
     def test_shape(self):
         p = Point2(x=1, y=2)
         assert p.shape == (2, 1)
+
+    def test_has_no_z(self):
+        """
+        A 2D point has no height of its own -- unlike ``Point3``, ``Point2`` does not
+        carry a ``z`` attribute at all.
+        """
+        p = Point2(x=1, y=2)
+        with pytest.raises(AttributeError):
+            p.z
 
     def test_reference_frame(self):
         frame = Body(name=PrefixedName("world"))

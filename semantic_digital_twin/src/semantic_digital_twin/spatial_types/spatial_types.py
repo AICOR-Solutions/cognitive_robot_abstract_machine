@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC
 from copy import deepcopy, copy
 from dataclasses import dataclass, field
 
@@ -917,13 +917,15 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         return r_distance.to_angle()
 
 
-class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
+class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer, ABC):
     """
-    Shared x/y/z coordinate access for 2D and 3D points.
+    Shared x/y coordinate access for 2D and 3D points.
 
     :class:`Point2` and :class:`Point3` both subclass this directly -- a
-    :class:`Point3` is not a :class:`Point2` -- so that code which only needs
-    coordinates (e.g. path plotting) can accept either without a ``Union``.
+    :class:`Point3` is not a :class:`Point2` -- so that code which only needs the
+    coordinates every point has (e.g. path plotting) can accept either without a
+    ``Union``. Only :class:`Point3` has a ``z``: a 2D point has no height of its own,
+    so :class:`Point2` does not carry the attribute at all.
     """
 
     @property
@@ -941,17 +943,6 @@ class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     @y.setter
     def y(self, value: sm.ScalarData):
         self[1] = value
-
-    @property
-    @abstractmethod
-    def z(self) -> sm.Scalar:
-        """
-        :return: This point's z-coordinate -- always 0 for :class:`Point2`, since a 2D
-            point has no height of its own; :class:`Point3`'s own coordinate for
-            :class:`Point3`. Lets code that handles both 2D and 3D points (e.g. path
-            plotting) read ``.z`` uniformly instead of branching by type.
-        """
-        raise NotImplementedError
 
 
 @dataclass(eq=False, init=False, repr=False)
@@ -1252,13 +1243,6 @@ class Point2(Point):
             result["reference_frame_id"] = to_json(self.reference_frame.id)
         result["data"] = self.to_np().tolist()
         return result
-
-    @property
-    def z(self) -> float:
-        """
-        :return: 0 -- a 2D point has no height of its own. See :attr:`Point.z`.
-        """
-        return 0
 
     def to_point3(self, z: sm.ScalarData = 0) -> Point3:
         """

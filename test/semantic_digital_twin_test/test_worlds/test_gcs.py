@@ -345,7 +345,6 @@ def test_navigation_map_path_returns_point2_waypoints(table_world: World):
     assert len(path) > 1
     for waypoint in path:
         assert isinstance(waypoint, Point2)
-        assert float(waypoint.z) == 0.0
 
 
 def test_from_world_with_rotated_box():
