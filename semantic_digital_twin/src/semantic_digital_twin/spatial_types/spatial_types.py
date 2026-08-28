@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     )
 
 
-class _ConstantMatrixParts(Enum):
+class _ConstantMatrixParts(ca.SX, Enum):
     """
     The entries a homogeneous matrix always holds, whatever it represents.
 
@@ -52,23 +52,15 @@ class _ConstantMatrixParts(Enum):
     element write costs about as much as the whole slice.
     """
 
-    HOMOGENEOUS_BOTTOM_ROW = ca.SX([[0.0, 0.0, 0.0, 1.0]])
+    HOMOGENEOUS_BOTTOM_ROW = [[0.0, 0.0, 0.0, 1.0]]
     """
     The last row every 4x4 homogeneous matrix ends in.
     """
 
-    ZERO_TRANSLATION = ca.SX([[0.0], [0.0], [0.0]])
+    ZERO_TRANSLATION = [[0.0], [0.0], [0.0]]
     """
     The translation column of a matrix that carries rotation only.
     """
-
-    matrix: ca.SX
-
-    def __new__(cls, matrix: ca.SX) -> Self:
-        obj = object.__new__(cls)
-        obj._value_ = id(obj)
-        obj.matrix = matrix
-        return obj
 
 
 @dataclass(eq=False, repr=False)
@@ -229,7 +221,7 @@ class HomogeneousTransformationMatrix(
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
@@ -583,8 +575,8 @@ class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[:3, 3] = _ConstantMatrixParts.ZERO_TRANSLATION.matrix
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
+        self[:3, 3] = _ConstantMatrixParts.ZERO_TRANSLATION
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
@@ -1940,7 +1932,7 @@ class Pose(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
             raise WrongDimensionsError(
                 expected_dimensions=(4, 4), actual_dimensions=self.shape
             )
-        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW.matrix
+        self[3, :] = _ConstantMatrixParts.HOMOGENEOUS_BOTTOM_ROW
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
