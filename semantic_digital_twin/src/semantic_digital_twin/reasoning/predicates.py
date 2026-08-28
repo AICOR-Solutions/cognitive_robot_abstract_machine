@@ -36,7 +36,7 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     Pose,
 )
 from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import BoundingBox
+from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     Region,
@@ -585,7 +585,10 @@ class ContainsType(Predicate):
 
 @symbolic_function
 def is_place_occupied(
-    box: BoundingBox, pose: Pose, world: World, allowed_bodies: List[Body] = None
+    box: VolumetricBoundingBox,
+    pose: Pose,
+    world: World,
+    allowed_bodies: List[Body] = None,
 ) -> bool:
     """
     Checks if the given region (as a box at its pose) intersects with any collidable
