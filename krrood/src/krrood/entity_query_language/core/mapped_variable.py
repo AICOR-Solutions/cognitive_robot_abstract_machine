@@ -23,6 +23,7 @@ from typing_extensions import (
     Tuple,
     Dict,
     List,
+    get_args,
 )
 
 from random_events.variable import (
@@ -579,6 +580,22 @@ class Index(MappedVariable[T], ABC):
     """
     The key to index with.
     """
+
+    def _update_type_(self) -> None:
+        """
+        Narrow ``_type_`` to the child's element type: indexing a ``List[X]``-like
+        attribute reaches a single ``X``, not the container type itself.
+
+        Without this, an indexed attribute's ``_type_`` stayed the child's raw
+        container type (e.g. ``List[PlanNode]``), which later broke any
+        ``issubclass()`` check against it -- subscripted generics aren't valid
+        ``issubclass()`` arguments.
+        """
+        if self._type_ is not None:
+            return
+        child_type = self._child_._type_
+        args = get_args(child_type)
+        self._type_ = args[0] if args else child_type
 
     @property
     def _name_(self):
