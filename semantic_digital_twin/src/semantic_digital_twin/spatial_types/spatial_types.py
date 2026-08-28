@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 from copy import deepcopy, copy
 from dataclasses import dataclass, field
 
@@ -942,16 +943,15 @@ class Point(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         self[1] = value
 
     @property
+    @abstractmethod
     def z(self) -> sm.Scalar:
         """
-        Always 0, since a 2D point has no height of its own -- lets code that handles
-        both 2D and 3D points (e.g. path plotting) read ``.z`` uniformly instead of
-        branching by type. :class:`Point3` overrides this with its own real
-        z-coordinate.
-
-        :return: 0.
+        :return: This point's z-coordinate -- always 0 for :class:`Point2`, since a 2D
+            point has no height of its own; :class:`Point3`'s own coordinate for
+            :class:`Point3`. Lets code that handles both 2D and 3D points (e.g. path
+            plotting) read ``.z`` uniformly instead of branching by type.
         """
-        return 0
+        raise NotImplementedError
 
 
 @dataclass(eq=False, init=False, repr=False)
@@ -1252,6 +1252,13 @@ class Point2(Point):
             result["reference_frame_id"] = to_json(self.reference_frame.id)
         result["data"] = self.to_np().tolist()
         return result
+
+    @property
+    def z(self) -> float:
+        """
+        :return: 0 -- a 2D point has no height of its own. See :attr:`Point.z`.
+        """
+        return 0
 
     def to_point3(self, z: sm.ScalarData = 0) -> Point3:
         """
