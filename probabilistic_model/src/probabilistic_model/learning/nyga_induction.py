@@ -219,12 +219,12 @@ class InductionStep:
         is_left: bool,
     ) -> npt.NDArray:
         """
-        Vectorized form of :meth:`log_likelihood_of_split_side`: same formula, evaluated
-        for every candidate split index at once instead of once per call. Which side is
-        being evaluated is passed in directly (`is_left`) rather than inferred from the
-        data, since :meth:`compute_best_split` already knows it statically: every
-        `split_value` lies to the right of the left connecting point and to the left of
-        the right connecting point.
+        Log likelihood of one side of a candidate split, evaluated for every candidate
+        split index of :meth:`compute_best_split` at once. Which side is being evaluated
+        is passed in directly (`is_left`) rather than inferred from the data, since
+        :meth:`compute_best_split` already knows it statically: every `split_value` lies
+        to the right of the left connecting point and to the left of the right
+        connecting point.
         """
         log_weight_sum = np.log(self.total_weights)
         if is_left:
@@ -264,8 +264,8 @@ class InductionStep:
 
         This evaluates every candidate split at once via
         :meth:`_vectorized_log_likelihood_of_split_side` instead of a per-candidate
-        Python loop calling :meth:`log_likelihood_of_split_side`, since that loop is the
-        dominant cost of :meth:`NygaInduction.fit` on large datasets.
+        Python loop, since that loop is the dominant cost of :meth:`NygaInduction.fit`
+        on large datasets.
 
         :return: The maximum log likelihood and the best split index.
         """
@@ -304,58 +304,6 @@ class InductionStep:
             self.right_connecting_point() - self.left_connecting_point()
         )
         return self.sum_log_weights() + (self.number_of_samples * log_density)
-
-    def log_likelihood_of_split_side(
-        self, split_index: int, connecting_point: float
-    ) -> float:
-        """
-        Calculate the log likelihood of a split side.
-
-        This method automatically determines if this is the left or right side of the split.
-
-        :param split_index: The index of the split.
-        :param connecting_point: The connecting point.
-
-        :return: The log likelihood of the split.
-        """
-
-        # calculate the split value
-        split_value = (self.data[split_index - 1] + self.data[split_index]) / 2
-
-        # calculate the log density
-        density = split_value - connecting_point
-        is_left = density > 0
-        log_density = np.log(np.abs(density))
-
-        # calculate the log of the weight of this partition in the sum node
-        log_weight_sum_of_split = (
-            np.log(self.sum_weights_from_indices(self.begin_index, split_index))
-            if is_left
-            else np.log(self.sum_weights_from_indices(split_index, self.end_index))
-        )
-
-        # calculate the log of the sum of the log_weights of both partitions
-        log_weight_sum = np.log(self.total_weights)
-
-        # calculate the number of samples in this partition
-        number_of_samples = (
-            split_index - self.begin_index if is_left else self.end_index - split_index
-        )
-
-        # calculate the sum of the logarithmic log_weights of the samples in this partition
-        sum_of_log_weights_of_samples = (
-            self.sum_log_weights_from_indices(self.begin_index, split_index)
-            if is_left
-            else self.sum_log_weights_from_indices(split_index, self.end_index)
-        )
-
-        # add the terms together
-        log_likelihood = (
-            number_of_samples * (log_weight_sum_of_split - log_weight_sum - log_density)
-            + sum_of_log_weights_of_samples
-        )
-
-        return log_likelihood
 
     def construct_left_induction_step(self, split_index: int) -> Self:
         """
