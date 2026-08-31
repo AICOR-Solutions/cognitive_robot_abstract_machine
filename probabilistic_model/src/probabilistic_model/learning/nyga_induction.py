@@ -211,6 +211,50 @@ class InductionStep:
         """
         return self.sum_log_weights_from_indices(self.begin_index, self.end_index)
 
+    def _vectorized_log_likelihood_of_split_side(
+        self,
+        split_indices: npt.NDArray,
+        split_values: npt.NDArray,
+        connecting_point: float,
+        is_left: bool,
+    ) -> npt.NDArray:
+        """
+        Vectorized form of :meth:`log_likelihood_of_split_side`: same formula, evaluated
+        for every candidate split index at once instead of once per call. Which side is
+        being evaluated is passed in directly (`is_left`) rather than inferred from the
+        data, since :meth:`compute_best_split` already knows it statically: every
+        `split_value` lies to the right of the left connecting point and to the left of
+        the right connecting point.
+        """
+        log_weight_sum = np.log(self.total_weights)
+        if is_left:
+            number_of_samples = split_indices - self.begin_index
+            log_density = np.log(split_values - connecting_point)
+            log_weight_sum_of_split = np.log(
+                self.cumulative_weights[split_indices]
+                - self.cumulative_weights[self.begin_index]
+            )
+            sum_of_log_weights = (
+                self.cumulative_log_weights[split_indices]
+                - self.cumulative_log_weights[self.begin_index]
+            )
+        else:
+            number_of_samples = self.end_index - split_indices
+            log_density = np.log(connecting_point - split_values)
+            log_weight_sum_of_split = np.log(
+                self.cumulative_weights[self.end_index]
+                - self.cumulative_weights[split_indices]
+            )
+            sum_of_log_weights = (
+                self.cumulative_log_weights[self.end_index]
+                - self.cumulative_log_weights[split_indices]
+            )
+
+        return (
+            number_of_samples * (log_weight_sum_of_split - log_weight_sum - log_density)
+            + sum_of_log_weights
+        )
+
     def compute_best_split(self) -> Tuple[float, Optional[int]]:
         """
         Compute the best split of the data.
@@ -218,9 +262,9 @@ class InductionStep:
         The best split of the data is computed by evaluating the log likelihood of every possible split and memorizing
         the best one.
 
-        This evaluates every candidate split at once with vectorized numpy operations
-        (mirroring what two calls to :meth:`log_likelihood_of_split_side` per candidate
-        would compute) instead of a per-candidate Python loop, since that loop is the
+        This evaluates every candidate split at once via
+        :meth:`_vectorized_log_likelihood_of_split_side` instead of a per-candidate
+        Python loop calling :meth:`log_likelihood_of_split_side`, since that loop is the
         dominant cost of :meth:`NygaInduction.fit` on large datasets.
 
         :return: The maximum log likelihood and the best split index.
@@ -229,7 +273,8 @@ class InductionStep:
         first_split_index = self.begin_index + self.min_samples_per_quantile
         last_split_index = self.end_index - self.min_samples_per_quantile + 1
 
-        # no candidate split respects min_samples_per_quantile on both sides
+        # empty candidate range: too few samples to leave min_samples_per_quantile on
+        # both sides of any split (e.g. this step's own segment is already that small)
         if first_split_index >= last_split_index:
             return -float("inf"), None
 
@@ -238,45 +283,11 @@ class InductionStep:
             self.data[split_indices - 1] + self.data[split_indices]
         ) / 2
 
-        left_connecting_point = self.left_connecting_point()
-        right_connecting_point = self.right_connecting_point()
-        log_weight_sum = np.log(self.total_weights)
-
-        # left-hand side: same formula as log_likelihood_of_split_side(split_index,
-        # left_connecting_point), which always resolves to the "is_left" branch since
-        # every split_value lies to the right of left_connecting_point
-        number_of_samples_left = split_indices - self.begin_index
-        log_density_left = np.log(split_values - left_connecting_point)
-        log_weight_sum_of_split_left = np.log(
-            self.cumulative_weights[split_indices]
-            - self.cumulative_weights[self.begin_index]
+        left_hand_side = self._vectorized_log_likelihood_of_split_side(
+            split_indices, split_values, self.left_connecting_point(), is_left=True
         )
-        sum_of_log_weights_left = (
-            self.cumulative_log_weights[split_indices]
-            - self.cumulative_log_weights[self.begin_index]
-        )
-        left_hand_side = (
-            number_of_samples_left
-            * (log_weight_sum_of_split_left - log_weight_sum - log_density_left)
-            + sum_of_log_weights_left
-        )
-
-        # right-hand side: same formula as log_likelihood_of_split_side(split_index,
-        # right_connecting_point), which always resolves to the "is_right" branch
-        number_of_samples_right = self.end_index - split_indices
-        log_density_right = np.log(right_connecting_point - split_values)
-        log_weight_sum_of_split_right = np.log(
-            self.cumulative_weights[self.end_index]
-            - self.cumulative_weights[split_indices]
-        )
-        sum_of_log_weights_right = (
-            self.cumulative_log_weights[self.end_index]
-            - self.cumulative_log_weights[split_indices]
-        )
-        right_hand_side = (
-            number_of_samples_right
-            * (log_weight_sum_of_split_right - log_weight_sum - log_density_right)
-            + sum_of_log_weights_right
+        right_hand_side = self._vectorized_log_likelihood_of_split_side(
+            split_indices, split_values, self.right_connecting_point(), is_left=False
         )
 
         log_likelihoods = left_hand_side + right_hand_side
@@ -414,11 +425,7 @@ class InductionStep:
             # mount a uniform distribution
             distribution = self.create_uniform_distribution()
 
-            # uses the cached root reference rather than `probabilistic_circuit.root`:
-            # that property rescans every node in the graph for the in-degree-0 node
-            # whenever its cache is stale, and every prior leaf attach (a new edge)
-            # invalidates it - going through it here would make each leaf attach cost
-            # O(current graph size), i.e. O(leaves^2) for the whole fit.
+            # root_unit instead of probabilistic_circuit.root, which is O(graph size)
             self.nyga_induction.root_unit.add_subcircuit(
                 UnivariateContinuousLeaf(
                     distribution,

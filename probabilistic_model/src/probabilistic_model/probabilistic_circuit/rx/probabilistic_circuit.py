@@ -481,26 +481,14 @@ class SumUnit(InnerUnit):
         return result
 
     def forward(self, *args, **kwargs):
-        # Accumulated one subcircuit at a time instead of building the full
-        # [weight * result, ...] list and reducing it with np.sum: with n
-        # subcircuits and array-valued results (e.g. one log-likelihood per
-        # sample), that list is an implicit (n_subcircuits, n_samples) matrix
-        # materialized twice (the list, then np.sum's own array conversion)
-        # on top of the memory the subcircuits' own results already occupy.
-        # Streaming keeps the extra memory at O(1) result arrays regardless
-        # of how many subcircuits there are, with the identical result.
+        # streamed instead of building the full subcircuit-results list at once
         result = 0.0
         for weight, subcircuit in self.log_weighted_subcircuits:
             result = result + np.exp(weight) * subcircuit.result_of_current_query
         self.result_of_current_query = result
 
     def log_forward(self, *args, **kwargs):
-        # See the note in forward(): accumulate with np.logaddexp instead of
-        # materializing the full per-subcircuit list and reducing it via
-        # logsumexp, which used to build several full (n_subcircuits,
-        # n_samples)-sized temporaries (the list, logsumexp's np.asarray copy,
-        # and its subtraction/exp buffers). np.logaddexp is the same
-        # numerically-stable pairwise reduction, just applied incrementally.
+        # streamed via logaddexp instead of building the full list for logsumexp
         result = None
         for log_weight, subcircuit in self.log_weighted_subcircuits:
             value = log_weight + subcircuit.result_of_current_query
