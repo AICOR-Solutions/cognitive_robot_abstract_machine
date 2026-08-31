@@ -481,19 +481,31 @@ class SumUnit(InnerUnit):
         return result
 
     def forward(self, *args, **kwargs):
-        self.result_of_current_query = np.sum(
-            [
-                np.exp(weight) * subcircuit.result_of_current_query
-                for weight, subcircuit in self.log_weighted_subcircuits
-            ],
-            axis=0,
-        )
+        # Accumulated one subcircuit at a time instead of building the full
+        # [weight * result, ...] list and reducing it with np.sum: with n
+        # subcircuits and array-valued results (e.g. one log-likelihood per
+        # sample), that list is an implicit (n_subcircuits, n_samples) matrix
+        # materialized twice (the list, then np.sum's own array conversion)
+        # on top of the memory the subcircuits' own results already occupy.
+        # Streaming keeps the extra memory at O(1) result arrays regardless
+        # of how many subcircuits there are, with the identical result.
+        result = 0.0
+        for weight, subcircuit in self.log_weighted_subcircuits:
+            result = result + np.exp(weight) * subcircuit.result_of_current_query
+        self.result_of_current_query = result
 
     def log_forward(self, *args, **kwargs):
-        result = [
-            lw + s.result_of_current_query for lw, s in self.log_weighted_subcircuits
-        ]
-        self.result_of_current_query = logsumexp(result, axis=0)
+        # See the note in forward(): accumulate with np.logaddexp instead of
+        # materializing the full per-subcircuit list and reducing it via
+        # logsumexp, which used to build several full (n_subcircuits,
+        # n_samples)-sized temporaries (the list, logsumexp's np.asarray copy,
+        # and its subtraction/exp buffers). np.logaddexp is the same
+        # numerically-stable pairwise reduction, just applied incrementally.
+        result = None
+        for log_weight, subcircuit in self.log_weighted_subcircuits:
+            value = log_weight + subcircuit.result_of_current_query
+            result = value if result is None else np.logaddexp(result, value)
+        self.result_of_current_query = result
 
     moment = forward
 
