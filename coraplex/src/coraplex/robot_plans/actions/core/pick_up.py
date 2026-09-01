@@ -259,8 +259,6 @@ class PickUpAction(
                     grasp_description=self.grasp_description,
                     pre_approach_linear_velocity=self.pre_approach_linear_velocity,
                     final_approach_linear_velocity=self.final_approach_linear_velocity,
-                    position_threshold=self.position_threshold,
-                    orientation_threshold=self.orientation_threshold,
                     open_gripper_at_pre_pose=True,
                     position_threshold=self.position_threshold,
                     orientation_threshold=self.orientation_threshold,

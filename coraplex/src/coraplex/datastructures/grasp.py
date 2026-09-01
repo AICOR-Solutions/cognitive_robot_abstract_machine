@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Tuple
 
 import numpy as np
@@ -20,7 +20,6 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
-from coraplex.datastructures.cartesian_tolerance import CartesianTolerance
 from coraplex.datastructures.rotations import Rotations
 from coraplex.datastructures.enums import (
     AxisIdentifier,
@@ -41,16 +40,6 @@ if TYPE_CHECKING:
 class GraspPoseProvider(ABC):
     """
     Provides the pose sequence to grasp a body: approach, grasp, then lift.
-    """
-
-    grasp_tolerance: CartesianTolerance = field(
-        default_factory=CartesianTolerance, kw_only=True
-    )
-    """
-    Cartesian accuracy and speed for the contact moves.
-
-    TODO dead since the motions moved to position_threshold/max_linear_velocity; drop it
-    together with an ormatic_interface regeneration
     """
 
     @abstractmethod
