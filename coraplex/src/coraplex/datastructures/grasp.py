@@ -118,7 +118,7 @@ class GraspDescription(GraspPoseProvider):
     Rotate the gripper by 90 degrees.
     """
 
-    manipulation_offset: float = 0.05
+    manipulation_offset: float = 0.1
     """
     The offset between the center of the pose in the grasp sequence.
     """
