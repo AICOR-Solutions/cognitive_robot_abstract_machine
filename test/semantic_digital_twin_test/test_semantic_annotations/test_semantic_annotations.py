@@ -328,14 +328,19 @@ def inferred_handled_drawer(world) -> Drawer:
 
 @pytest.mark.order("second_to_last")
 def test_explain_inferred_semantic_annotations(apartment_world_copy):
+    """
+    The listing names the conditions that held.
+
+    The rule's negated condition - that the body is no part of a robot - is not among
+    them: what held is the negation, and a logical operator names no condition of its
+    own. It is still stated in the verbalization of the same query.
+    """
     drawer = inferred_handled_drawer(apartment_world_copy)
     explanation = explain_inference(drawer)
     assert explanation is not None
     assert isinstance(explanation.query_root, SymbolicExpression)
     assert explanation.get_satisfied_conditions_as_string() == (
-        "PrismaticConnection.child.has_collision()"
-        " (PrismaticConnection.child.has_collision)"
-        "\nAND is_not_part_of_a_robot (PrismaticConnection.child)"
+        "HasCollisionGeometry (PrismaticConnection.child)"
         "\nAND (FixedConnection.parent == PrismaticConnection.child)"
         "\nAND (FixedConnection.child == Handle.root)"
     )
@@ -353,24 +358,22 @@ def test_verbalize_query_that_inferred_semantic_annotations(apartment_world_copy
         HierarchicalRenderer()
     ).verbalize(explanation.query_root)
     assert verbalization_paragraph == (
-        "If the () of the has_collision of the child of a PrismaticConnection,"
-        " an is_not_part_of_a_robot, where the body of the is_not_part_of_a_robot is"
-        " the child of the PrismaticConnection,"
-        " the parent of a FixedConnection is the body of the is_not_part_of_a_robot,"
+        "If the child of a PrismaticConnection has collision geometry,"
+        " the child of the PrismaticConnection is not part of a robot,"
+        " the parent of a FixedConnection is the child of the PrismaticConnection,"
         " the child of the FixedConnection is the root of a Handle,"
-        " then there's a Drawer whose root is the body of the is_not_part_of_a_robot,"
+        " then there's a Drawer whose root is the child of the PrismaticConnection,"
         " and whose handle is the Handle"
     )
     assert verbalization_hierarchical == (
         "If\n"
-        "  - the () of the has_collision of the child of a PrismaticConnection\n"
-        "  - an is_not_part_of_a_robot, where the body of the is_not_part_of_a_robot is"
-        " the child of the PrismaticConnection\n"
-        "  - the parent of a FixedConnection is the body of the is_not_part_of_a_robot\n"
+        "  - the child of a PrismaticConnection has collision geometry\n"
+        "  - the child of the PrismaticConnection is not part of a robot\n"
+        "  - the parent of a FixedConnection is the child of the PrismaticConnection\n"
         "  - the child of the FixedConnection is the root of a Handle\n"
         "then\n"
         "  there's a Drawer\n"
-        "    - whose root is the body of the is_not_part_of_a_robot\n"
+        "    - whose root is the child of the PrismaticConnection\n"
         "    - whose handle is the Handle"
     )
 

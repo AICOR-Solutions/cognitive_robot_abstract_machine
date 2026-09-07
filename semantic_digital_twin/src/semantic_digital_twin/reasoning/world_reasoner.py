@@ -91,6 +91,8 @@ class WorldReasoner:
         of the one the world holds, so that reasoning over a world that was annotated
         before does not store a second copy of what it recognises, and so that the joint
         is given to the annotation everything else refers to.
+
+        :param semantic_annotation: The annotation a rule inferred.
         """
         annotation_in_world = self.world.get_semantic_annotation_equal_to(
             semantic_annotation

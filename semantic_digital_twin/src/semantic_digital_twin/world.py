@@ -1650,6 +1650,9 @@ class World(HasSimulatorProperties):
         already holds. Use this before adding a freshly built annotation, and wire up
         the result rather than the argument, or the wiring lands on an annotation the
         world does not hold.
+
+        :param semantic_annotation: The annotation to look for an equal of.
+        :return: The equal annotation this world holds, or ``None`` when it holds none.
         """
         return next(
             (

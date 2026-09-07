@@ -27,7 +27,23 @@ from krrood.entity_query_language.factories import (
     not_,
     variable,
 )
-from krrood.entity_query_language.predicate import symbolic_function
+from krrood.entity_query_language.predicate import (
+    Predicate,
+    RenderedFields,
+    SymbolicFunction,
+    symbolic_function,
+)
+from krrood.entity_query_language.verbalization.fragments.base import (
+    VerbalizationFragment,
+)
+from krrood.entity_query_language.verbalization.vocabulary.english import Prepositions
+from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech import (
+    FunctionVerbalizationTemplates,
+    Noun,
+    Verb,
+    clause,
+    predicate_clause,
+)
 from typing_extensions import Iterable, List, Optional, Sequence, Tuple, Type, Union
 
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -144,8 +160,10 @@ def _name_words(body: Body, word_separator: str = "_") -> List[str]:
     Numbering distinguishes repetitions of the same thing, so ``shelf_level4`` says the
     same about what the body *is* as ``shelf_level`` does.
 
+    :param body: The body whose name is read.
     :param word_separator: What separates the words of a name in the world model being
         read, as in ``handle_cabinet5_top``.
+    :return: The name's words, in the order they are spoken.
     """
     return [
         re.sub(r"\d+", "", word)
@@ -181,6 +199,10 @@ def _match_name(words: Sequence[str], kind: AnnotationKind) -> Optional[NameMatc
 
     A name mentions a kind by spelling out every word of the kind's own name, or by
     using one of its synonyms.
+
+    :param words: The words of a body's name, in order.
+    :param kind: The kind the words are read against.
+    :return: What the words say about the kind, or ``None`` when they do not mention it.
     """
     annotation_type = kind.value
     class_words = annotation_type.class_name_tokens()
@@ -200,6 +222,10 @@ def asserted_kind(
     A compound name qualifies from the left, so the kind still being spoken about at the
     end of the name is the one the body is; among kinds that reach equally far, the one
     accounting for more of the name wins, and then the more specific one.
+
+    :param words: The words of a body's name, in order.
+    :param candidates: The kinds the name is read against.
+    :return: The kind the name settles on, or ``None`` when it mentions none of them.
     """
     matches = [
         match
@@ -218,100 +244,242 @@ def asserted_kind(
     ).kind
 
 
-@symbolic_function
-def is_named_after(body: Body, annotation_type: Type[SemanticAnnotation]) -> bool:
+@dataclass(eq=False)
+class IsNamedAfter(Predicate):
     """
-    Whether the body's name settles on ``annotation_type`` rather than on any other kind
+    Whether the body's name settles on one annotation type rather than on any other kind
     it mentions.
     """
-    kind = asserted_kind(_name_words(body), NamedKind)
-    return kind is not None and kind.value is annotation_type
 
-
-@symbolic_function
-def names_no_recognised_kind(body: Body) -> bool:
+    body: Body
     """
-    Whether the body's name claims none of the kinds the rules recognise by name, and so
-    leaves the body to be decided by how it is jointed.
+    The body whose name is read.
     """
-    return asserted_kind(_name_words(body), NamedKind) is None
+
+    annotation_type: Type[SemanticAnnotation]
+    """
+    The type the name has to settle on.
+    """
+
+    def __call__(self) -> bool:
+        kind = asserted_kind(_name_words(self.body), NamedKind)
+        return kind is not None and kind.value is self.annotation_type
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> is named after <annotation type>"*.
+        """
+        return predicate_clause(
+            cls, Noun(fields["body"]), Noun(fields["annotation_type"])
+        )
 
 
-@symbolic_function
-def is_not_named_after_furniture(body: Body) -> bool:
+@dataclass(eq=False)
+class NamesARecognisedKind(Predicate):
     """
-    Whether the body's name refrains from claiming a kind of furniture.
+    Whether the body's name claims one of the kinds the rules recognise by name.
+
+    A body whose name claims none of them is left to be decided by how it is jointed.
+    """
+
+    body: Body
+    """
+    The body whose name is read.
+    """
+
+    def __call__(self) -> bool:
+        return asserted_kind(_name_words(self.body), NamedKind) is not None
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> names a recognised kind"*.
+        """
+        return predicate_clause(cls, Noun(fields["body"]))
+
+
+@dataclass(eq=False)
+class IsNamedAfterFurniture(Predicate):
+    """
+    Whether the body's name claims a kind of furniture.
 
     Nothing about how a body is jointed tells a shelf board mounted inside a drawer
     apart from the drawer's handle, so a body the model calls furniture is left to the
     rules that go by name.
     """
-    kind = asserted_kind(_name_words(body), NamedKind)
-    return kind is None or not kind.is_furniture
+
+    body: Body
+    """
+    The body whose name is read.
+    """
+
+    def __call__(self) -> bool:
+        kind = asserted_kind(_name_words(self.body), NamedKind)
+        return kind is not None and kind.is_furniture
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> is named after furniture"*.
+        """
+        return predicate_clause(cls, Noun(fields["body"]))
 
 
-@symbolic_function
-def container_kind_of(body: Body) -> Optional[ContainerKind]:
+@dataclass(eq=False)
+class NamedContainerKind(SymbolicFunction):
     """
-    The kind of container the body is, read from its own name and those of its parts, or
-    ``None`` when nothing names a kind more specific than a cabinet.
+    The kind of container the names give away - the body's own and those of its parts -
+    or ``None`` when none of them names a kind more specific than a cabinet.
     """
-    for part in body._world.get_kinematic_structure_entities_of_branch(body):
-        kind = asserted_kind(_name_words(part), ContainerKind)
-        if kind is not None:
-            return kind
-    return None
+
+    body: Body
+    """
+    The body whose branch is read.
+    """
+
+    def __call__(self) -> Optional[ContainerKind]:
+        for part in self.body._world.get_kinematic_structure_entities_of_branch(
+            self.body
+        ):
+            kind = asserted_kind(_name_words(part), ContainerKind)
+            if kind is not None:
+                return kind
+        return None
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The noun phrase *"the named container kind of <body>"*.
+        """
+        return FunctionVerbalizationTemplates.possessive(cls, *fields.values())
 
 
 # %% what the rules leave alone
 
 
-@symbolic_function
-def is_not_part_of_a_robot(body: Body) -> bool:
+@dataclass(eq=False)
+class IsPartOfARobot(Predicate):
     """
-    Whether the body belongs to the environment rather than to a robot.
+    Whether the body belongs to a robot rather than to the environment.
 
     A robot is jointed exactly like furniture - a gripper finger slides as a drawer does,
     an arm link swings as a door does, and the link bolted to it looks like the handle
     that opens it - so without this a robot's own links would be annotated as furniture
     and its kinematic chain rewired around the joints that inserts.
     """
-    robot_roots = {
-        robot.root
-        for robot in body._world.get_semantic_annotations_by_type(AbstractRobot)
-    }
-    if not robot_roots:
-        return True
-    ancestor = body
-    while ancestor is not None:
-        if ancestor in robot_roots:
-            return False
-        ancestor = ancestor.parent_kinematic_structure_entity
-    return True
+
+    body: Body
+    """
+    The body whose ancestry is walked.
+    """
+
+    def __call__(self) -> bool:
+        robot_roots = {
+            robot.root
+            for robot in self.body._world.get_semantic_annotations_by_type(
+                AbstractRobot
+            )
+        }
+        ancestor = self.body
+        while ancestor is not None:
+            if ancestor in robot_roots:
+                return True
+            ancestor = ancestor.parent_kinematic_structure_entity
+        return False
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> is part of a robot"*.
+        """
+        return predicate_clause(cls, Noun(fields["body"]))
+
+
+# %% the geometry a body carries
+
+
+@dataclass(eq=False)
+class HasCollisionGeometry(Predicate):
+    """
+    Whether the body carries collision geometry of its own.
+
+    World models use a body without geometry to carry a joint and nothing else, so it is
+    part of the mechanism rather than something that can be annotated.
+    """
+
+    body: Body
+    """
+    The body whose geometry is read.
+    """
+
+    def __call__(self) -> bool:
+        return self.body.has_collision()
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> has collision geometry"*.
+        """
+        return predicate_clause(cls, Noun(fields["body"]))
 
 
 # %% identities the world already holds
 
 
-@symbolic_function
-def is_not_already_something_else(
-    body: Body,
-    kind: Type[SemanticAnnotation],
-    annotations: Sequence[SemanticAnnotation],
-) -> bool:
+@dataclass(eq=False)
+class HasAnotherAnnotation(Predicate):
     """
-    Whether nothing but ``kind`` has been annotated on the body yet.
+    Whether something other than one annotation type has been annotated on the body.
 
     An object put away in a drawer is jointed exactly as a handle is, so a body whose
     identity the world already holds keeps it instead of being claimed by a rule that
     only looks at the joints.
     """
-    return not any(
-        annotation.root is body
-        for annotation in annotations
-        if isinstance(annotation, HasRootKinematicStructureEntity)
-        and not isinstance(annotation, kind)
-    )
+
+    body: Body
+    """
+    The body whose identity is looked up.
+    """
+
+    annotation_type: Type[SemanticAnnotation]
+    """
+    The type being inferred, which therefore does not count as another one.
+    """
+
+    annotations: Sequence[SemanticAnnotation]
+    """
+    The annotations to look the body up in.
+    """
+
+    def __call__(self) -> bool:
+        return any(
+            annotation.root is self.body
+            for annotation in self.annotations
+            if isinstance(annotation, HasRootKinematicStructureEntity)
+            and not isinstance(annotation, self.annotation_type)
+        )
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> has an annotation besides <annotation type>"*, which
+            names the annotations it was looked up in no more than the rule does.
+        """
+        return clause(
+            Noun(fields["body"]),
+            Verb("have"),
+            Noun("annotation"),
+            Prepositions.BESIDES,
+            Noun(fields["annotation_type"]),
+        )
 
 
 # %% the parts a container holds
@@ -324,6 +492,10 @@ def _holder_of(body: Body) -> Optional[Body]:
     Bodies without geometry are skipped, because world models use them to carry a joint
     and nothing else, so a door reached through a pop-out helper still resolves to the
     container it belongs to.
+
+    :param body: The body to look above.
+    :return: The nearest such body, or ``None`` when nothing above this one has
+        geometry.
     """
     holder = body.parent_kinematic_structure_entity
     while holder is not None and not holder.has_collision():
@@ -341,6 +513,11 @@ def _parts_held_by(
 
     Rules read the annotations inferred so far from what they are given rather than from
     the world, because a rule runs before its conclusions reach the world.
+
+    :param body: The body the parts have to open out of.
+    :param annotations: The annotations inferred so far.
+    :param part_type: The type of part to collect.
+    :return: The parts of that type the body holds.
     """
     return [
         annotation
@@ -352,7 +529,9 @@ def _parts_held_by(
 @symbolic_function
 def drawers_of(body: Body, annotations: Sequence[SemanticAnnotation]) -> List[Drawer]:
     """
-    The drawers that slide out of the body.
+    :param body: The body the drawers have to slide out of.
+    :param annotations: The annotations inferred so far.
+    :return: The drawers that slide out of the body.
     """
     return _parts_held_by(body, annotations, Drawer)
 
@@ -360,20 +539,43 @@ def drawers_of(body: Body, annotations: Sequence[SemanticAnnotation]) -> List[Dr
 @symbolic_function
 def doors_of(body: Body, annotations: Sequence[SemanticAnnotation]) -> List[Door]:
     """
-    The doors that swing off the body.
+    :param body: The body the doors have to swing off.
+    :param annotations: The annotations inferred so far.
+    :return: The doors that swing off the body.
     """
     return _parts_held_by(body, annotations, Door)
 
 
-@symbolic_function
-def holds_openable_parts(body: Body, annotations: Sequence[SemanticAnnotation]) -> bool:
+@dataclass(eq=False)
+class HoldsOpenableParts(Predicate):
     """
     Whether anything opens out of the body, which is what makes it a container.
     """
-    return bool(
-        _parts_held_by(body, annotations, Drawer)
-        or _parts_held_by(body, annotations, Door)
-    )
+
+    body: Body
+    """
+    The body the parts are looked for on.
+    """
+
+    annotations: Sequence[SemanticAnnotation]
+    """
+    The annotations inferred so far, which the parts are looked up in.
+    """
+
+    def __call__(self) -> bool:
+        return bool(
+            _parts_held_by(self.body, self.annotations, Drawer)
+            or _parts_held_by(self.body, self.annotations, Door)
+        )
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        :param fields: The rendered fragment for each field.
+        :return: The clause *"<body> holds openable parts"*, which names the annotations
+            it looked them up in no more than the rule does.
+        """
+        return clause(Noun(fields["body"]), Verb("hold"), Noun.bare("openable parts"))
 
 
 # %% graspable parts
@@ -386,6 +588,9 @@ def handles(world: World) -> List[Handle]:
     A handle is a body of its own fixed to a part that an active joint moves, so it
     travels with what it opens without moving by itself. A lever that swings on a joint
     of its own, such as a tap's, is part of the mechanism rather than a grip on it.
+
+    :param world: The world to read.
+    :return: Every handle in it.
     """
     mount = variable(FixedConnection, world.connections)
     joint = variable(ActiveConnection, world.connections)
@@ -394,10 +599,10 @@ def handles(world: World) -> List[Handle]:
         entity(inference(Handle)(root=grip))
         .where(
             joint.child == mount.parent,
-            grip.has_collision(),
-            is_not_part_of_a_robot(grip),
-            is_not_named_after_furniture(grip),
-            is_not_already_something_else(grip, Handle, world.semantic_annotations),
+            HasCollisionGeometry(grip),
+            not_(IsPartOfARobot(grip)),
+            not_(IsNamedAfterFurniture(grip)),
+            not_(HasAnotherAnnotation(grip, Handle, world.semantic_annotations)),
         )
         .tolist()
     )
@@ -408,7 +613,8 @@ def handles(world: World) -> List[Handle]:
 
 def drawers_with_a_handle(world: World) -> List[Drawer]:
     """
-    Every body a slider pulls straight out of a container, opened by a handle.
+    :param world: The world to read.
+    :return: Every body a slider pulls straight out of a container, opened by a handle.
     """
     slider = variable(PrismaticConnection, world.connections)
     mount = variable(FixedConnection, world.connections)
@@ -416,8 +622,8 @@ def drawers_with_a_handle(world: World) -> List[Drawer]:
     return (
         entity(inference(Drawer)(root=slider.child, handle=handle))
         .where(
-            slider.child.has_collision(),
-            is_not_part_of_a_robot(slider.child),
+            HasCollisionGeometry(slider.child),
+            not_(IsPartOfARobot(slider.child)),
             mount.parent == slider.child,
             mount.child == handle.root,
         )
@@ -427,8 +633,9 @@ def drawers_with_a_handle(world: World) -> List[Drawer]:
 
 def drawers_without_a_handle(world: World) -> List[Drawer]:
     """
-    Every body a slider pulls straight out of a container that offers nothing to pull it
-    by.
+    :param world: The world to read.
+    :return: Every body a slider pulls straight out of a container that offers nothing to
+        pull it by.
     """
     slider = variable(PrismaticConnection, world.connections)
     mount = variable(FixedConnection, world.connections)
@@ -436,8 +643,8 @@ def drawers_without_a_handle(world: World) -> List[Drawer]:
     return (
         entity(inference(Drawer)(root=slider.child))
         .where(
-            slider.child.has_collision(),
-            is_not_part_of_a_robot(slider.child),
+            HasCollisionGeometry(slider.child),
+            not_(IsPartOfARobot(slider.child)),
             not_(
                 exists(
                     mount,
@@ -451,7 +658,8 @@ def drawers_without_a_handle(world: World) -> List[Drawer]:
 
 def doors_with_a_handle(world: World) -> List[Door]:
     """
-    Every body a hinge swings to uncover an opening, opened by a handle.
+    :param world: The world to read.
+    :return: Every body a hinge swings to uncover an opening, opened by a handle.
     """
     hinge = variable(RevoluteConnection, world.connections)
     mount = variable(FixedConnection, world.connections)
@@ -459,8 +667,8 @@ def doors_with_a_handle(world: World) -> List[Door]:
     return (
         entity(inference(Door)(root=hinge.child, handle=handle))
         .where(
-            hinge.child.has_collision(),
-            is_not_part_of_a_robot(hinge.child),
+            HasCollisionGeometry(hinge.child),
+            not_(IsPartOfARobot(hinge.child)),
             mount.parent == hinge.child,
             mount.child == handle.root,
         )
@@ -481,9 +689,11 @@ def doors_without_a_handle(
     nothing is a grip at all, and a container, whose door opens by its own joint rather
     than by following it.
 
+    :param world: The world to read.
     :param independent_joint_multiplier: The multiplier of a joint that moves on its own.
         Any other value means the joint only repeats another joint's motion - what URDF
         calls a mimic - so the part it moves is a leaf of the same front.
+    :return: Every such leaf.
     """
     hinge = variable(RevoluteConnection, world.connections)
     follower = variable(ActiveConnection1DOF, world.connections)
@@ -493,8 +703,8 @@ def doors_without_a_handle(
     return (
         entity(inference(Door)(root=hinge.child))
         .where(
-            hinge.child.has_collision(),
-            is_not_part_of_a_robot(hinge.child),
+            HasCollisionGeometry(hinge.child),
+            not_(IsPartOfARobot(hinge.child)),
             follower.parent == hinge.child,
             follower.multiplier != independent_joint_multiplier,
             mount.parent == follower.child,
@@ -518,11 +728,11 @@ def doors_without_a_handle(
 
 def _containers_of_kind(world: World, kind: Optional[ContainerKind]) -> List[Cabinet]:
     """
-    Every body that things open out of and whose name speaks for ``kind``.
-
+    :param world: The world to read.
     :param kind: The kind the body must resolve to, or ``None`` for a container that
         names no kind more specific than a cabinet, which is inferred as a plain
         :class:`Cabinet`.
+    :return: Every body that things open out of and whose name speaks for the kind.
     """
     container_type = Cabinet if kind is None else kind.value
     mount = variable(FixedConnection, world.connections)
@@ -537,10 +747,10 @@ def _containers_of_kind(world: World, kind: Optional[ContainerKind]) -> List[Cab
             )
         )
         .where(
-            is_not_part_of_a_robot(container),
-            holds_openable_parts(container, annotations),
-            container_kind_of(container) == kind,
-            names_no_recognised_kind(container),
+            not_(IsPartOfARobot(container)),
+            HoldsOpenableParts(container, annotations),
+            NamedContainerKind(container) == kind,
+            not_(NamesARecognisedKind(container)),
         )
         .tolist()
     )
@@ -548,28 +758,32 @@ def _containers_of_kind(world: World, kind: Optional[ContainerKind]) -> List[Cab
 
 def cabinets(world: World) -> List[Cabinet]:
     """
-    Every container whose name says nothing more than that it holds things.
+    :param world: The world to read.
+    :return: Every container whose name says nothing more than that it holds things.
     """
     return _containers_of_kind(world, None)
 
 
 def wardrobes(world: World) -> List[Wardrobe]:
     """
-    Every container named as a wardrobe.
+    :param world: The world to read.
+    :return: Every container named as a wardrobe.
     """
     return _containers_of_kind(world, ContainerKind.WARDROBE)
 
 
 def dishwashers(world: World) -> List[Dishwasher]:
     """
-    Every container named as a dishwasher, by itself or by one of its parts.
+    :param world: The world to read.
+    :return: Every container named as a dishwasher, by itself or by one of its parts.
     """
     return _containers_of_kind(world, ContainerKind.DISHWASHER)
 
 
 def fridges(world: World) -> List[Fridge]:
     """
-    Every container named as a fridge, by itself or by one of its parts.
+    :param world: The world to read.
+    :return: Every container named as a fridge, by itself or by one of its parts.
     """
     return _containers_of_kind(world, ContainerKind.FRIDGE)
 
@@ -581,17 +795,19 @@ def _furniture_named_after(
     world: World, annotation_type: Type[SemanticAnnotation]
 ) -> List:
     """
-    Every body with geometry that nothing moves and whose name speaks for
-    ``annotation_type``.
+    :param world: The world to read.
+    :param annotation_type: The type the name must settle on.
+    :return: Every body with geometry that nothing moves and whose name speaks for that
+        type.
     """
     mount = variable(FixedConnection, world.connections)
     body = mount.child
     return (
         entity(inference(annotation_type)(root=body))
         .where(
-            body.has_collision(),
-            is_not_part_of_a_robot(body),
-            is_named_after(body, annotation_type),
+            HasCollisionGeometry(body),
+            not_(IsPartOfARobot(body)),
+            IsNamedAfter(body, annotation_type),
         )
         .tolist()
     )
@@ -599,76 +815,87 @@ def _furniture_named_after(
 
 def ovens(world: World) -> List[Oven]:
     """
-    Every oven.
+    :param world: The world to read.
+    :return: Every oven.
     """
     return _furniture_named_after(world, Oven)
 
 
 def sinks(world: World) -> List[Sink]:
     """
-    Every sink.
+    :param world: The world to read.
+    :return: Every sink.
     """
     return _furniture_named_after(world, Sink)
 
 
 def cooktops(world: World) -> List[Cooktop]:
     """
-    Every cooktop.
+    :param world: The world to read.
+    :return: Every cooktop.
     """
     return _furniture_named_after(world, Cooktop)
 
 
 def counter_tops(world: World) -> List[CounterTop]:
     """
-    Every worktop.
+    :param world: The world to read.
+    :return: Every worktop.
     """
     return _furniture_named_after(world, CounterTop)
 
 
 def sofas(world: World) -> List[Sofa]:
     """
-    Every sofa.
+    :param world: The world to read.
+    :return: Every sofa.
     """
     return _furniture_named_after(world, Sofa)
 
 
 def walls(world: World) -> List[Wall]:
     """
-    Every wall.
+    :param world: The world to read.
+    :return: Every wall.
     """
     return _furniture_named_after(world, Wall)
 
 
 def shelf_layers(world: World) -> List[ShelfLayer]:
     """
-    Every board that things are stored on.
+    :param world: The world to read.
+    :return: Every board that things are stored on.
     """
     return _furniture_named_after(world, ShelfLayer)
 
 
 def coffee_machines(world: World) -> List[CoffeeMachine]:
     """
-    Every coffee machine.
+    :param world: The world to read.
+    :return: Every coffee machine.
     """
     return _furniture_named_after(world, CoffeeMachine)
 
 
 def tables(world: World) -> List[Table]:
     """
-    Every table that is no more specific kind of table.
+    :param world: The world to read.
+    :return: Every table that is no more specific kind of table.
     """
     return _furniture_named_after(world, Table)
 
 
 def coffee_tables(world: World) -> List[CoffeeTable]:
     """
-    Every coffee table.
+    :param world: The world to read.
+    :return: Every coffee table.
     """
     return _furniture_named_after(world, CoffeeTable)
 
 
 def side_tables(world: World) -> List[SideTable]:
     """
-    Every table that stands beside something.
+    :param world: The world to read.
+    :return: Every table that stands beside something.
     """
     return _furniture_named_after(world, SideTable)

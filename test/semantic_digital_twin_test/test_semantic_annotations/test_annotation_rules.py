@@ -11,10 +11,10 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.reasoning.world_rdr.rules import (
     ContainerKind,
+    NamedContainerKind,
     NamedKind,
     asserted_kind,
     cabinets,
-    container_kind_of,
     dishwashers,
     doors_with_a_handle,
     doors_without_a_handle,
@@ -437,7 +437,7 @@ def test_a_container_takes_its_kind_from_the_part_that_names_it():
         .apply(handles, drawers_without_a_handle)
     )
 
-    assert container_kind_of(furniture.bodies["unit"]) is ContainerKind.DISHWASHER
+    assert NamedContainerKind(furniture.bodies["unit"])() is ContainerKind.DISHWASHER
     assert furniture.root_names(dishwashers) == {furniture.name_of("unit")}
     assert furniture.root_names(cabinets) == set()
 
@@ -453,5 +453,5 @@ def test_a_container_naming_no_kind_is_a_plain_cabinet():
         .apply(handles, drawers_without_a_handle)
     )
 
-    assert container_kind_of(furniture.bodies["unit"]) is None
+    assert NamedContainerKind(furniture.bodies["unit"])() is None
     assert furniture.root_names(cabinets) == {furniture.name_of("unit")}
