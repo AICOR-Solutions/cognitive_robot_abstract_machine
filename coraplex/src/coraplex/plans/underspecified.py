@@ -19,7 +19,6 @@ from krrood.entity_query_language.query.match import Match
 if TYPE_CHECKING:
     from coraplex.datastructures.dataclasses import Context
     from coraplex.robot_plans.actions.base import ActionDescription
-    from semantic_digital_twin.world import World
 
 
 # %% trying a grounded action out before it is executed for real
@@ -54,15 +53,10 @@ class ActionTrial:
     executed for real afterwards.
     """
 
-    _world: Optional[World] = field(default=None, init=False, repr=False)
+    _copied_context: Optional[Context] = field(default=None, init=False, repr=False)
     """
-    The copy candidates are tried against, kept until it no longer matches the world it
-    was taken from.
-    """
-
-    _context: Optional[Context] = field(default=None, init=False, repr=False)
-    """
-    The context pointing at `_world`, rebuilt whenever a new copy is taken.
+    The context pointing at the copy candidates are tried against, kept until that copy
+    no longer matches the world it was taken from.
     """
 
     _source_versions: Optional[Tuple[int, int]] = field(
@@ -90,8 +84,9 @@ class ActionTrial:
         :param action: The grounded action to try out.
         :return: True if `action` runs to completion without raising a `PlanFailure`.
         """
-        world = self._copy()
-        plan = Plan(context=self._context)
+        context = self._copy()
+        world = context.world
+        plan = Plan(context=context)
         candidate = ActionNode(designator=world.rebind_world_entities(action))
         plan.add_node(candidate)
         version = world.get_world_model_manager().version
@@ -110,32 +105,31 @@ class ActionTrial:
                 # state, which needs the degrees of freedom it was snapshotted with.
                 world.rollback_to_version(version)
 
-    def _copy(self) -> World:
+    def _copy(self) -> Context:
         """
-        :return: The copy to try candidates against, taken again if `context.world` has
-            changed since the current one was made.
+        :return: The context pointing at the copy to try candidates against, taken again
+            if `context.world` has changed since the current one was made.
         """
         versions = (
             self.context.world.get_world_model_manager().version,
             self.context.world.state.version,
         )
-        if self._world is None or self._source_versions != versions:
-            self._world = deepcopy(self.context.world)
-            self._context = replace(
+        if self._copied_context is None or self._source_versions != versions:
+            world = deepcopy(self.context.world)
+            self._copied_context = replace(
                 self.context,
-                world=self._world,
-                robot=self._world.get_semantic_annotation_by_id(self.context.robot.id),
+                world=world,
+                robot=world.get_semantic_annotation_by_id(self.context.robot.id),
                 evaluate_conditions=True,
             )
             self._source_versions = versions
-        return self._world
+        return self._copied_context
 
     def discard(self) -> None:
         """
         Release the copy, so the next trial takes a fresh one.
         """
-        self._world = None
-        self._context = None
+        self._copied_context = None
         self._source_versions = None
 
 
