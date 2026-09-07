@@ -70,7 +70,7 @@ def test_resolve_variable_raises_for_ambiguous_suffix(rpc, room_query_4):
 
 def test_relational_causal_circuit_ground_returns_a_causal_circuit(rpc, room_query_4):
     np.random.seed(0)
-    causal_circuit = RelationalCausalCircuit.ground(
+    causal_circuit = RelationalCausalCircuit().ground(
         rpc,
         room_query_4,
         causal_variables=["chair_count()"],
@@ -93,7 +93,7 @@ def test_relational_causal_circuit_ground_accepts_resolved_variables(rpc, room_q
     )
 
     np.random.seed(0)
-    causal_circuit = RelationalCausalCircuit.ground(
+    causal_circuit = RelationalCausalCircuit().ground(
         rpc,
         room_query_4,
         causal_variables=[chair_count_variable],
@@ -108,7 +108,7 @@ def test_relational_causal_circuit_ground_defaults_to_causal_sampled(rpc, room_q
     entire point of grounding a CausalCircuit this way.
     """
     np.random.seed(0)
-    causal_circuit = RelationalCausalCircuit.ground(
+    causal_circuit = RelationalCausalCircuit().ground(
         rpc,
         room_query_4,
         causal_variables=["chair_count()"],
@@ -120,7 +120,7 @@ def test_relational_causal_circuit_ground_defaults_to_causal_sampled(rpc, room_q
 
 def test_relational_causal_circuit_ground_backdoor_adjustment_runs(rpc, room_query_4):
     np.random.seed(0)
-    causal_circuit = RelationalCausalCircuit.ground(
+    causal_circuit = RelationalCausalCircuit().ground(
         rpc,
         room_query_4,
         causal_variables=["chair_count()"],
@@ -147,14 +147,13 @@ def test_relational_causal_circuit_ground_warns_on_expensive_adjustment_set(
     rather than waiting to discover the cost at query time.
     """
     with caplog.at_level("WARNING"):
-        RelationalCausalCircuit.ground(
+        RelationalCausalCircuit(adjustment_region_count_warning_threshold=0).ground(
             rpc,
             room_query_4,
             causal_variables=["objects[0].type"],
             effect_variables=["objects[1].type"],
             adjustment_variables=["chair_count()", "table_count()"],
             grounding_mode=GroundingMode.EXACT,
-            adjustment_region_count_warning_threshold=0,
         )
     assert any("leaf regions" in message for message in caplog.messages)
 
@@ -163,13 +162,14 @@ def test_relational_causal_circuit_ground_does_not_warn_below_threshold(
     rpc, room_query_4, caplog
 ):
     with caplog.at_level("WARNING"):
-        RelationalCausalCircuit.ground(
+        RelationalCausalCircuit(
+            adjustment_region_count_warning_threshold=10_000
+        ).ground(
             rpc,
             room_query_4,
             causal_variables=["objects[0].type"],
             effect_variables=["objects[1].type"],
             adjustment_variables=["chair_count()", "table_count()"],
             grounding_mode=GroundingMode.EXACT,
-            adjustment_region_count_warning_threshold=10_000,
         )
     assert not any("leaf regions" in message for message in caplog.messages)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from typing_extensions import TYPE_CHECKING, ClassVar, List, Optional, Union
+from typing_extensions import TYPE_CHECKING, List, Optional, TypeAlias, Union
 
 from probabilistic_model.probabilistic_circuit.causal.causal_circuit import (
     CausalCircuit,
@@ -36,6 +36,15 @@ from random_events.variable import Variable
 if TYPE_CHECKING:
     from krrood.entity_query_language.query.match import Match
 
+logger = logging.getLogger(__name__)
+
+VariableReference: TypeAlias = Union[Variable, str]
+"""
+A cause, effect, or adjustment variable, given either as an already-resolved
+``Variable`` or as a dotted access-path string resolved against a grounded circuit via
+:meth:`RelationalCausalCircuit.resolve_variable`.
+"""
+
 
 @dataclass
 class RelationalCausalCircuit:
@@ -43,15 +52,12 @@ class RelationalCausalCircuit:
     Factory bridging ``RelationalProbabilisticCircuit`` grounding into ``CausalCircuit``
     construction, mirroring how the rest of the ``relational`` package bridges
     ``probabilistic_model`` and ``krrood``.
-
-    Holds no state of its own; :meth:`ground` returns a plain ``CausalCircuit``.
     """
 
-    DEFAULT_ADJUSTMENT_REGION_COUNT_WARNING_THRESHOLD: ClassVar[int] = 1000
+    adjustment_region_count_warning_threshold: int = 1000
     """
-    Default value of ``adjustment_region_count_warning_threshold``.
-
-    See :meth:`ground`.
+    Warn rather than silently proceed when the Cartesian product of an adjustment
+    set's leaf-region counts exceeds this. See :meth:`from_grounded_circuit`.
     """
 
     @staticmethod
@@ -85,7 +91,7 @@ class RelationalCausalCircuit:
 
     @staticmethod
     def _resolve_variables(
-        circuit: ProbabilisticCircuit, variables: List[Union[Variable, str]]
+        circuit: ProbabilisticCircuit, variables: List[VariableReference]
     ) -> List[Variable]:
         """
         Resolve a mixed list of Variables and dotted access-path strings.
@@ -103,15 +109,14 @@ class RelationalCausalCircuit:
             for variable in variables
         ]
 
-    @staticmethod
     def ground(
+        self,
         relational_probabilistic_circuit: RelationalProbabilisticCircuit,
         query: Match,
-        causal_variables: List[Union[Variable, str]],
-        effect_variables: List[Union[Variable, str]],
-        adjustment_variables: Optional[List[Union[Variable, str]]] = None,
+        causal_variables: List[VariableReference],
+        effect_variables: List[VariableReference],
+        adjustment_variables: Optional[List[VariableReference]] = None,
         grounding_mode: GroundingMode = GroundingMode.SAMPLED,
-        adjustment_region_count_warning_threshold: int = DEFAULT_ADJUSTMENT_REGION_COUNT_WARNING_THRESHOLD,
     ) -> CausalCircuit:
         """
         Ground a relational circuit for a query and wrap it as a ``CausalCircuit``.
@@ -134,8 +139,6 @@ class RelationalCausalCircuit:
             succeeds; :attr:`GroundingMode.EXACT` gives reproducible, domain-covering
             regions but may fall back internally if its precondition isn't met. See
             :class:`~probabilistic_model.probabilistic_circuit.relational.rspn.GroundingMode`.
-        :param adjustment_region_count_warning_threshold: See
-            :meth:`from_grounded_circuit`.
         :return: A verified, support-deterministic ``CausalCircuit`` over the grounded
             circuit.
         :raises SupportDeterminismVerificationResult: If the grounded circuit is not
@@ -144,21 +147,16 @@ class RelationalCausalCircuit:
         grounded_circuit = relational_probabilistic_circuit.ground(
             query, grounding_mode
         )
-        return RelationalCausalCircuit.from_grounded_circuit(
-            grounded_circuit,
-            causal_variables,
-            effect_variables,
-            adjustment_variables,
-            adjustment_region_count_warning_threshold,
+        return self.from_grounded_circuit(
+            grounded_circuit, causal_variables, effect_variables, adjustment_variables
         )
 
-    @staticmethod
     def from_grounded_circuit(
+        self,
         grounded_circuit: ProbabilisticCircuit,
-        causal_variables: List[Union[Variable, str]],
-        effect_variables: List[Union[Variable, str]],
-        adjustment_variables: Optional[List[Union[Variable, str]]] = None,
-        adjustment_region_count_warning_threshold: int = DEFAULT_ADJUSTMENT_REGION_COUNT_WARNING_THRESHOLD,
+        causal_variables: List[VariableReference],
+        effect_variables: List[VariableReference],
+        adjustment_variables: Optional[List[VariableReference]] = None,
     ) -> CausalCircuit:
         """
         Wrap an already-grounded circuit as a verified ``CausalCircuit``.
@@ -175,31 +173,20 @@ class RelationalCausalCircuit:
         :param effect_variables: Effect variables to register, same format.
         :param adjustment_variables: Backdoor-adjustment variables to register, same
             format. Defaults to none.
-        :param adjustment_region_count_warning_threshold: Warn rather than silently
-            proceed when the Cartesian product of ``adjustment_variables``' leaf-region
-            counts exceeds this, since ``CausalCircuit.backdoor_adjustment``'s
-            region-extraction cost scales with it. See
-            :meth:`_warn_if_adjustment_regions_are_expensive`.
         :return: A verified, support-deterministic ``CausalCircuit`` over
             ``grounded_circuit``.
         :raises SupportDeterminismVerificationResult: If ``grounded_circuit`` is not
             support-deterministic for ``causal_variables``.
         """
         adjustment_variables = adjustment_variables or []
-        causal_variables = RelationalCausalCircuit._resolve_variables(
-            grounded_circuit, causal_variables
-        )
-        effect_variables = RelationalCausalCircuit._resolve_variables(
-            grounded_circuit, effect_variables
-        )
-        adjustment_variables = RelationalCausalCircuit._resolve_variables(
+        causal_variables = self._resolve_variables(grounded_circuit, causal_variables)
+        effect_variables = self._resolve_variables(grounded_circuit, effect_variables)
+        adjustment_variables = self._resolve_variables(
             grounded_circuit, adjustment_variables
         )
 
-        RelationalCausalCircuit._warn_if_adjustment_regions_are_expensive(
-            grounded_circuit,
-            adjustment_variables,
-            adjustment_region_count_warning_threshold,
+        self._warn_if_adjustment_regions_are_expensive(
+            grounded_circuit, adjustment_variables
         )
 
         tree = MarginalDeterminismTreeNode.from_causal_graph(
@@ -211,11 +198,10 @@ class RelationalCausalCircuit:
         causal_circuit.verify_support_determinism()
         return causal_circuit
 
-    @staticmethod
     def _warn_if_adjustment_regions_are_expensive(
+        self,
         grounded_circuit: ProbabilisticCircuit,
         adjustment_variables: List[Variable],
-        threshold: int,
     ) -> None:
         """
         Warn when registering ``adjustment_variables`` together would make
@@ -233,7 +219,6 @@ class RelationalCausalCircuit:
         :param grounded_circuit: The grounded circuit to extract leaf-region counts
             from.
         :param adjustment_variables: The resolved adjustment variables.
-        :param threshold: Warn when the Cartesian product exceeds this.
         """
         if len(adjustment_variables) < 2:
             return
@@ -242,8 +227,8 @@ class RelationalCausalCircuit:
             for variable in adjustment_variables
         ]
         region_product = math.prod(region_counts)
-        if region_product > threshold:
-            logging.getLogger(__name__).warning(
+        if region_product > self.adjustment_region_count_warning_threshold:
+            logger.warning(
                 "Adjustment set [%s] has a Cartesian product of %d leaf regions (%s), "
                 "exceeding the configured threshold of %d; "
                 "CausalCircuit.backdoor_adjustment's region-extraction cost scales "
@@ -251,5 +236,5 @@ class RelationalCausalCircuit:
                 ", ".join(variable.name for variable in adjustment_variables),
                 region_product,
                 " x ".join(str(count) for count in region_counts),
-                threshold,
+                self.adjustment_region_count_warning_threshold,
             )

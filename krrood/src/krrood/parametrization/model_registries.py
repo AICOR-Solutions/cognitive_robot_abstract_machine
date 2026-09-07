@@ -149,7 +149,7 @@ class RelationalCircuitRegistry(ModelRegistry):
             the declared cause and effect variables.
         :return: A verified, support-deterministic ``CausalCircuit``.
         """
-        return RelationalCausalCircuit.from_grounded_circuit(
+        return RelationalCausalCircuit().from_grounded_circuit(
             grounded,
             parameters.search_cause_variables,
             list(parameters.effect_variables_from_causes_effect),

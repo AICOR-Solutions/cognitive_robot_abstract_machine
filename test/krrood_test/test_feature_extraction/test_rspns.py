@@ -17,6 +17,7 @@ from probabilistic_model.probabilistic_circuit.relational.exceptions import (
     InvalidMonteCarloSampleCountError,
 )
 from probabilistic_model.probabilistic_circuit.relational.rspn import (
+    ExchangeablePartGrounder,
     GroundingMode,
     RelationalProbabilisticCircuit,
 )
@@ -347,7 +348,7 @@ def test_exact_grounding_falls_back_to_sampled_when_partition_overlaps(
     """
     np.random.seed(0)
     with patch.object(
-        RelationalProbabilisticCircuit,
+        ExchangeablePartGrounder,
         "_undetermined_latents_partition_disjointly",
         return_value=False,
     ):
@@ -484,7 +485,7 @@ def test_representative_value_returns_a_point_not_a_region():
     circuit = ProbabilisticCircuit()
     branch = _integer_leaf(variable, {2: 0.5, 3: 0.5}, circuit)
 
-    representative_value = RelationalProbabilisticCircuit._representative_value(
+    representative_value = ExchangeablePartGrounder._representative_value(
         branch, SortedSet([variable])
     )
 
@@ -537,12 +538,12 @@ def test_node_local_branch_log_probabilities_reflect_each_nodes_own_correlation(
     region_three = SimpleEvent.from_data({chair_count: 3}).as_composite_set()
 
     weights_for_node_favoring_one = (
-        RelationalProbabilisticCircuit._node_local_branch_log_probabilities(
+        ExchangeablePartGrounder._node_local_branch_log_probabilities(
             node_favoring_one, SortedSet([chair_count]), [region_one, region_three]
         )
     )
     weights_for_node_favoring_three = (
-        RelationalProbabilisticCircuit._node_local_branch_log_probabilities(
+        ExchangeablePartGrounder._node_local_branch_log_probabilities(
             node_favoring_three, SortedSet([chair_count]), [region_one, region_three]
         )
     )
@@ -551,7 +552,7 @@ def test_node_local_branch_log_probabilities_reflect_each_nodes_own_correlation(
     assert weights_for_node_favoring_three[1] > weights_for_node_favoring_three[0]
 
 
-# %% RelationalProbabilisticCircuit._undetermined_latents_partition_disjointly
+# %% ExchangeablePartGrounder._undetermined_latents_partition_disjointly
 
 
 def _integer_leaf(variable, probabilities, circuit):
@@ -575,7 +576,7 @@ def test_partition_disjointly_false_for_a_single_branch():
     circuit = ProbabilisticCircuit()
     _integer_leaf(variable, {1: 1.0}, circuit)
     assert (
-        not RelationalProbabilisticCircuit._undetermined_latents_partition_disjointly(
+        not ExchangeablePartGrounder._undetermined_latents_partition_disjointly(
             circuit
         )
     )
@@ -588,7 +589,7 @@ def test_partition_disjointly_true_for_disjoint_branches():
     root.add_subcircuit(_integer_leaf(variable, {1: 1.0}, circuit), 0.0)
     root.add_subcircuit(_integer_leaf(variable, {2: 1.0}, circuit), 0.0)
     root.normalize()
-    assert RelationalProbabilisticCircuit._undetermined_latents_partition_disjointly(
+    assert ExchangeablePartGrounder._undetermined_latents_partition_disjointly(
         circuit
     )
 
@@ -601,7 +602,7 @@ def test_partition_disjointly_false_for_overlapping_branches():
     root.add_subcircuit(_integer_leaf(variable, {2: 0.5, 3: 0.5}, circuit), 0.0)
     root.normalize()
     assert (
-        not RelationalProbabilisticCircuit._undetermined_latents_partition_disjointly(
+        not ExchangeablePartGrounder._undetermined_latents_partition_disjointly(
             circuit
         )
     )

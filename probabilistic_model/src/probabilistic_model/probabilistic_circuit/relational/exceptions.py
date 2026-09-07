@@ -32,6 +32,51 @@ class CircuitNotFittedError(DataclassException):
 
 
 @dataclass
+class ClassCircuitGroundingFailedError(DataclassException):
+    """
+    Raised when conditioning the class circuit on aggregation statistics leaves it with
+    no nodes at all.
+    """
+
+    class_: Type
+    """The domain class whose class circuit failed to ground."""
+
+    def error_message(self) -> str:
+        return (
+            f"Grounding the class circuit for {self.class_.__name__} produced an "
+            f"empty circuit."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the conditioning aggregation statistics are consistent with "
+            "the fitted circuit's support."
+        )
+
+
+@dataclass
+class PartCircuitGroundingFailedError(DataclassException):
+    """
+    Raised when grounding one exchangeable part leaves its circuit with no nodes at all.
+    """
+
+    class_: Type
+    """The domain class of the exchangeable part that failed to ground."""
+
+    def error_message(self) -> str:
+        return (
+            f"Grounding the exchangeable part circuit for {self.class_.__name__} "
+            f"produced an empty circuit."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the conditioning aggregation statistics are consistent with "
+            "the fitted template's support."
+        )
+
+
+@dataclass
 class InvalidMonteCarloSampleCountError(DataclassException):
     """
     Raised when grounding must integrate out undetermined aggregation statistics but the
