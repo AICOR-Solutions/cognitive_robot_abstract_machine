@@ -1025,7 +1025,7 @@ class Point3(Point):
         if isinstance(data, SpatialType) and reference_frame is None:
             reference_frame = data.reference_frame
         result = cls(reference_frame=reference_frame)
-        result.casadi_sx = sm.to_sx(data)
+        result.casadi_sx = copy(sm.to_sx(data))
         return result
 
     @classmethod
@@ -1372,7 +1372,7 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         result = cls(
             reference_frame=reference_frame, visualisation_frame=visualisation_frame
         )
-        result.casadi_sx = sm.to_sx(data)
+        result.casadi_sx = copy(sm.to_sx(data))
         return result
 
     @classmethod

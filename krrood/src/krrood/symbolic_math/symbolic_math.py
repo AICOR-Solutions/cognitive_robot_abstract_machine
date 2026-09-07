@@ -1312,11 +1312,11 @@ class Matrix(SymbolicMathType):
         """
         Iterate over the first axis of the matrix, yielding Vector rows.
 
-        This mirrors NumPy's behavior for 2D arrays where iteration returns 1D row views
-        along axis 0.
+        This mirrors NumPy's behavior for 2D arrays where iteration returns one Vector
+        per row, in order, along axis 0.
         """
         for i in range(self.shape[0]):
-            yield Vector.from_casadi_sx(copy.copy(self.casadi_sx[i, :]))
+            yield Vector.from_casadi_sx(self.casadi_sx[i, :])
 
     def __add__(self, other: ScalarData | Vector | Matrix) -> Self:
         other_sx = self._broadcast_like_self(other)
