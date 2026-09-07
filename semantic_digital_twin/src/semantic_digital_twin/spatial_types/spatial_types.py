@@ -174,7 +174,8 @@ class SpatialType:
         """
         if id(self) in memo:
             return memo[id(self)]
-        result = self._copy_with_data(deepcopy(self.casadi_sx))
+        with sm.CasadiLock():
+            result = self._copy_with_data(deepcopy(self.casadi_sx))
         memo[id(self)] = result
         return result
 

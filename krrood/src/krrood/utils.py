@@ -3,16 +3,12 @@ from __future__ import annotations
 import ast
 import builtins
 import importlib
-import inspect
 import os
-import subprocess
 import sys
-import threading
 import types
-from copy import deepcopy
 from dataclasses import Field
 from dataclasses import fields, MISSING
-from functools import lru_cache, wraps
+from functools import lru_cache
 from importlib.util import resolve_name
 from inspect import isclass
 from os import PathLike
@@ -22,6 +18,11 @@ from typing import Tuple, Generic, Hashable
 from typing import Union, Any
 
 from typing_extensions import (
+    Dict,
+    get_origin,
+    get_args,
+)
+from typing_extensions import (
     TypeVar,
     Type,
     List,
@@ -30,12 +31,6 @@ from typing_extensions import (
     TypeVarTuple,
     _SpecialForm,
 )
-from typing_extensions import (
-    Iterable,
-    Dict,
-    get_origin,
-    get_args,
-)
 
 from krrood import logger
 from krrood.exceptions import (
@@ -43,7 +38,6 @@ from krrood.exceptions import (
     NoDefaultValueFound,
     PackageNameNotFoundError,
     PathMissingRequiredPartsError,
-    SubprocessExecutionError,
     SourceDataNotProvided,
 )
 
@@ -685,103 +679,6 @@ def _handle_import_from_node(
             _log_unresolvable_import_once(resolved_module_name, name, file_path, str(e))
 
     return package_name
-
-
-TCallable = TypeVar("TCallable", bound=Callable[..., Any])
-
-_memo_lock_creation_lock = threading.Lock()
-"""
-Serialises creation of each memoized instance's own private memoization lock.
-
-Held only for the brief check-and-create of an instance's lock, never for the memoized
-call itself, mirroring how :class:`krrood.singleton.SingletonMeta` uses one global lock
-to guard lazy per-class bookkeeping.
-"""
-
-
-def _memoization_lock(instance: Any) -> threading.RLock:
-    """
-    Returns the given instance's private memoization lock, creating it on first use.
-
-    Creation is double-checked under :data:`_memo_lock_creation_lock` so two threads
-    racing to memoize a call on the same freshly constructed instance cannot each create
-    their own lock and defeat the point of locking.
-
-    Reentrant because a memoized method commonly calls another memoized method on the
-    same instance (for example one chain-computation cache built from another) on the
-    same thread; a plain lock would deadlock on that call.
-    """
-    if not hasattr(instance, "__memo_lock__"):
-        with _memo_lock_creation_lock:
-            if not hasattr(instance, "__memo_lock__"):
-                instance.__memo_lock__ = threading.RLock()
-    return instance.__memo_lock__
-
-
-def memoize(function: TCallable) -> TCallable:
-    """
-    Caches the return value of a function call at the instance level.
-
-    Thread-safe: concurrent calls on the same instance are serialised by that
-    instance's own lock (see :func:`_memoization_lock`), so a cache miss is never
-    computed twice for the same key and a concurrent reader never observes a
-    partially-populated cache.
-    """
-
-    @wraps(function)
-    def wrapper(self, *args: Any, **kwargs: Any) -> Any:
-        key = (function, self, args, frozenset(kwargs.items()))
-        with _memoization_lock(self):
-            if not hasattr(self, "__memo__"):
-                self.__memo__ = {}
-            memo = self.__memo__
-            try:
-                return memo[key]
-            except KeyError:
-                rv = function(self, *args, **kwargs)
-                memo[key] = rv
-                return rv
-
-    return wrapper  # type: ignore
-
-
-def copy_memoize(function: TCallable) -> TCallable:
-    """
-    Caches the return value of a function call at the instance level but returns a
-    deepcopy of the value.
-
-    Thread-safe: the whole lookup-or-compute-and-store sequence, including the
-    ``deepcopy`` calls, is serialised by the instance's own lock (see
-    :func:`_memoization_lock`). Without this, two threads missing the same cache key at
-    nearly the same time could each end up calling ``deepcopy`` on the exact same cached
-    object at the same time, which is unsafe for CasADi-backed values.
-    """
-
-    @wraps(function)
-    def wrapper(self, *args, **kwargs):
-        key = (function, self, args, frozenset(kwargs.items()))
-        with _memoization_lock(self):
-            if not hasattr(self, "__memo__"):
-                self.__memo__ = {}
-            memo = self.__memo__
-            try:
-                return deepcopy(memo[key])
-            except KeyError:
-                rv = function(self, *args, **kwargs)
-                memo[key] = rv
-                return deepcopy(rv)
-
-    return wrapper
-
-
-def clear_memoization_cache(instance):
-    """
-    Clears the memoization cache of an instance.
-    """
-    if not hasattr(instance, "__memo__"):
-        return
-    with _memoization_lock(instance):
-        instance.__memo__.clear()
 
 
 def is_dynamic_class(cls: Type) -> bool:

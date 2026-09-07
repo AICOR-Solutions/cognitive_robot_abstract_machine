@@ -27,6 +27,7 @@ import operator
 import sys
 import threading
 import weakref
+from types import TracebackType
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import field, dataclass
@@ -66,6 +67,48 @@ from krrood.symbolic_math.exceptions import (
 )
 
 EPS: float = sys.float_info.epsilon * 4.0
+
+
+class CasadiLock:
+    """
+    Serialises every construction and copy of a CasADi expression.
+
+    CasADi reference-counts the nodes its expressions share without atomics, so two
+    threads building or copying expressions that reach the same node corrupt those
+    counts and crash the process natively. Every code path that creates or copies an
+    expression from more than one thread must hold this lock.
+
+    .. note::
+        Take it innermost. A memoized call already copies its cached expression under
+        this lock, so acquiring a memoization lock while holding this one would order
+        the two locks both ways round.
+    """
+
+    _lock: ClassVar[threading.RLock] = threading.RLock()
+    """
+    The single lock every CasADi expression is built and copied under.
+
+    Reentrant because building an expression composes other expressions, and copying one
+    copies the expressions it contains.
+    """
+
+    def __enter__(self) -> CasadiLock:
+        """
+        Waits until no other thread is inside CasADi.
+        """
+        self._lock.acquire()
+        return self
+
+    def __exit__(
+        self,
+        exception_type: Optional[Type[BaseException]],
+        exception: Optional[BaseException],
+        traceback: Optional[TracebackType],
+    ) -> None:
+        """
+        Lets the next thread into CasADi.
+        """
+        self._lock.release()
 
 
 @dataclass

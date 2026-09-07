@@ -7,7 +7,7 @@ native crash that would take the whole pytest process down if triggered in-proce
 
 The crash used to happen because ``World.compose_forward_kinematics_expression`` is
 ``@copy_memoize``: concurrent cache misses for the same key raced to both compute and
-write the per-instance memo dict with no lock (krrood.utils.copy_memoize), and two
+write the per-owner cache with no lock (krrood.patterns.caching.copy_memoize), and two
 threads could end up calling ``deepcopy`` on the same cached CasADi-backed object at the
 same time. The computation also built HomogeneousTransformationMatrix results via
 SymbolicMathType.from_casadi_sx(), which used to alias rather than copy its input, and
@@ -15,7 +15,7 @@ HomogeneousTransformationMatrix._verify_type() writes into that casadi_sx in pla
 enough concurrent callers, two threads ended up reading and writing overlapping CasADi
 SX objects with no synchronization anywhere in that chain, which corrupted CasADi's
 internal (non-atomic) reference counting and crashed natively. ``memoize``/
-``copy_memoize`` are now serialised per instance, and the aliasing call sites now copy,
+``copy_memoize`` now serialise each cached result, and the aliasing call sites now copy,
 so this script is expected to run to completion without crashing.
 """
 
