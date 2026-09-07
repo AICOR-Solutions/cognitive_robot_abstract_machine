@@ -295,9 +295,8 @@ class ExchangeablePartGrounder:
         # the precondition just verified guarantees proposal.root is a SumUnit with at
         # least two branches
         branches = proposal.root.log_weighted_subcircuits
-        # side-effecting traversal: populates result_of_current_query on every node,
-        # which branch_regions below reads off; the returned event itself is unused
-        _ = proposal.support
+        # _undetermined_latents_partition_disjointly already called proposal.support
+        # above, caching each branch's region on it as result_of_current_query
         branch_regions = [branch.result_of_current_query for _, branch in branches]
 
         # each node's weights must be read off circuit before undetermined_latents are
