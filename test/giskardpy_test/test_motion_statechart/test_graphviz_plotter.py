@@ -422,9 +422,7 @@ def test_condition_term_is_colored_by_the_value_of_the_term():
 
     label = find_node(draw(motion_statechart), owner).get_label()
 
-    term_value = LifeCyclePredicate.IS_SUCCEEDED.value.truth_value(
-        LifeCycleValues.RUNNING
-    )
+    term_value = LifeCyclePredicate.IS_SUCCEEDED.truth_value(LifeCycleValues.RUNNING)
     term_color = OBSERVATION_DRAWING_STYLES[term_value].color.to_hex()
     term = f"{observed.unique_name}.{LifeCyclePredicate.IS_SUCCEEDED.attribute_name}"
     assert f'<FONT COLOR="{term_color}">"{term}"</FONT>' in label

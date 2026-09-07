@@ -511,9 +511,7 @@ class LifeCyclePredicateVariable(ConditionVariable):
         )
 
     def resolve(self) -> ObservationStateValues:
-        return self.predicate.value.truth_value(
-            self.motion_statechart_node.life_cycle_state
-        )
+        return self.predicate.truth_value(self.motion_statechart_node.life_cycle_state)
 
 
 @dataclass(repr=False, eq=False, init=False)
@@ -991,8 +989,7 @@ class MotionStatechartNode:
         while current.parent_node is not None:
             parent = current.parent_node
             unpause_condition = sm.trinary_logic_and(
-                unpause_condition,
-                parent.pause_condition.is_not_true()
+                unpause_condition, parent.pause_condition.is_not_true()
             )
             current = parent
 
@@ -1259,9 +1256,7 @@ class MotionStatechartNode:
             and the verdict it earned once it has ended.
         """
         if self.life_cycle_state.is_terminal:
-            return LifeCyclePredicate.IS_SUCCEEDED.value.truth_value(
-                self.life_cycle_state
-            )
+            return LifeCyclePredicate.IS_SUCCEEDED.truth_value(self.life_cycle_state)
         return ObservationStateValues(self.observation_state)
 
     def _create_goal_reached(self) -> sm.Scalar:
@@ -1277,7 +1272,7 @@ class MotionStatechartNode:
                 (
                     int(state),
                     sm.Scalar(
-                        float(LifeCyclePredicate.IS_SUCCEEDED.value.truth_value(state))
+                        float(LifeCyclePredicate.IS_SUCCEEDED.truth_value(state))
                     ),
                 )
                 for state in sorted(LifeCycleValues.terminal_states())

@@ -443,7 +443,7 @@ class NextLifeCycle:
         return expression.substitute(
             variables,
             [
-                variable.predicate.value.expression(
+                variable.predicate.expression(
                     self._life_cycle_of(variable.motion_statechart_node)
                 )
                 for variable in variables

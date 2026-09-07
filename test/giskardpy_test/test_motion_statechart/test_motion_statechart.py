@@ -3392,10 +3392,7 @@ class TestLifeCyclePredicates:
         """
         How a node ended has no answer until it ends.
         """
-        assert (
-            predicate.value.truth_value(life_cycle_state)
-            == ObservationStateValues.UNKNOWN
-        )
+        assert predicate.truth_value(life_cycle_state) == ObservationStateValues.UNKNOWN
 
     @pytest.mark.parametrize(
         "predicate, verdict",
@@ -3415,7 +3412,7 @@ class TestLifeCyclePredicates:
                 if life_cycle_state is verdict
                 else ObservationStateValues.FALSE
             )
-            assert predicate.value.truth_value(life_cycle_state) == expected
+            assert predicate.truth_value(life_cycle_state) == expected
 
     @pytest.mark.parametrize(
         "predicate",
@@ -3427,7 +3424,7 @@ class TestLifeCyclePredicates:
         open as it was while the node was running.
         """
         assert (
-            predicate.value.truth_value(LifeCycleValues.INTERRUPTED)
+            predicate.truth_value(LifeCycleValues.INTERRUPTED)
             == ObservationStateValues.UNKNOWN
         )
 
@@ -3443,7 +3440,7 @@ class TestLifeCyclePredicates:
                 else ObservationStateValues.FALSE
             )
             assert (
-                LifeCyclePredicate.IS_INTERRUPTED.value.truth_value(life_cycle_state)
+                LifeCyclePredicate.IS_INTERRUPTED.truth_value(life_cycle_state)
                 == expected
             )
 
@@ -3466,7 +3463,7 @@ class TestLifeCyclePredicates:
                 if life_cycle_state is phase
                 else ObservationStateValues.FALSE
             )
-            assert predicate.value.truth_value(life_cycle_state) == expected
+            assert predicate.truth_value(life_cycle_state) == expected
 
     @pytest.mark.parametrize("life_cycle_state", list(LifeCycleValues))
     def test_is_terminated_matches_the_terminal_states(self, life_cycle_state):
@@ -3476,8 +3473,7 @@ class TestLifeCyclePredicates:
             else ObservationStateValues.FALSE
         )
         assert (
-            LifeCyclePredicate.IS_TERMINATED.value.truth_value(life_cycle_state)
-            == expected
+            LifeCyclePredicate.IS_TERMINATED.truth_value(life_cycle_state) == expected
         )
 
     def test_a_condition_starts_a_node_on_the_cycle_a_verdict_is_reached(self):
@@ -3641,9 +3637,7 @@ class TestLifeCyclePredicates:
 
         assert (
             node.is_succeeded.resolve()
-            == LifeCyclePredicate.IS_SUCCEEDED.value.truth_value(
-                LifeCycleValues.RUNNING
-            )
+            == LifeCyclePredicate.IS_SUCCEEDED.truth_value(LifeCycleValues.RUNNING)
         )
 
     def test_a_raw_life_cycle_variable_is_rejected_in_a_condition(self):

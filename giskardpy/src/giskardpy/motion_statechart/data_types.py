@@ -213,7 +213,7 @@ class LifeCyclePredicateDefinition:
         )
 
 
-class LifeCyclePredicate(Enum):
+class LifeCyclePredicate(LifeCyclePredicateDefinition, Enum):
     """
     A test on a node's life cycle state that may be used in transition conditions.
 
@@ -225,29 +225,21 @@ class LifeCyclePredicate(Enum):
     an answer.
     """
 
-    IS_NOT_STARTED = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.NOT_STARTED})
+    IS_NOT_STARTED = frozenset({LifeCycleValues.NOT_STARTED})
+    IS_RUNNING = frozenset({LifeCycleValues.RUNNING})
+    IS_PAUSED = frozenset({LifeCycleValues.PAUSED})
+    IS_TERMINATED = LifeCycleValues.terminal_states()
+    IS_SUCCEEDED = (
+        frozenset({LifeCycleValues.SUCCEEDED}),
+        frozenset(LifeCycleValues) - LifeCycleValues.judged_states(),
     )
-    IS_RUNNING = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.RUNNING})
+    IS_FAILED = (
+        frozenset({LifeCycleValues.FAILED}),
+        frozenset(LifeCycleValues) - LifeCycleValues.judged_states(),
     )
-    IS_PAUSED = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.PAUSED})
-    )
-    IS_TERMINATED = LifeCyclePredicateDefinition(
-        true_states=LifeCycleValues.terminal_states()
-    )
-    IS_SUCCEEDED = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.SUCCEEDED}),
-        unknown_states=frozenset(LifeCycleValues) - LifeCycleValues.judged_states(),
-    )
-    IS_FAILED = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.FAILED}),
-        unknown_states=frozenset(LifeCycleValues) - LifeCycleValues.judged_states(),
-    )
-    IS_INTERRUPTED = LifeCyclePredicateDefinition(
-        true_states=frozenset({LifeCycleValues.INTERRUPTED}),
-        unknown_states=frozenset(LifeCycleValues) - LifeCycleValues.terminal_states(),
+    IS_INTERRUPTED = (
+        frozenset({LifeCycleValues.INTERRUPTED}),
+        frozenset(LifeCycleValues) - LifeCycleValues.terminal_states(),
     )
 
     @property
