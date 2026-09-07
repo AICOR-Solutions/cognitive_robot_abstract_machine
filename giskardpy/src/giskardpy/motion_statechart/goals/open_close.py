@@ -45,10 +45,14 @@ class Open(Goal):
     """
 
     mechanism_weight: float = field(
-        default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True
+        default=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE, kw_only=True
     )
     """
     Weight of the goal driving the degree of freedom of the mechanism.
+
+    Below collision avoidance, because following a mechanism contorts the arm against
+    whatever is around it, and at a higher weight the solver buys the trajectory by
+    pushing the arm through what is in its way.
     """
 
     grasp_weight: float = field(
@@ -56,6 +60,9 @@ class Open(Goal):
     )
     """
     Weight of the goal keeping the end effector fixed relative to the grasped part.
+
+    Above collision avoidance, because at a lower weight the solver buys clearance by
+    letting the end effector drift off the grasped part, and the two move independently.
     """
 
     def expand(self, context: MotionStatechartContext) -> None:

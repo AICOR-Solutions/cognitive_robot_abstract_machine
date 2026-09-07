@@ -1028,6 +1028,44 @@ class TestOpenClose:
         goal.expand(MotionStatechartContext(world=world))
         return goal.nodes
 
+    def test_open_yields_the_mechanism_but_not_the_grasp_by_default(
+        self, prismatic_bot
+    ):
+        """
+        A caller that asks for nothing in particular gets the weights the motion needs:
+        following the mechanism gives way to collision avoidance, holding the grasped
+        part does not.
+        """
+        grasped_part = prismatic_bot.get_body_by_name("robot")
+        goal = Open(tip_link=prismatic_bot.root, environment_link=grasped_part)
+
+        nodes = self._expanded_nodes(goal, prismatic_bot)
+
+        mechanism_node = next(
+            node for node in nodes if isinstance(node, JointPositionList)
+        )
+        grasp_node = next(node for node in nodes if isinstance(node, CartesianPose))
+        assert mechanism_node.weight == DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
+        assert grasp_node.weight == DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE
+
+    def test_close_yields_the_mechanism_but_not_the_grasp_by_default(
+        self, prismatic_bot
+    ):
+        """
+        Closing defaults its weights the same way opening does.
+        """
+        grasped_part = prismatic_bot.get_body_by_name("robot")
+        goal = Close(tip_link=prismatic_bot.root, environment_link=grasped_part)
+
+        nodes = self._expanded_nodes(goal, prismatic_bot)
+
+        mechanism_node = next(
+            node for node in nodes if isinstance(node, JointPositionList)
+        )
+        grasp_node = next(node for node in nodes if isinstance(node, CartesianPose))
+        assert mechanism_node.weight == DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
+        assert grasp_node.weight == DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE
+
     def test_open_weighs_mechanism_and_grasp_separately(self, prismatic_bot):
         """
         Driving the mechanism and holding the grasped part are separate goals, so a
