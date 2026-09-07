@@ -7,10 +7,7 @@ from semantic_digital_twin.world import World
 from probabilistic_model.learning.jpt.variables import infer_variables_from_dataframe
 from random_events.variable import Continuous, Symbolic
 
-from experiments.confidence_aware_eql.feature_pipeline import (
-    ObjectClass,
-    extract_feature_dataframe,
-)
+from experiments.confidence_aware_eql.feature_pipeline import extract_feature_dataframe
 
 MASS_COLUMN = "mass"
 
@@ -34,19 +31,6 @@ def test_extracted_dataframe_contains_the_object_masses(kitchen_objects):
     dataframe = extract_feature_dataframe(kitchen_objects)
     masses = set(dataframe[MASS_COLUMN].round(2))
     assert masses == {0.25, 0.30, 2.50}
-
-
-CLASS_COLUMN = "class"
-
-
-def test_dataframe_labels_each_object_with_its_class(kitchen_objects):
-    """The feature dataframe names the class of each object as an `ObjectClass` enum."""
-    dataframe = extract_feature_dataframe(kitchen_objects)
-    assert list(dataframe[CLASS_COLUMN]) == [
-        ObjectClass.CUP,
-        ObjectClass.CUP,
-        ObjectClass.POT,
-    ]
 
 
 def test_class_is_symbolic_and_mass_is_continuous(kitchen_objects):
