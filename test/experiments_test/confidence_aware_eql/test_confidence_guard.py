@@ -11,7 +11,7 @@ from semantic_digital_twin.world_description.inertial_properties import Inertial
 from semantic_digital_twin.world_description.world_entity import Body
 
 from experiments.confidence_aware_eql.confidence_guard import (
-    UnfamiliarObjectError,
+    UnfamiliarInstanceError,
     evaluate_with_confidence_guard,
 )
 from experiments.confidence_aware_eql.confidence_model import ConfidenceModel
@@ -53,11 +53,13 @@ def test_familiar_object_lets_the_rule_proceed(confidence_model):
     assert len(results) == 1
 
 
-def test_unfamiliar_object_raises_unfamiliar_object_error(confidence_model):
+def test_unfamiliar_instance_raises_unfamiliar_instance_error(confidence_model):
     """A rule concluding on a fifty kilogram cup raises before yielding a result."""
     outlier_cup = Cup(root=Body(inertial=Inertial(mass=50.0)))
     condition = _concluding_rule_for(outlier_cup)
 
-    with pytest.raises(UnfamiliarObjectError) as excinfo:
+    with pytest.raises(UnfamiliarInstanceError) as excinfo:
         list(evaluate_with_confidence_guard(condition, confidence_model))
     assert excinfo.value.instance is outlier_cup
+    assert excinfo.value.threshold == confidence_model.threshold
+    assert excinfo.value.log_likelihood < confidence_model.threshold

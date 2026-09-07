@@ -29,14 +29,23 @@ from experiments.confidence_aware_eql.confidence_model import ConfidenceModel
 
 
 @dataclass
-class UnfamiliarObjectError(DataclassException):
-    """Raised when a rule concludes on an object the confidence model judges unfamiliar."""
+class UnfamiliarInstanceError(DataclassException):
+    """Raised when a rule concludes on an instance the confidence model judges unfamiliar."""
 
     instance: Any
-    """The object a rule's conclusion bound that was judged unfamiliar."""
+    """The instance a rule's conclusion bound that was judged unfamiliar."""
+
+    log_likelihood: float
+    """The instance's log-likelihood under the confidence model."""
+
+    threshold: float
+    """The familiarity threshold the log-likelihood fell below."""
 
     def error_message(self) -> str:
-        return f"{self.instance!r} is unfamiliar under the fitted confidence model."
+        return (
+            f"{self.instance!r} is unfamiliar under the fitted confidence model: "
+            f"log-likelihood {self.log_likelihood} is below threshold {self.threshold}."
+        )
 
     def suggest_correction(self) -> str:
         return ""
@@ -44,27 +53,30 @@ class UnfamiliarObjectError(DataclassException):
 
 @dataclass
 class ConfidenceGuardObserver(EvaluationObserver):
-    """Raises :class:`UnfamiliarObjectError` for any conclusion bound to an unfamiliar object."""
+    """Raises :class:`UnfamiliarInstanceError` for any conclusion bound to an unfamiliar instance."""
 
     confidence_model: ConfidenceModel
-    """The fitted confidence model every concluded object is checked against."""
+    """The fitted confidence model every concluded instance is checked against."""
 
     def on_conclusions_processed(
         self, expression: SymbolicExpression, result: OperationResult
     ) -> None:
         """
-        Check every object this rule just concluded and raise on the first unfamiliar one.
+        Check every instance this rule just concluded and raise on the first unfamiliar one.
 
         :param expression: The rule whose conclusions were processed.
         :param result: The result carrying the bindings the conclusions just updated.
-        :raises UnfamiliarObjectError: If a conclusion's bound object is unfamiliar.
+        :raises UnfamiliarInstanceError: If a conclusion's bound instance is unfamiliar.
         """
         for conclusion in expression._conclusions_:
             instance = result.bindings.get(conclusion.variable._id_)
             if instance is None:
                 continue
-            if not self.confidence_model.is_familiar(instance):
-                raise UnfamiliarObjectError(instance)
+            log_likelihood = self.confidence_model.log_likelihood_of(instance)
+            if log_likelihood < self.confidence_model.threshold:
+                raise UnfamiliarInstanceError(
+                    instance, log_likelihood, self.confidence_model.threshold
+                )
 
 
 def evaluate_with_confidence_guard(
@@ -82,7 +94,7 @@ def evaluate_with_confidence_guard(
     :param confidence_model: The confidence model every concluded object is checked
         against.
     :return: An iterator over the expression's results.
-    :raises UnfamiliarObjectError: If any processed conclusion binds an object the
+    :raises UnfamiliarInstanceError: If any processed conclusion binds an instance the
         confidence model judges unfamiliar.
     """
     previous_context = get_evaluation_context()
