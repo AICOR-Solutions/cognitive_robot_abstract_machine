@@ -126,8 +126,10 @@ def test_grounding_an_underspecified_query_yields_one_connected_circuit(
 ):
     """
     Every attempt field is left underspecified, so ``success_count`` cannot be
-    determined from the query and must be integrated out via the Monte-Carlo path, while
-    ``total_count`` is determined directly from the query's attempt count.
+    determined from the query and is retained via the default
+    :attr:`~probabilistic_model.probabilistic_circuit.relational.rspn.GroundingMode.SAMPLED`
+    Monte-Carlo path rather than integrated out, while ``total_count`` is determined
+    directly from the query's attempt count.
     """
     query = a(PickingRobot)(
         skill=...,
@@ -145,5 +147,5 @@ def test_grounding_an_underspecified_query_yields_one_connected_circuit(
     assert names == _attempt_variable_names(ATTEMPTS_PER_ROBOT) | {
         "PickingRobot.skill",
         "PickingRobotAggregations.total_count()",
+        "PickingRobotAggregations.success_count()",
     }
-    assert "PickingRobotAggregations.success_count()" not in names
