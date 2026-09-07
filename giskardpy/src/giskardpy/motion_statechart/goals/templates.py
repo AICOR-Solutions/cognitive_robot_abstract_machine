@@ -30,11 +30,13 @@ from krrood.symbolic_math.symbolic_math import (
 @dataclass(repr=False, eq=False)
 class Sequence(Goal):
     """
-    Runs a list of nodes one after another, RPL's ``SEQ``.
+    Runs a list of nodes one after another.
 
     Its observation turns True once the last step reached its goal, and False as soon as
     a step ended short of its own, so a step that was given up on fails the sequence
     rather than leaving it waiting forever.
+
+    .. note:: corresponds to the Reactive Plan Language's SEQ.
     """
 
     nodes: List[MotionStatechartNode] = field(default_factory=list, init=True)
@@ -320,8 +322,7 @@ class TryAll(Goal):
 @dataclass(repr=False, eq=False)
 class TryInOrder(Goal):
     """
-    Tries a list of nodes one after another, RPL's ``TRY-IN-ORDER``, short-circuiting on
-    the first success.
+    Tries a list of nodes one after another, short-circuiting on the first success.
 
     The next alternative only starts once the previous one has ended without reaching
     its goal, not merely while it is still short of it. Its observation turns True as
@@ -331,6 +332,7 @@ class TryInOrder(Goal):
     .. note:: Abandoning an alternative that stopped making progress extends the
         construct: RPL knows no alternative timing out, only one that gives up
         explicitly. See :attr:`give_up_after`.
+    .. note:: corresponds to the Reactive Plan Language's TRY-IN-ORDER.
     """
 
     nodes: List[MotionStatechartNode] = field(default_factory=list, init=True)
