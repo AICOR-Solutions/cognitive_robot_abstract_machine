@@ -147,6 +147,14 @@ class CollisionVisualizationMarkerPublisher(CollisionConsumer):
     Width of the contact line segments in meters.
     """
 
+    publish_labels: bool = field(kw_only=True, default=False)
+    """
+    Label every contact that is at most a buffer zone away.
+
+    Off by default because each label is a marker of its own, so the published message
+    grows with the number of contacts near the robot.
+    """
+
     label_height: float = field(kw_only=True, default=0.03)
     """
     Height of the label text in meters.
@@ -273,12 +281,19 @@ class CollisionVisualizationMarkerPublisher(CollisionConsumer):
         """
         Builds one text marker per contact that is at most a buffer zone away, followed
         by deletion markers for the labels of the previous publish that are now surplus.
+
+        Builds only the deletion markers while labels are switched off, so labels of an
+        earlier publish do not linger in Rviz.
         """
-        labeled_contacts = [
-            classified_contact
-            for classified_contact in classified_contacts
-            if classified_contact.proximity is not ContactProximity.CLEAR
-        ]
+        labeled_contacts = (
+            [
+                classified_contact
+                for classified_contact in classified_contacts
+                if classified_contact.proximity is not ContactProximity.CLEAR
+            ]
+            if self.publish_labels
+            else []
+        )
         markers = [
             self._build_label_marker(classified_contact, marker_id)
             for marker_id, classified_contact in enumerate(labeled_contacts)
