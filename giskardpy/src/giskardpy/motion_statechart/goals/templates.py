@@ -36,7 +36,7 @@ class Sequence(Goal):
     a step ended short of its own, so a step that was given up on fails the sequence
     rather than leaving it waiting forever.
 
-    .. note:: corresponds to the Reactive Plan Language's SEQ.
+    .. note:: corresponds to the RPL's SEQ. (McDermott, Drew. A reactive plan language, 1991)
     """
 
     nodes: List[MotionStatechartNode] = field(default_factory=list, init=True)
@@ -332,7 +332,7 @@ class TryInOrder(Goal):
     .. note:: Abandoning an alternative that stopped making progress extends the
         construct: RPL knows no alternative timing out, only one that gives up
         explicitly. See :attr:`give_up_after`.
-    .. note:: corresponds to the Reactive Plan Language's TRY-IN-ORDER.
+    .. note:: corresponds to the RPL's TRY-IN-ORDER. (McDermott, Drew. A reactive plan language, 1991)
     """
 
     nodes: List[MotionStatechartNode] = field(default_factory=list, init=True)
