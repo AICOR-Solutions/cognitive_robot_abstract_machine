@@ -25,6 +25,7 @@ import inspect
 import math
 import operator
 import sys
+import threading
 import weakref
 from abc import ABC, abstractmethod
 from collections import Counter
@@ -243,6 +244,20 @@ class CompiledFunction:
     Used to memorize if the result must be recomputed every time.
     """
 
+    _call_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
+    """
+    Serialises :meth:`__call__` so binding every positional argument into, and
+    evaluating from, the shared ``_function_buffer``/``_out`` buffers is atomic to
+    concurrent callers.
+
+    Does not guard :meth:`bind_args_to_memory_view` or :meth:`evaluate` when called
+    directly: production call sites bind once during setup and then call ``evaluate()``
+    alone on every control-loop tick from a single owning thread, and that path stays
+    lock-free to avoid adding synchronization cost to a real-time loop.
+    """
+
     def __post_init__(self):
         # Normalize variable_parameters to VariableParameters
         if self.variable_parameters is None:
@@ -325,6 +340,10 @@ class CompiledFunction:
         Binds the arg at index arg_idx to the memoryview of a numpy_array.
 
         If your args keep the same memory across calls, you only need to bind them once.
+
+        .. warning:: Not synchronized with :meth:`evaluate` or :meth:`__call__`. Calling
+            this directly from multiple threads on the same instance, concurrently with
+            an :meth:`evaluate` call, is not protected by :attr:`_call_lock`.
         """
         if not self._is_constant:
             self._function_buffer.set_arg(arg_idx, memoryview(numpy_array))
@@ -332,6 +351,11 @@ class CompiledFunction:
     def evaluate(self) -> np.ndarray | sp.csc_matrix:
         """
         Evaluate the compiled function with the current args.
+
+        .. warning:: Not synchronized with :meth:`bind_args_to_memory_view` or
+            :meth:`__call__`. Calling this directly from multiple threads on the same
+            instance is not protected by :attr:`_call_lock`; the intended usage is one
+            owning thread binding once and then calling this repeatedly.
         """
         if not self._is_constant:
             self._function_evaluator()
@@ -344,22 +368,27 @@ class CompiledFunction:
         function. Similarly, the result will be written to the output buffer and does
         not allocate new memory on each eval.
 
+        Safe to call concurrently from multiple threads on the same instance:
+        :attr:`_call_lock` serialises the bind-then-evaluate sequence so one caller
+        cannot observe another caller's in-flight arguments or result.
+
         :param args: A numpy array for each VariableGroup in self.variable_parameters.
             .. warning:: Make sure the numpy array is of type float! (check is too expensive)
         :return: The evaluated result as numpy array or sparse matrix
         """
-        if self._is_constant:
-            return self._out
-        expected_number_of_args = len(self.variable_parameters)
-        actual_number_of_args = len(args)
-        if expected_number_of_args != actual_number_of_args:
-            raise WrongNumberOfArgsError(
-                expected_number_of_args,
-                actual_number_of_args,
-            )
-        for arg_idx, arg in enumerate(args):
-            self.bind_args_to_memory_view(arg_idx, arg)
-        return self.evaluate()
+        with self._call_lock:
+            if self._is_constant:
+                return self._out
+            expected_number_of_args = len(self.variable_parameters)
+            actual_number_of_args = len(args)
+            if expected_number_of_args != actual_number_of_args:
+                raise WrongNumberOfArgsError(
+                    expected_number_of_args,
+                    actual_number_of_args,
+                )
+            for arg_idx, arg in enumerate(args):
+                self.bind_args_to_memory_view(arg_idx, arg)
+            return self.evaluate()
 
     def call_with_kwargs(self, **kwargs: float) -> np.ndarray:
         """
@@ -1287,7 +1316,7 @@ class Matrix(SymbolicMathType):
         along axis 0.
         """
         for i in range(self.shape[0]):
-            yield Vector.from_casadi_sx(self.casadi_sx[i, :])
+            yield Vector.from_casadi_sx(copy.copy(self.casadi_sx[i, :]))
 
     def __add__(self, other: ScalarData | Vector | Matrix) -> Self:
         other_sx = self._broadcast_like_self(other)
