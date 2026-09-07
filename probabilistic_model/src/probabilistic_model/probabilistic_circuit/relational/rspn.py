@@ -201,12 +201,12 @@ class ExchangeablePartGrounder:
     The class circuit's product nodes that mount the grounded instance(s).
     """
 
-    template: ExchangeableDistributionTemplate
+    template: RelationalDistributionTemplate
     """
-    The fitted template for this exchangeable relation.
+    The fitted template whose exchangeable relation is being grounded.
     """
 
-    query_parts: list
+    query_parts: list[Match]
     """
     The query parts, one per child object in the relation.
     """
@@ -295,6 +295,8 @@ class ExchangeablePartGrounder:
         # the precondition just verified guarantees proposal.root is a SumUnit with at
         # least two branches
         branches = proposal.root.log_weighted_subcircuits
+        # side-effecting traversal: populates result_of_current_query on every node,
+        # which branch_regions below reads off; the returned event itself is unused
         _ = proposal.support
         branch_regions = [branch.result_of_current_query for _, branch in branches]
 
@@ -469,15 +471,12 @@ class ExchangeablePartGrounder:
         undetermined latents: a mixture of at least two branches, no two of which
         overlap.
 
-        ``JointProbabilityTree`` does not retain which variables it actually split on
-        after fitting, so this checks the invariant exact-partition grounding actually
-        needs directly on the marginalized circuit, rather than trying to infer it from
-        fitting-time bookkeeping the tree does not expose. A single, undifferentiated
-        branch fails this precondition rather than trivially passing it: grounding
-        would still retain the latents as a real distribution, but every exchangeable
-        instance would be grounded from the same representative point regardless of
-        which latent value the region actually corresponds to, silently discarding any
-        correlation between the latents and the rest of the circuit.
+        A single, undifferentiated branch fails this precondition rather than
+        trivially passing it: grounding would still retain the latents as a real
+        distribution, but every exchangeable instance would be grounded from the same
+        representative point regardless of which latent value the region actually
+        corresponds to, silently discarding any correlation between the latents and
+        the rest of the circuit.
 
         :param proposal: ``circuit`` marginalized down to exactly the undetermined
             latents.

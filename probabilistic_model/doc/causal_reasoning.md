@@ -32,6 +32,18 @@ from conditioning, $P(Y \mid X = x)$, whenever $X$ and $Y$ share a common cause:
 $X = x$ also tells you something about that common cause, which then leaks into what you
 infer about $Y$; intervening on $X$ does not.
 
+The backdoor criterion below is stated over a causal graph: a directed acyclic graph
+$G = (V, E)$ whose edges represent direct causal influence, with $X$, $Y$, and every
+candidate adjustment variable among its nodes $V$. This package neither constructs nor
+verifies $G$: registering `causal_variables`, `effect_variables`, and an adjustment set on
+a `CausalCircuit` is the analyst's assertion, from domain knowledge, that such a $G$ exists
+and that the chosen adjustment set satisfies the backdoor criterion relative to it. What the
+package verifies instead is the circuit-side precondition the next section's polytime
+algorithm depends on -- support determinism -- which is a property of the probabilistic
+circuit itself, not of $G$; it is unrelated to the vtree used later for tractability, and to
+the `MarginalDeterminismTreeNode` structure introduced below, which only groups query
+variables for that check and does not represent $G$'s edges.
+
 ````{prf:definition} Backdoor Criterion
 :label: def-backdoor-criterion
 
@@ -108,6 +120,59 @@ fitted `ProbabilisticCircuit` together with:
   one, it additionally weights each cause-region branch by $P(Z = z)$ and sums, using the
   region structure `verify_support_determinism` already confirmed is disjoint.
 
+### Worked example: a confounded discrete circuit
+
+Take a scene with three discrete variables: `season` $\in \{$WARM, COLD$\}$ (a confounder),
+`treatment` $\in \{$HIGH, LOW$\}$, and `outcome` $\in \{$GOOD, BAD$\}$. `treatment` has no
+causal effect of its own; every difference in `outcome` is actually driven by `season`, which
+also happens to influence which `treatment` gets chosen -- the classic Simpson's-paradox
+shape. The fitted circuit is a root `SumUnit` over two strata:
+
+$$
+\begin{aligned}
+\text{Warm stratum } (w = 0.6): \quad & P(\texttt{treatment}=\text{HIGH}) = 0.8, \quad \texttt{outcome} = \text{GOOD (deterministic)} \\
+\text{Cold stratum } (w = 0.4): \quad & P(\texttt{treatment}=\text{HIGH}) = 0.3, \quad \texttt{outcome} = \text{BAD (deterministic)}
+\end{aligned}
+$$
+
+Structurally, each stratum is a `ProductUnit` of three independent factors: a point-mass leaf
+on `season`, a two-leaf `SumUnit` over `treatment`, and a point-mass leaf on `outcome`. The
+root splits on `season` with disjoint branches (WARM vs. COLD) -- support-deterministic over
+`season` by construction. Each stratum's inner `SumUnit` splits on `treatment` with disjoint
+HIGH/LOW leaves -- support-deterministic over `treatment` too. The root itself is *not* a
+split node for `treatment`: both strata give `treatment` positive probability on both HIGH and
+LOW, so their marginal supports on `treatment` overlap rather than partition it, and
+`_check_sum_unit_for_variable`'s split-detection correctly leaves it out of the check.
+`CausalCircuit.verify_support_determinism()` passes with `causal_variables = [treatment,
+season]`, `effect_variables = [outcome]`.
+
+Conditioning naively on `treatment = HIGH` recovers the spurious correlation:
+
+$$P(\texttt{outcome}=\text{GOOD} \mid \texttt{treatment}=\text{HIGH}) = 0.8,$$
+
+the same number `backdoor_adjustment(treatment, outcome)` returns with an empty adjustment
+set, since an empty $Z$ cannot separate the confound from the effect. Registering `season` as
+the adjustment variable instead runs the general path,
+`_compute_interventional_circuit_with_adjustment`: it extracts `season`'s two disjoint
+regions as $Z$-partitions, and for each `treatment` region builds a `ProductUnit` whose effect
+side is a fresh `SumUnit` over $P(\texttt{outcome} \mid \texttt{treatment}=x, \texttt{season}=z)$
+weighted by $P(\texttt{season}=z)$ -- the backdoor sum from
+{prf:ref}`def-backdoor-criterion` evaluated stratum by stratum:
+
+$$
+P(\texttt{outcome}=\text{GOOD} \mid do(\texttt{treatment}=\text{HIGH})) =
+\underbrace{0.6}_{P(\text{WARM})} \cdot \underbrace{1.0}_{P(\text{GOOD}\mid \text{HIGH}, \text{WARM})}
++ \underbrace{0.4}_{P(\text{COLD})} \cdot \underbrace{0.0}_{P(\text{GOOD}\mid \text{HIGH}, \text{COLD})}
+= 0.6,
+$$
+
+and the same $0.6$ for `treatment = LOW`, revealing what conditioning hid: `treatment` has no
+causal effect on `outcome` at all. The `ProductUnit` for each `treatment` region is itself
+weighted by that region's own marginal probability -- $P(\texttt{treatment}=\text{HIGH}) =
+0.6 \cdot 0.8 + 0.4 \cdot 0.3 = 0.6$ -- which is what keeps the returned circuit a valid joint
+distribution over $(\texttt{treatment}, \texttt{outcome})$ rather than four disconnected
+numbers.
+
 ## Relational causal reasoning
 
 The circuits above assume a fixed variable set, decided once and for all when the circuit
@@ -117,8 +182,9 @@ single flat circuit has "object count" as one of its variables ahead of time -- 
 set depends on which scene is being described.
 
 `RelationalProbabilisticCircuit` ({cite}`nath2015rspn`, "Relational Sum-Product Networks",
-extended here onto circuits with the query system `probabilistic_model.probabilistic_circuit.relational`
-bridges into `krrood`) resolves this by *grounding*: given a query describing one concrete
+and KRRUESER by David Prüser, extended here onto circuits with the query system
+`probabilistic_model.probabilistic_circuit.relational` bridges into `krrood`) resolves this
+by *grounding*: given a query describing one concrete
 scene, it stamps out one instance of a fitted template circuit per object the query
 mentions, and combines the instances into a single circuit over that scene's actual
 variables. Where the query leaves some *aggregation statistic* undetermined -- e.g. it asks
@@ -127,13 +193,12 @@ child instances to stamp out and how to combine them, which requires resolving t
 statistic to a concrete value or distribution over values (the "undetermined latent") before
 grounding the exchangeable part.
 
-Prior to this package, that undetermined latent was resolved by marginalizing it out
-immediately: grounding blended over every possible object count and discarded the
-count itself, leaving no variable behind to register as a cause or an effect. That is fine
-for prediction (the blended answer is what you want, if you don't care why), but it removes
-exactly the variable a causal query about it would need. `GroundingMode` gives grounding two
-alternative representations that *retain* the latent as a variable of the grounded circuit
-instead:
+Resolving that undetermined latent by marginalizing it out immediately would blend over
+every possible object count and discard the count itself, leaving no variable behind to
+register as a cause or an effect. That is fine for prediction (the blended answer is what
+you want, if you don't care why), but it removes exactly the variable a causal query about
+it would need. `GroundingMode` instead gives grounding two representations that *retain*
+the latent as a variable of the grounded circuit:
 
 - `GroundingMode.SAMPLED`: draw `monte_carlo_sample_count` values of the latent from the
   conditioned circuit, ground one child instance per distinct sampled value, and retain each
@@ -176,23 +241,23 @@ differ, and it is not free for the exact-partition case:
   disjoint regardless of what the underlying distribution over $L$ looks like. This is why
   `SAMPLED` always succeeds: disjointness of single points needs no assumption about the
   fitted model.
-- **`EXACT`** instead needs the fitted `JointProbabilityTree` {cite}`nyga2023joint` to have
-  *actually split* on $L$: a JPT is only guaranteed deterministic
-  ({cite}`choi2020probabilistic`) over variables it chose to split on, and does not retain
-  which those were after fitting. $L$ being one of the tree's *targets* rather than a
-  *feature* it split on can leave `circuit.marginal(undetermined_latents)`'s root as a
-  single, undifferentiated branch (trivially "one region", not a genuine partition) or, in
-  principle, with overlapping branches -- either of which would violate the theorem's
-  hypothesis while still superficially looking like "a sum unit over $L$".
+- **`EXACT`** instead needs the fitted circuit to have *actually partitioned* on $L$: a sum
+  unit is only guaranteed support-deterministic ({prf:ref}`def-support-determinism`) over
+  variables whose children happen to disjointly cover it, and a fitted circuit does not
+  retain, after fitting, which variables that held for. $L$ not being one of them can leave
+  `circuit.marginal(undetermined_latents)`'s root as a single, undifferentiated branch
+  (trivially "one region", not a genuine partition) or, in principle, with overlapping
+  branches -- either of which would violate the theorem's hypothesis while still
+  superficially looking like "a sum unit over $L$".
   `_undetermined_latents_partition_disjointly` checks pairwise disjointness on the
-  marginalized circuit directly, rather than assuming it from how the tree was fit. If the
+  marginalized circuit directly, rather than assuming it from how the circuit was fit. If the
   check fails, the precondition of {prf:ref}`thm-retained-latent-disjoint` does not hold, and
   `attach_exact_partition_mixture` raises `UndeterminedLatentsNotPartitionedError` rather than
   silently grounding every branch from the same representative point (which would discard
   $L$'s correlation with the rest of the circuit while still looking, structurally, like a
   valid disjoint partition). Grounding catches exactly this and falls back to `SAMPLED`,
-  logging a warning that the template needs refitting with $L$ as a feature for `EXACT` to
-  apply.
+  logging a warning that the template needs refitting so that it actually splits on $L$ for
+  `EXACT` to apply.
 
 The theorem only gives *structural* determinism (the property `verify_support_determinism`
 checks); it says nothing about whether the mixture weights $w_i$ are the right ones. Getting
@@ -238,19 +303,6 @@ tractability class (lifted over object symmetry, rather than exact per-query gro
 This package stays fully grounded per query rather than lifted: it answers exact causal
 queries at RSPN's existing per-query grounding granularity, not population-scale inference
 over many symmetric objects at once.
-
-## Open question: does the interventional distribution match reality?
-
-Everything above establishes that grounding-then-registering a relational cause is
-*structurally* sound -- it produces a valid, support-deterministic `CausalCircuit`, so
-`backdoor_adjustment` runs and returns something. It does not establish that the resulting
-interventional distribution is numerically close to the true causal effect in a physical
-system the model was fit on, nor how the two `GroundingMode`s compare in accuracy or latency
-at realistic leaf counts. That is an empirical question this chapter deliberately leaves
-open: the natural check is grounding on simulated data with a known ground truth (e.g. a
-box-stacking simulation where the true stack-success rate at each box count is directly
-measurable) and comparing it against `backdoor_adjustment`'s prediction, since only
-simulation offers that ground truth directly.
 
 ```{bibliography}
 ```
