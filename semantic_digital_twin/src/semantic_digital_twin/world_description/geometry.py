@@ -28,7 +28,7 @@ from typing_extensions import (
     Tuple,
     TYPE_CHECKING,
     Generic,
-    TypeVar, ClassVar,
+    TypeVar,
 )
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
@@ -88,16 +88,6 @@ class Color:
     Opacity of the color.
     """
 
-    HEX_COLOR_PREFIX: ClassVar[str] = field(default="#", init=False, repr=False)
-    """
-    The character a hex color is conventionally written behind.
-    """
-
-    HEX_COLOR_PATTERN: ClassVar[str] = field(default="(?:[0-9a-fA-F]{2}){3,4}", init=False, repr=False)
-    """
-    Three or four channels, each written as two hex digits.
-    """
-
     def __post_init__(self):
         """
         Make sure the color values are floats, because ros2 sucks.
@@ -116,14 +106,15 @@ class Color:
     def to_rgb(self) -> Tuple[float, float, float]:
         return (self.R, self.G, self.B)
 
-    def to_hex(self) -> str:
+    def to_hex(self, prefix: str = "#") -> str:
         """
+        :param prefix: The characters the digits are written behind.
         :return: The color written as ``#RRGGBB``, two hex digits per channel.
 
         ..note:: The opacity is not part of it, the same way it is not part of
             :meth:`to_rgb`.
         """
-        return self.HEX_COLOR_PREFIX + "".join(
+        return prefix + "".join(
             f"{round(channel * 255):02X}" for channel in self.to_rgb()
         )
 
@@ -204,7 +195,12 @@ class Color:
         return cls(*rgba)
 
     @classmethod
-    def from_hex(cls, hex_color: str) -> Self:
+    def from_hex(
+        cls,
+        hex_color: str,
+        prefix: str = "#",
+        pattern: str = "(?:[0-9a-fA-F]{2}){3,4}",
+    ) -> Self:
         """
         Read a color written as two hex digits per channel, red first.
 
@@ -212,11 +208,14 @@ class Color:
 
         :param hex_color: The color, optionally preceded by a ``#`` and written in
             either case.
+        :param prefix: The characters the digits may be written behind.
+        :param pattern: What the digits have to look like, by default three or four
+            channels of two hex digits each.
         :raises MalformedHexColor: If the string is not written that way.
         :return: The color it names.
         """
-        digits = hex_color.removeprefix(cls.HEX_COLOR_PREFIX)
-        if re.fullmatch(cls.HEX_COLOR_PATTERN, digits) is None:
+        digits = hex_color.removeprefix(prefix)
+        if re.fullmatch(pattern, digits) is None:
             raise MalformedHexColor(hex_color)
         return cls.from_list(
             [
