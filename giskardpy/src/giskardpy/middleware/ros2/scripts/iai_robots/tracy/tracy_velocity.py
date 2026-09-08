@@ -14,19 +14,14 @@ from rclpy.exceptions import ParameterUninitializedException
 def main():
     rospy.init_node("giskard")
     try:
-        rospy.node.declare_parameters(
+        rospy.get_node().declare_parameters(
             namespace="", parameters=[("robot_description", Parameter.Type.STRING)]
         )
-        robot_description = rospy.node.get_parameter_or("robot_description").value
-        if robot_description is None:
-            robot_description = load_xacro(
-                "package://iai_tracy_description/urdf/tracy.urdf.xacro"
-            )
+        robot_description = rospy.get_node().get_parameter_or("robot_description").value
     except ParameterUninitializedException as e:
         robot_description = load_xacro(
             "package://iai_tracy_description/urdf/tracy.urdf.xacro"
         )
-
     giskard = Giskard(
         world_config=WorldWithTracyConfig(urdf=robot_description),
         robot_interface_config=TracyVelocityInterface(),
@@ -35,7 +30,6 @@ def main():
             target_frequency=80, prediction_horizon=30
         ),
     )
-
     giskard.live()
 
 
