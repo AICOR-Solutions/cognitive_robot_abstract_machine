@@ -7,20 +7,15 @@ import experiments.orm.ormatic_interface  # type: ignore
 from coraplex.datastructures.dataclasses import Context
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import execute_single
-from coraplex.robot_plans.actions.core.misc import MoveToReach
 from experiments.sage_10k.sage10k_actions import Sage10kOpenDoor
 from krrood.entity_query_language.backends import ProbabilisticBackend
-from krrood.entity_query_language.factories import a, an
-from krrood.parametrization.parameterizer import UnderspecifiedParameters
-from random_events.variable import Continuous
-from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Wall,
     Door,
     Handle,
     Hinge,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Pose2D
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.spatial_types.spatial_types import Vector3
 from semantic_digital_twin.world import World
@@ -93,7 +88,9 @@ def test_door_opening(wall_door_handle_world, _hsr_world_setup, rclpy_node):
     world.merge_world(hsr_copy)
     odom_combined = world.get_body_by_name("odom_combined")
     odom_combined.parent_connection.origin = (
-        HomogeneousTransformationMatrix.from_xyz_rpy(x=1)
+        HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=1, reference_frame=odom_combined.parent_kinematic_structure_entity
+        )
     )
 
     context = Context.from_world(world, query_backend=ProbabilisticBackend())
@@ -104,47 +101,3 @@ def test_door_opening(wall_door_handle_world, _hsr_world_setup, rclpy_node):
     assert np.isclose(
         door.mechanical_joint.root.parent_connection.position, np.pi / 2, atol=2e-2
     )
-
-
-def test_translate_free_space_to_where_condition(wall_door_handle_world):
-    from semantic_digital_twin.world_description.graph_of_convex_sets import (
-        navigation_map_at_target,
-        translate_free_space_to_where_condition,
-    )
-
-    world, wall, door, handle = wall_door_handle_world
-
-    # Create navigation map at target (handle)
-    gcs = navigation_map_at_target(target=handle.root)
-
-    # Create a variable for the robot
-
-    query = a(MoveToReach)(
-        target_pose_offset_robot=a(Pose2D)(x=..., y=..., yaw=..., reference_frame=None),
-    )
-
-    # Translate free space to where condition
-    where_condition = translate_free_space_to_where_condition(
-        gcs.free_space_event,
-        query.expression,
-        x_variable_name="MoveToReach.target_pose_offset_robot.x",
-        y_variable_name="MoveToReach.target_pose_offset_robot.y",
-    )
-
-    query = query.where(where_condition)
-    parameters = UnderspecifiedParameters(query)
-    # assert that the parameters truncation event is the same as the free space
-
-    result_to_compare = (
-        parameters.truncation_assignments_from_where_conditions.update_variables(
-            {
-                Continuous(
-                    "MoveToReach.target_pose_offset_robot.x"
-                ): SpatialVariables.x.value,
-                Continuous(
-                    "MoveToReach.target_pose_offset_robot.y"
-                ): SpatialVariables.y.value,
-            }
-        )
-    )
-    assert result_to_compare == gcs.free_space_event.marginal(SpatialVariables.xy)

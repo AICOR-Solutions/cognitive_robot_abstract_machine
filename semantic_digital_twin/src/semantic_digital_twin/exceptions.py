@@ -17,8 +17,8 @@ from typing_extensions import (
 )
 
 from krrood.adapters.exceptions import JSONSerializationError
-from krrood.symbolic_math.symbolic_math import SymbolicMathType
 from krrood.exceptions import DataclassException
+from krrood.symbolic_math.symbolic_math import SymbolicMathType
 from semantic_digital_twin.datastructures.definitions import JointStateType
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 
@@ -62,6 +62,28 @@ class NoJointStateWithType(DataclassException):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class MalformedHexColor(DataclassException):
+    """
+    Raised when a string meant to name a color is not written as hex digits.
+    """
+
+    hex_color: str
+    """
+    The string that was read as a color.
+    """
+
+    def error_message(self) -> str:
+        return f"'{self.hex_color}' does not name a color."
+
+    def suggest_correction(self) -> str:
+        return (
+            "write the color as two hex digits per channel, red first, optionally "
+            "preceded by a '#' and followed by a fourth pair for the opacity, for "
+            "example '#4080C0' or '#4080C020'."
+        )
 
 
 @dataclass
@@ -248,6 +270,48 @@ class UsageError(LogicalError):
 
 
 @dataclass
+class InvalidCameraResolutionError(UsageError):
+    """
+    Raised when a camera resolution cannot describe an image.
+    """
+
+    width: int
+    """
+    The invalid image width.
+    """
+
+    height: int
+    """
+    The invalid image height.
+    """
+
+    def error_message(self) -> str:
+        return (
+            "Camera resolution width and height must be positive, "
+            f"got width={self.width} and height={self.height}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "provide positive width and height values."
+
+
+@dataclass
+class ROSNodeNotRegisteredError(UsageError, RuntimeError):
+    """
+    Raised when shared ROS node access is requested before registration.
+    """
+
+    def error_message(self) -> str:
+        return "No shared ROS node is registered in this process."
+
+    def suggest_correction(self) -> str:
+        return (
+            "register the application-owned ROS node before constructing components "
+            "that require ROS access. Please check out the ROSNodeRegistry class and its register() method."
+        )
+
+
+@dataclass
 class WorldValidationError(LogicalError):
     """
     Raised when the world fails validation, e.g., when the kinematic structure is not a
@@ -297,6 +361,59 @@ class BrokenWorldModificationHistoryError(WorldValidationError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class InsufficientModificationHistoryError(WorldValidationError):
+    """
+    Raised when attempting to roll back more modification blocks than the world's
+    history contains.
+    """
+
+    requested_count: int
+    """
+    The number of modification blocks that were requested to be rolled back.
+    """
+
+    available_count: int
+    """
+    The number of modification blocks actually available in the world's history.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Cannot roll back {self.requested_count} modification block(s): the "
+            f"world's history only contains {self.available_count}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "reduce the requested count to at most the number of available modification blocks."
+
+
+@dataclass
+class InvalidRollbackVersionError(WorldValidationError):
+    """
+    Raised when attempting to roll back to a version the world has not (yet) reached.
+    """
+
+    target_version: int
+    """
+    The version that was requested.
+    """
+
+    current_version: int
+    """
+    The version the world is currently at.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"Cannot roll back to version {self.target_version}: the world is "
+            f"currently at version {self.current_version}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "pass a version between 0 and the world's current version."
 
 
 @dataclass
@@ -773,18 +890,18 @@ class MissingWorldModificationContextError(UsageError):
 @dataclass
 class MismatchingPublishChangesAttribute(UsageError):
     """
-    Raised when trying to enter a world modification context with a different
-    publish_changes policy than the currently active world modification context.
+    Raised when trying to enter a nested world modification or state batch context with
+    a different publish_changes policy than the context it is nested in.
     """
 
     active_publish_changes: bool
     """
-    The publish_changes of the currently active world modification context.
+    The publish_changes of the currently active context.
     """
 
     proposed_publish_changes: bool
     """
-    The publish_changes of the world modification context that is being entered.
+    The publish_changes of the context that is being entered.
     """
 
     def error_message(self) -> str:
@@ -837,6 +954,76 @@ class StateUpdateContainsUnknownDegreesOfFreedomError(UsageError):
 
     def suggest_correction(self) -> str:
         return ""
+
+
+@dataclass
+class WorldHasNoSynchronizerError(UsageError):
+    """
+    Raised when the synchronizer of a world is asked for, but the world publishes its
+    changes nowhere.
+    """
+
+    world: World
+    """
+    The world without a synchronizer.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.world} does not publish its changes to other processes."
+
+    def suggest_correction(self) -> str:
+        return "Create a WorldSynchronizer for this world."
+
+
+@dataclass
+class WorldHasMultipleSynchronizersError(UsageError):
+    """
+    Raised when the synchronizer of a world is asked for, but several of them publish
+    its changes, leaving it undecided which stream a position would refer to.
+    """
+
+    world: World
+    """
+    The world with more than one synchronizer.
+    """
+
+    synchronizer_count: int
+    """
+    How many synchronizers publish the changes of the world.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.synchronizer_count} synchronizers publish the changes of "
+            f"{self.world}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Close all but one of them."
+
+
+@dataclass
+class WorldHasMultipleTfPublishersError(UsageError):
+    """
+    Raised when the tf publisher of a world is asked for, but several of them publish
+    its tf tree, leaving it undecided which one names its frames.
+    """
+
+    world: World
+    """
+    The world with more than one tf publisher.
+    """
+
+    publisher_count: int
+    """
+    How many publishers publish the tf tree of the world.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.publisher_count} publishers publish the tf tree of {self.world}."
+
+    def suggest_correction(self) -> str:
+        return "Stop all but one of them."
 
 
 @dataclass
@@ -1383,8 +1570,10 @@ class VideoRecordingError(MultiSimError):
 @dataclass
 class VideoRecordingAlreadyStartedError(VideoRecordingError):
     """
-    Raised when :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder.start` is
-    called on a recorder that is already recording.
+    Raised when
+    :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVide
+    oRecorder.start`
+    is called on a recorder that is already recording.
     """
 
     world: World
@@ -1402,8 +1591,10 @@ class VideoRecordingAlreadyStartedError(VideoRecordingError):
 @dataclass
 class VideoRecordingNotStartedError(VideoRecordingError):
     """
-    Raised when :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVideoRecorder.stop` is
-    called on a recorder that was never started.
+    Raised when
+    :meth:`~semantic_digital_twin.adapters.mujoco_video_recording.MujocoVide
+    oRecorder.stop`
+    is called on a recorder that was never started.
     """
 
     world: World

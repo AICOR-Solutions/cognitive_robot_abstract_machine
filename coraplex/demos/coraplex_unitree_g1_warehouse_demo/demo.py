@@ -16,18 +16,21 @@ from coraplex.datastructures.grasp import GraspDescription
 from coraplex.execution_environment import simulated_robot
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan import Plan
+from coraplex.robot_plans import MoveJointsMotion
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from coraplex.testing import start_visualization
 from coraplex.view_manager import ViewManager
+from krrood.entity_query_language.factories import an, entity, variable
 from semantic_digital_twin.api import (
     BodySpecification,
     RobotSpecification,
     WorldSpecification,
 )
 from semantic_digital_twin.robots.unitree_g1 import UnitreeG1
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color, Scale
@@ -50,7 +53,7 @@ The pelvis is the robot's root, so its ``odom`` has to be lifted by this much fo
 robot's feet to rest on the floor rather than sink through it.
 """
 
-ROBOT_START_POSE = Pose.from_xyz_rpy(4.5, 6.5, PELVIS_HEIGHT_ABOVE_FLOOR)
+ROBOT_START_POSE = Pose.from_xyz_rpy(1.9, 9.1, PELVIS_HEIGHT_ABOVE_FLOOR)
 """
 Where the robot starts, in the aisle south of the two pallet stacks.
 """
@@ -62,7 +65,9 @@ The extents of the transported parcel.
 
 PICK_POSE = Pose.from_xyz_rpy(2.75, 9.3, 0.793)
 """
-Where the parcel starts. Rotated 90 degrees so a FRONT grasp approach can reach it.
+Where the parcel starts.
+
+Rotated 90 degrees so a FRONT grasp approach can reach it.
 """
 
 PLACE_POSE = Pose.from_xyz_rpy(2.6, 7.7, 0.8)
@@ -70,7 +75,7 @@ PLACE_POSE = Pose.from_xyz_rpy(2.6, 7.7, 0.8)
 Where the parcel ends up.
 """
 
-STANDING_DISTANCE = 0.51
+STANDING_DISTANCE = 0.6
 """
 How far the robot stands from a pose, in meters, opposite its FRONT-facing side.
 
@@ -84,7 +89,7 @@ def build_world() -> World:
     """
     :return: The warehouse with the G1 and the parcel in it.
     """
-    return WorldSpecification.from_gazebo(
+    world = WorldSpecification.from_gazebo(
         WORLD_URI,
         robots=[
             RobotSpecification(
@@ -101,6 +106,13 @@ def build_world() -> World:
             )
         ],
     ).to_domain_object()
+    # The parcel stands in for any graspable object; the plan only needs an annotation
+    # to name it by, not a particular kind of object.
+    with world.modify_world():
+        world.add_semantic_annotation(
+            HasRootBody(root=world.get_body_by_name("parcel"))
+        )
+    return world
 
 
 def standing_pose_in_front_of(pose: Pose, world: World) -> Pose:
@@ -126,6 +138,13 @@ def build_plan(world: World, robot: UnitreeG1) -> Plan:
     :return: The plan transporting the parcel from one pallet stack to the other.
     """
     parcel = world.get_body_by_name("parcel")
+    parcel_annotation = an(
+        entity(
+            semantic_annotation := variable(
+                HasRootBody, domain=world.semantic_annotations
+            )
+        ).where(semantic_annotation.root == parcel)
+    ).first()
     grasp = GraspDescription(
         ApproachDirection.FRONT,
         VerticalAlignment.NoAlignment,
@@ -135,17 +154,88 @@ def build_plan(world: World, robot: UnitreeG1) -> Plan:
     place_pose = Pose(
         PLACE_POSE.to_position(), PLACE_POSE.to_quaternion(), reference_frame=world.root
     )
+    pick_pose = Pose(
+        PICK_POSE.to_position(), PICK_POSE.to_quaternion(), reference_frame=world.root
+    )
 
     return sequential(
         [
+            # %% bring to place pose
             ParkArmsAction(Arms.BOTH),
             NavigateAction(standing_pose_in_front_of(PICK_POSE, world)),
-            PickUpAction(parcel, Arms.LEFT, grasp),
+            PickUpAction(parcel_annotation, Arms.LEFT, grasp),
             ParkArmsAction(Arms.BOTH),
+            MoveJointsMotion(
+                names=[
+                    connection.name for connection in robot.torso.active_connections
+                ],
+                positions=[0.0] * len(robot.torso.active_connections),
+            ),
             NavigateAction(Pose.from_xyz_rpy(yaw=-1.57, reference_frame=robot.root)),
             NavigateAction(standing_pose_in_front_of(PLACE_POSE, world)),
             PlaceAction(parcel, place_pose, Arms.LEFT),
             ParkArmsAction(Arms.BOTH),
+            MoveJointsMotion(
+                names=[
+                    connection.name for connection in robot.torso.active_connections
+                ],
+                positions=[0.0] * len(robot.torso.active_connections),
+            ),
+        ],
+        context=context,
+    ).plan
+
+
+def build_plan2(world: World, robot: UnitreeG1) -> Plan:
+    """
+    :param world: The world the plan acts in.
+    :param robot: The robot carrying out the plan.
+    :return: The plan transporting the parcel from one pallet stack to the other.
+    """
+    parcel = world.get_body_by_name("parcel")
+    parcel_annotation = an(
+        entity(
+            semantic_annotation := variable(
+                HasRootBody, domain=world.semantic_annotations
+            )
+        ).where(semantic_annotation.root == parcel)
+    ).first()
+    grasp = GraspDescription(
+        ApproachDirection.FRONT,
+        VerticalAlignment.NoAlignment,
+        ViewManager.get_end_effector_view(Arms.LEFT, robot),
+    )
+    context = Context(world=world, robot=robot, evaluate_conditions=False)
+    place_pose = Pose(
+        PLACE_POSE.to_position(), PLACE_POSE.to_quaternion(), reference_frame=world.root
+    )
+    pick_pose = Pose(
+        PICK_POSE.to_position(), PICK_POSE.to_quaternion(), reference_frame=world.root
+    )
+
+    return sequential(
+        [
+            # %% bring to place pose
+            ParkArmsAction(Arms.BOTH),
+            NavigateAction(standing_pose_in_front_of(PLACE_POSE, world)),
+            PickUpAction(parcel_annotation, Arms.LEFT, grasp),
+            ParkArmsAction(Arms.BOTH),
+            MoveJointsMotion(
+                names=[
+                    connection.name for connection in robot.torso.active_connections
+                ],
+                positions=[0.0] * len(robot.torso.active_connections),
+            ),
+            NavigateAction(Pose.from_xyz_rpy(yaw=1.57, reference_frame=robot.root)),
+            NavigateAction(standing_pose_in_front_of(PICK_POSE, world)),
+            PlaceAction(parcel, pick_pose, Arms.LEFT),
+            ParkArmsAction(Arms.BOTH),
+            MoveJointsMotion(
+                names=[
+                    connection.name for connection in robot.torso.active_connections
+                ],
+                positions=[0.0] * len(robot.torso.active_connections),
+            ),
         ],
         context=context,
     ).plan
@@ -178,6 +268,9 @@ assert abs(lowest_collision_point_of(robot, world)) < 1e-3
 start_visualization(world)
 
 with simulated_robot:
+    for _ in range(10):
+        build_plan(world, robot).perform()
+        build_plan2(world, robot).perform()
     build_plan(world, robot).perform()
 
 parcel_position = world.get_body_by_name("parcel").global_pose

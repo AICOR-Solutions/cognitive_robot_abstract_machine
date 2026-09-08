@@ -16,6 +16,10 @@ from semantic_digital_twin.adapters.package_resolver import (
     PathResolver,
     SearchPathFileResolver,
 )
+from semantic_digital_twin.adapters.world_model_parser import (
+    JointDescription,
+    WorldModelParser,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     NegativeConnectionVelocity,
@@ -59,64 +63,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class JointDescription:
-    """
-    A joint that has been read from a description and validated, but not yet turned into
-    a connection.
-
-    Reading a joint can fail on constructs the parser does not support, while creating a
-    connection modifies a world. Keeping the two apart lets a failure surface before a
-    world has been touched.
-    """
-
-    name: PrefixedName
-    """
-    The name of the connection the joint becomes.
-    """
-
-    connection_type: Type[Connection]
-    """
-    The type of connection the joint becomes.
-    """
-
-    parent: Body
-    """
-    The body the joint moves the child relative to.
-    """
-
-    child: Body
-    """
-    The body the joint moves.
-    """
-
-    parent_T_connection: HomogeneousTransformationMatrix
-    """
-    The pose of the joint relative to the parent body.
-    """
-
-    connection_T_child: HomogeneousTransformationMatrix
-    """
-    The pose of the child body relative to the joint.
-    """
-
-    axis: Optional[Vector3] = None
-    """
-    The axis the joint moves along, in the frame of the joint.
-    """
-
-    limits: Optional[DegreeOfFreedomLimits] = None
-    """
-    The limits of the joint's degree of freedom.
-    """
-
-    dynamics: JointDynamics = field(default_factory=JointDynamics)
-    """
-    The dynamic properties of the joint.
-    """
-
-
-@dataclass
-class GazeboParser:
+class GazeboParser(WorldModelParser):
     """
     Parses Gazebo SDF model and world descriptions into worlds.
 
@@ -199,8 +146,8 @@ class GazeboParser:
         """
         Creates a parser for a description file.
 
-        Unless a resolver is given, one is built that finds ``model://`` URIs relative to
-        the file, so that a world shipped next to its models parses without further
+        Unless a resolver is given, one is built that finds ``model://`` URIs relative
+        to the file, so that a world shipped next to its models parses without further
         configuration.
 
         :param file_path: The path of the file to parse.
@@ -297,9 +244,9 @@ class GazeboParser:
         Attaches every model the container references to the root of the world, whether
         it is included by URI or written inline.
 
-        Gazebo's non-canonical idiom of wrapping an ``include`` in a ``model`` element is
-        supported alongside the canonical form; the wrapper supplies the instance name
-        and a pose that composes with the pose of the include.
+        Gazebo's non-canonical idiom of wrapping an ``include`` in a ``model`` element
+        is supported alongside the canonical form; the wrapper supplies the instance
+        name and a pose that composes with the pose of the include.
 
         :param world: The world the models are attached to.
         :param container: The ``world`` or ``model`` element holding the references.
@@ -553,8 +500,8 @@ class GazeboParser:
         """
         Attaches a link that no joint connects to the root of its model.
 
-        Such a link is a free body, unless the model is static, in which case it is fixed
-        in place like the rest of the model.
+        Such a link is a free body, unless the model is static, in which case it is
+        fixed in place like the rest of the model.
 
         :param world: The world the link is added to.
         :param root_body: The root of the model.

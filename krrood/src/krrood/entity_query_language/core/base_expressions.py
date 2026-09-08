@@ -9,13 +9,16 @@ during query evaluation.
 from __future__ import annotations
 
 import itertools
+import operator
 import uuid
 import weakref
 from abc import ABC, abstractmethod
 from collections import UserDict
+from contextlib import AbstractContextManager
 from copy import copy
 from dataclasses import dataclass, field
 from functools import cached_property
+from types import EllipsisType
 from uuid import UUID
 
 from ordered_set import OrderedSet
@@ -37,6 +40,7 @@ from typing_extensions import (
     TypeAlias,
 )
 
+from krrood.adapters.json_serializer import list_like_classes
 from krrood.entity_query_language.evaluation_context import (
     get_evaluation_context,
     set_evaluation_context,
@@ -58,8 +62,48 @@ identifier to its value.
 """
 
 
+@dataclass
+class RuleTreeContext:
+    """
+    A ``with``-block anchor together with the parent edge its rule tree reaches it by.
+
+    A shared node has several parents, so which parent a rule-tree edit must happen above
+    is only defined relative to the branch that is asking. Recording that edge when the
+    block is entered keeps the answer independent of which parent happened to be attached
+    first.
+    """
+
+    condition: SymbolicExpression
+    """
+    The condition node the ``with`` block anchors on.
+    """
+
+    owning_parent: Optional[SymbolicExpression]
+    """
+    The parent through which the asking rule tree reaches :attr:`condition`, kept current
+    by whoever splices a new node into that edge.
+    """
+
+
+class HasExpression(ABC):
+    """
+    Anything verbalization/build steps can resolve to a single underlying
+    :class:`SymbolicExpression` to scan or build, regardless of what kind of object
+    routes to it (a plain expression, a :class:`~krrood.entity_query_language.query.match.Match`,
+    a :class:`~krrood.entity_query_language.operators.probabilistic_queries.ProbabilisticQuery`,
+    ...). Callers use :meth:`_get_expression_` polymorphically instead of an
+    ``isinstance`` chain over every such wrapper type.
+    """
+
+    @abstractmethod
+    def _get_expression_(self) -> SymbolicExpression:
+        """
+        :return: The ``SymbolicExpression`` this object represents or wraps.
+        """
+
+
 @dataclass(eq=False)
-class SymbolicExpression(ABC):
+class SymbolicExpression(AbstractContextManager, HasExpression):
     """
     Base class for all symbolic expressions.
 
@@ -78,10 +122,10 @@ class SymbolicExpression(ABC):
     truth value of this node is true during evaluation.
     """
 
-    _symbolic_expression_stack_: ClassVar[List[SymbolicExpression]] = []
+    _symbolic_expression_stack_: ClassVar[List[RuleTreeContext]] = []
     """
     The current stack of symbolic expressions that has been entered using the ``with``
-    statement.
+    statement, each paired with the parent edge its rule tree reaches it by.
     """
 
     _children_: List[SymbolicExpression] = field(
@@ -127,6 +171,9 @@ class SymbolicExpression(ABC):
 
     def __post_init__(self):
         self._expression_ = self
+
+    def _get_expression_(self) -> SymbolicExpression:
+        return self
 
     def _node_for_new_position_(self) -> SymbolicExpression:
         """
@@ -514,6 +561,13 @@ class SymbolicExpression(ABC):
         """
         pass
 
+    def _has_parent_(self, expression: SymbolicExpression) -> bool:
+        """
+        :param expression: The expression to look for among this expression's parents.
+        :return: Whether the given expression is one of this expression's parents.
+        """
+        return expression._id_ in [parent._id_ for parent in self._parents_]
+
     @property
     def _parent_(self) -> Optional[SymbolicExpression]:
         """
@@ -536,7 +590,7 @@ class SymbolicExpression(ABC):
                 self._remove_parent_(self._parent__)
             return
 
-        if value._id_ not in [v._id_ for v in self._parents_]:
+        if not self._has_parent_(value):
             self._parents_.append(value)
             value._ensure_children_ids_are_cached_(self)
 
@@ -594,6 +648,20 @@ class SymbolicExpression(ABC):
         while expression._parent_ is not None:
             expression = expression._parent_
         return expression
+
+    @property
+    def _evaluation_root_query_(self) -> SymbolicExpression:
+        """
+        :return: The root of the query currently evaluating this expression, or
+            :attr:`_root_` when no evaluation is active.
+        """
+        evaluation_context = get_evaluation_context()
+        if (
+            evaluation_context is None
+            or evaluation_context.outermost_query.node is None
+        ):
+            return self._root_
+        return evaluation_context.outermost_query.node
 
     @property
     def _root_query_(self) -> Optional[Query]:
@@ -731,9 +799,56 @@ class SymbolicExpression(ABC):
         :return: The current parent symbolic expression in the enclosing context of the ``with`` statement. Used when
         making rule trees.
         """
+        innermost_context = cls._innermost_rule_tree_context_()
+        if innermost_context is None:
+            return None
+        return innermost_context.condition
+
+    @classmethod
+    def _innermost_rule_tree_context_(cls) -> Optional[RuleTreeContext]:
+        """
+        :return: The context of the innermost enclosing ``with`` statement, or ``None``
+            outside any.
+        """
         if not cls._symbolic_expression_stack_:
             return None
         return cls._symbolic_expression_stack_[-1]
+
+    @classmethod
+    def _rule_tree_context_anchored_on_(
+        cls, condition: SymbolicExpression
+    ) -> Optional[RuleTreeContext]:
+        """
+        :param condition: The condition an edit is about to be made relative to.
+        :return: The context of the innermost enclosing ``with`` statement that anchors on
+            the given condition, or ``None`` when no enclosing statement does.
+        """
+        return next(
+            (
+                context
+                for context in reversed(cls._symbolic_expression_stack_)
+                if context.condition._id_ == condition._id_
+            ),
+            None,
+        )
+
+    def _rule_tree_context_(self) -> RuleTreeContext:
+        """
+        :return: This expression paired with the parent edge the enclosing rule tree
+            reaches it by.
+
+        The enclosing block's own owning parent is the node a rule-tree edit just created
+        to hold this expression, so it is this expression's owning parent too whenever
+        this expression is the branch that edit introduced. Otherwise there is no asking
+        branch to speak of and the structural parent stands in.
+        """
+        enclosing_context = self._innermost_rule_tree_context_()
+        enclosing_parent = (
+            enclosing_context.owning_parent if enclosing_context is not None else None
+        )
+        if enclosing_parent is None or not self._has_parent_(enclosing_parent):
+            return RuleTreeContext(self, self._parent_)
+        return RuleTreeContext(self, enclosing_parent)
 
     @property
     def _unique_variables_(self) -> Set[Variable]:
@@ -781,7 +896,9 @@ class SymbolicExpression(ABC):
         This updates the current parent symbolic expression, the context stack and
         returns this expression.
         """
-        SymbolicExpression._symbolic_expression_stack_.append(self)
+        SymbolicExpression._symbolic_expression_stack_.append(
+            self._rule_tree_context_()
+        )
         return self
 
     def __exit__(self, *args):
@@ -887,6 +1004,70 @@ class BinaryExpression(SymbolicExpression, ABC):
             self.left = new_child
         elif self.right is old_child:
             self.right = new_child
+
+    def _is_equality_literal_comparator_or_conjunction_(self) -> bool:
+        """
+        :return: Whether this expression is an equality literal comparator (see
+            :meth:`_is_equality_literal_comparator_`), or several such comparators
+            combined with
+            :class:`~krrood.entity_query_language.operators.core_logical_operators.AND`.
+
+        Callers on an expression that might not be a :class:`BinaryExpression` at all
+        (a bare variable, a :class:`~....operators.core_logical_operators.Not`, ...)
+        must check ``isinstance(expression, BinaryExpression)`` themselves first --
+        this method only handles the two binary-expression shapes it is defined for.
+        """
+        # Local import: core_logical_operators.py imports this module, so a
+        # module-level import of AND here would be circular.
+        from krrood.entity_query_language.operators.core_logical_operators import AND
+
+        if isinstance(self, AND):
+            for operand in (self.left, self.right):
+                if (
+                    not isinstance(operand, BinaryExpression)
+                    or not operand._is_equality_literal_comparator_or_conjunction_()
+                ):
+                    return False
+            return True
+        return self._is_equality_literal_comparator_()
+
+    def _is_equality_literal_comparator_(self) -> bool:
+        """
+        :return: Whether this expression is exactly ``attribute == value`` for a
+            single concrete value -- the shape a causal effect condition requires:
+            you can ask what causes an attribute to equal a value, not what causes
+            it to satisfy an inequality, to be left unconstrained (``Ellipsis``), or
+            to fall within a set of values (a list/set/tuple), since a set
+            membership is not a single point intervention.
+        """
+        if not self._is_literal_comparator_():
+            return False
+        if self.operation is not operator.eq:
+            return False
+        value = self.right._value_
+        if isinstance(value, EllipsisType):
+            return False
+        return not isinstance(value, list_like_classes)
+
+    def _is_literal_comparator_(self) -> bool:
+        """
+        :return: Whether this expression compares a mapped variable against a
+            literal (e.g. ``attribute == value``), as opposed to, for example, a
+            comparison between two attributes.
+        """
+        # Local imports: comparator.py, mapped_variable.py and variable.py each
+        # import this module, so module-level imports of them here would be circular.
+        from krrood.entity_query_language.operators.comparator import Comparator
+        from krrood.entity_query_language.core.mapped_variable import MappedVariable
+        from krrood.entity_query_language.core.variable import Literal
+
+        if not isinstance(self, Comparator):
+            return False
+        if not isinstance(self.left, MappedVariable):
+            return False
+        if not isinstance(self.right, Literal):
+            return False
+        return True
 
 
 @dataclass(eq=False, repr=False)
