@@ -65,8 +65,9 @@ def test_insert_cylinder_with_tracy(tracy_world):
     msc = MotionStatechart()
     goal = InsertCylinder(
         tip_link=cylinder,
-        tip_P_tool=Point3(0.0, 0.0, cylinder_height / 2),
-        tip_V_axis=Vector3(0.0, 0.0, -1.0),
+        tip_P_tool=Point3(0.0, 0.0, cylinder_height / 2, reference_frame=cylinder),
+        tip_V_axis=Vector3(0.0, 0.0, -1.0, reference_frame=cylinder),
+        up_axis=Vector3(0.0, 0.0, 1.0, reference_frame=world.root),
         hole_point=hole_point,
         pre_grasp_height=0.1,
     )
@@ -75,10 +76,7 @@ def test_insert_cylinder_with_tracy(tracy_world):
             GripperState.CLOSE
         )
     )
-    sequence = Sequence(
-        [close_gripper, goal],
-    )
-    msc.add_node(sequence)
+    msc.add_node(sequence := Sequence([close_gripper, goal]))
     msc.add_node(EndMotion.when_true(sequence))
 
     executor = Executor(

@@ -362,12 +362,6 @@ class ReachPoint(FeatureFunctionGoal):
         return self.tip_point, self.reference_point
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
-        """
-        Build a constraint that drives the controlled point onto the reference point.
-
-        :param context: Provides access to world model and kinematic expressions.
-        :return: The artifacts of this task, whose error is the distance between the controlled point and the reference point.
-        """
         artifacts = NodeArtifacts()
         artifacts.geometry.add_point_goal_constraints(
             frame_P_current=self.root_P_controlled_feature,
