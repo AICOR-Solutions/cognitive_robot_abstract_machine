@@ -276,9 +276,6 @@ class SoftTrunk(SemanticAnnotation):
                 end_effector=effector,
             )
             trunk.arms.append(arm)
-            # Registers the arm and its end effector along with the trunk, the way a
-            # robot registers its parts. The trunk refers to them by id, so a part the
-            # world does not hold cannot be resolved when the world is rebuilt.
             world.add_semantic_annotation_recursively(trunk)
 
         return trunk
@@ -404,9 +401,6 @@ class SoftTrunk(SemanticAnnotation):
                 end_effector=effector,
             )
             trunk.arms.append(arm)
-            # Registers the arm and its end effector along with the trunk, the way a
-            # robot registers its parts. The trunk refers to them by id, so a part the
-            # world does not hold cannot be resolved when the world is rebuilt.
             world.add_semantic_annotation_recursively(trunk)
 
         return trunk
