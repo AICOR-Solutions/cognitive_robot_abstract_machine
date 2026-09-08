@@ -51,6 +51,56 @@ class SoftTrunkSection:
     """The number of discrete rigid segments used to approximate the continuous curve."""
 
 
+@dataclass
+class PiecewiseConstantCurvatureSection:
+    """
+    The degrees of freedom one section of a piecewise constant curvature trunk bends
+    with.
+
+    Every segment of the section shares them, so the whole section bends as one arc.
+    """
+
+    curvature: DegreeOfFreedom
+    """
+    Curvature of that arc, as the reciprocal of its radius.
+    """
+
+    bending_plane: DegreeOfFreedom
+    """
+    Angle of the plane the section bends in.
+    """
+
+
+@dataclass
+class CosseratRodSection:
+    """
+    The strain degrees of freedom one section of a Cosserat rod trunk deforms with.
+
+    Every segment of the section shares them, so the whole section deforms at the same
+    rate.
+    """
+
+    bending_x: DegreeOfFreedom
+    """
+    Bending rate around the local x axis.
+    """
+
+    bending_y: DegreeOfFreedom
+    """
+    Bending rate around the local y axis.
+    """
+
+    torsion: DegreeOfFreedom
+    """
+    Twisting rate around the local z axis.
+    """
+
+    extension: DegreeOfFreedom
+    """
+    Stretching rate along the local z axis.
+    """
+
+
 @dataclass(eq=False, kw_only=True)
 class SoftEndEffector(EndEffector):
     """
@@ -116,34 +166,16 @@ class SoftTrunk(SemanticAnnotation):
     Reference to the parent world containing this robot.
     """
 
-    kappa_dofs: list[DegreeOfFreedom] = field(default_factory=list)
+    piecewise_constant_curvature_sections: list[PiecewiseConstantCurvatureSection] = (
+        field(default_factory=list)
+    )
     """
-    List of curvature DOFs (1/radius) ordered from base to tip.
-    """
-
-    phi_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """
-    List of bending plane DOFs ordered from base to tip.
+    The sections of a piecewise constant curvature trunk, ordered from base to tip.
     """
 
-    bending_x_dofs: list[DegreeOfFreedom] = field(default_factory=list)
+    cosserat_sections: list[CosseratRodSection] = field(default_factory=list)
     """
-    List of bending DOFs around the local X-axis ordered from base to tip.
-    """
-
-    bending_y_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """
-    List of bending DOFs around the local Y-axis ordered from base to tip.
-    """
-
-    torsion_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """
-    List of axial torsion (twisting) DOFs ordered from base to tip.
-    """
-
-    extension_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """
-    List of longitudinal extension (stretching) DOFs ordered from base to tip.
+    The sections of a Cosserat rod trunk, ordered from base to tip.
     """
 
     arms: list[Arm] = field(default_factory=list)
@@ -153,29 +185,6 @@ class SoftTrunk(SemanticAnnotation):
 
     def __post_init__(self):
         super().__post_init__()
-
-    @property
-    def piecewise_constant_curvature_sections(
-        self,
-    ) -> list[tuple[DegreeOfFreedom, DegreeOfFreedom]]:
-        """
-        Returns a list of (kappa_dof, phi_dof) pairs, ordered from base to tip.
-        """
-        return list(zip(self.kappa_dofs, self.phi_dofs))
-
-    @property
-    def cosserat_sections(self) -> list[tuple[DegreeOfFreedom, ...]]:
-        """
-        Returns a list of (bx, by, torsion, extension) tuples, ordered from base to tip.
-        """
-        return list(
-            zip(
-                self.bending_x_dofs,
-                self.bending_y_dofs,
-                self.torsion_dofs,
-                self.extension_dofs,
-            )
-        )
 
     @classmethod
     def build_piecewise_constant_curvature(
@@ -217,18 +226,21 @@ class SoftTrunk(SemanticAnnotation):
             )
 
             for section_index, section in enumerate(sections):
-                kappa = DegreeOfFreedom(
+                curvature = DegreeOfFreedom(
                     name=PrefixedName(f"kappa_{section_index}", prefix), limits=limits
                 )
-                phi = DegreeOfFreedom(
+                bending_plane = DegreeOfFreedom(
                     name=PrefixedName(f"phi_{section_index}", prefix), limits=limits
                 )
-                world.add_degree_of_freedom(kappa)
-                world.add_degree_of_freedom(phi)
+                world.add_degree_of_freedom(curvature)
+                world.add_degree_of_freedom(bending_plane)
 
                 # Store references to preserve order
-                trunk.kappa_dofs.append(kappa)
-                trunk.phi_dofs.append(phi)
+                trunk.piecewise_constant_curvature_sections.append(
+                    PiecewiseConstantCurvatureSection(
+                        curvature=curvature, bending_plane=bending_plane
+                    )
+                )
 
                 segment_length = section.length / section.resolution
                 for segment_index in range(section.resolution):
@@ -254,8 +266,8 @@ class SoftTrunk(SemanticAnnotation):
                     connection = PiecewiseConstantCurvatureConnection(
                         parent=prev_body,
                         child=curr_body,
-                        kappa_dof_id=kappa.id,
-                        phi_dof_id=phi.id,
+                        kappa_dof_id=curvature.id,
+                        phi_dof_id=bending_plane.id,
                         segment_length=segment_length,
                     )
                     world.add_connection(connection)
@@ -348,10 +360,14 @@ class SoftTrunk(SemanticAnnotation):
                 world.state[extension.id].position = 1.0
 
                 # Store references to preserve order
-                trunk.bending_x_dofs.append(bending_x)
-                trunk.bending_y_dofs.append(bending_y)
-                trunk.torsion_dofs.append(torsion)
-                trunk.extension_dofs.append(extension)
+                trunk.cosserat_sections.append(
+                    CosseratRodSection(
+                        bending_x=bending_x,
+                        bending_y=bending_y,
+                        torsion=torsion,
+                        extension=extension,
+                    )
+                )
 
                 segment_length = section.length / section.resolution
                 for segment_index in range(section.resolution):

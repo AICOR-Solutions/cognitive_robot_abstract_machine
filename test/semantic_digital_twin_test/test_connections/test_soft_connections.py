@@ -43,10 +43,7 @@ class TestSoftTrunk:
         assert len(trunk.arms) == 1
         assert trunk.arms[0].end_effector is not None
 
-        # Verify property-based DOF access
-        assert len(trunk.kappa_dofs) == 3
-        assert len(trunk.phi_dofs) == 3
-        # Check the helper property
+        # Verify one section per requested section, each carrying its own DOFs
         assert len(trunk.piecewise_constant_curvature_sections) == 3
 
     def test_cosserat_rod_construction(self):
@@ -58,14 +55,11 @@ class TestSoftTrunk:
 
         trunk = SoftTrunk.build_cosserat(world, sections)
 
-        # Verify 4 DOFs per section
-        assert len(trunk.extension_dofs) == 2
-        assert len(trunk.torsion_dofs) == 2
-        assert len(trunk.bending_x_dofs) == 2
-        assert len(trunk.bending_y_dofs) == 2
+        # Verify one section per requested section, each carrying its 4 strain DOFs
+        assert len(trunk.cosserat_sections) == 2
 
         # Verify extension is initialized to 1.0
-        assert world.state[trunk.extension_dofs[0].id].position == 1.0
+        assert world.state[trunk.cosserat_sections[0].extension.id].position == 1.0
 
     def test_piecewise_constant_curvature_kinematics(self):
         """
@@ -76,8 +70,9 @@ class TestSoftTrunk:
         sections = [SoftTrunkSection(length=1.0, radius=0.02, resolution=10)]
         trunk = SoftTrunk.build_piecewise_constant_curvature(world, sections)
 
-        # Set kappa for a 90 degree bend (r = 2/pi)
-        world.state[trunk.kappa_dofs[0].id].position = np.pi / 2
+        # Set curvature for a 90 degree bend (r = 2/pi)
+        curvature = trunk.piecewise_constant_curvature_sections[0].curvature
+        world.state[curvature.id].position = np.pi / 2
         world.notify_state_change()
 
         # Get FK from root to tip of the arm
@@ -97,7 +92,7 @@ class TestSoftTrunk:
         trunk = SoftTrunk.build_cosserat(world, sections)
 
         # Stretch to 1.5m
-        world.state[trunk.extension_dofs[0].id].position = 1.5
+        world.state[trunk.cosserat_sections[0].extension.id].position = 1.5
         world.notify_state_change()
 
         fk = world.compute_forward_kinematics_np(world.root, trunk.arms[0].tip)
@@ -269,8 +264,8 @@ class TestSoftConnectionRebuilding:
     def test_a_copied_piecewise_constant_curvature_world_bends_the_same_way(self):
         world = self.build_piecewise_constant_curvature_world()
         trunk = world.get_semantic_annotations_by_type(SoftTrunk)[0]
-        for dof in trunk.kappa_dofs:
-            world.state[dof.id].position = 0.8
+        for section in trunk.piecewise_constant_curvature_sections:
+            world.state[section.curvature.id].position = 0.8
         world.notify_state_change()
         expected = world.compute_forward_kinematics_np(world.root, trunk.arms[0].tip)
 
@@ -288,8 +283,8 @@ class TestSoftConnectionRebuilding:
     def test_a_copied_cosserat_world_deforms_the_same_way(self):
         world = self.build_cosserat_world()
         trunk = world.get_semantic_annotations_by_type(SoftTrunk)[0]
-        for dof in trunk.bending_x_dofs:
-            world.state[dof.id].position = 0.5
+        for section in trunk.cosserat_sections:
+            world.state[section.bending_x.id].position = 0.5
         world.notify_state_change()
         expected = world.compute_forward_kinematics_np(world.root, trunk.arms[0].tip)
 

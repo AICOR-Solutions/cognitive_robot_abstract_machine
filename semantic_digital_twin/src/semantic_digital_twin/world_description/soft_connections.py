@@ -20,8 +20,6 @@ from semantic_digital_twin.spatial_types.spatial_types import (
 from semantic_digital_twin.world import World
 from typing_extensions import Any
 
-# %% piecewise constant curvature
-
 
 @dataclass(eq=False)
 class PiecewiseConstantCurvatureConnection(Connection):
@@ -214,9 +212,6 @@ class PiecewiseConstantCurvatureConnection(Connection):
             self._world.get_degree_of_freedom_by_id(self.kappa_dof_id),
             self._world.get_degree_of_freedom_by_id(self.phi_dof_id),
         ]
-
-
-# %% cosserat rod
 
 
 @dataclass(eq=False)
