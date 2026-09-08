@@ -374,30 +374,60 @@ class KitchenEnvironment:
             fridge_drawer.add(fridge_drawer_handle)
 
             # --- KITCHEN COUNTER ---
-            counter_top_length, counter_top_depth, counter_top_height = (
-                2.044,
-                0.658,
-                0.6,
+            counter_top_length, counter_top_depth = 2.044, 0.658
+            counter_top_surface_height = 0.85
+            counter_top_thickness = 0.026
+            counter_base_facing_height = 0.099
+            counter_base_facing_setback = 0.07
+            counter_cabinet_height = (
+                counter_top_surface_height
+                - counter_top_thickness
+                - counter_base_facing_height
             )
             counter_top_center_x = fridge_counter_boundary_x + counter_top_length / 2
-            counter_top_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+            root_T_counter_cabinets = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=counter_top_center_x,
                 y=-2.181,
-                z=counter_top_height / 2,
+                z=counter_base_facing_height + counter_cabinet_height / 2,
+                yaw=-np.pi / 2,
+            )
+            root_T_counter_top = HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=counter_top_center_x,
+                y=-2.181,
+                z=counter_top_surface_height - counter_top_thickness / 2,
                 yaw=-np.pi / 2,
             )
 
             counter_top = CounterTop.create_with_new_body_in_world(
                 world=world,
                 name="counter_top",
-                world_root_T_self=counter_top_pose
-                @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    z=counter_top_height / 2 + 0.02
+                world_root_T_self=root_T_counter_top,
+                scale=Scale(
+                    x=counter_top_depth,
+                    y=counter_top_length,
+                    z=counter_top_thickness,
                 ),
-                scale=Scale(x=counter_top_depth, y=counter_top_length, z=0.04),
             )
             for shape in counter_top.root.visual.shapes:
                 shape.color = Color.BEIGE()
+
+            counter_base_facing = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="counter_base_facing",
+                world_root_T_self=root_T_counter_cabinets
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-counter_top_depth / 2 + counter_base_facing_setback,
+                    z=-counter_cabinet_height / 2 - counter_base_facing_height / 2,
+                ),
+                scale=Scale(
+                    x=0.02,
+                    y=counter_top_length,
+                    z=counter_base_facing_height,
+                ),
+            )
+            for shape in counter_base_facing.root.visual.shapes:
+                shape.color = Color.WHITE()
+            counter_top.add_object(counter_base_facing)
 
             sink_width, sink_depth, sink_fridge_gap = 0.86, 0.50, 0.115
             counter_top_sink_y = (
@@ -410,9 +440,9 @@ class KitchenEnvironment:
             sink = Sink.create_with_new_body_in_world(
                 world=world,
                 name="sink",
-                world_root_T_self=counter_top_pose
+                world_root_T_self=root_T_counter_top
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    y=counter_top_sink_y, z=counter_top_height / 2 + 0.045
+                    y=counter_top_sink_y, z=counter_top_thickness / 2 + 0.005
                 ),
                 scale=Scale(x=sink_depth, y=sink_width, z=0.005),
             )
@@ -427,17 +457,19 @@ class KitchenEnvironment:
             module_1_face_plate_height = 0.143
             module_1_door_gap = 0.005
             module_1_door_height = (
-                counter_top_height - module_1_face_plate_height - module_1_door_gap
+                counter_cabinet_height
+                - module_1_face_plate_height
+                - module_1_door_gap
             )
             module_1_door_center_height = (
-                module_1_door_height - counter_top_height
+                module_1_door_height - counter_cabinet_height
             ) / 2
             module_1_handle_height = 0.02
             module_1_handle_top_inset = 0.04
 
             # Module 1: Cabinet
             module_1_pose = (
-                counter_top_pose
+                root_T_counter_cabinets
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     y=-counter_top_length / 2 + module_1_width / 2
                 )
@@ -446,7 +478,9 @@ class KitchenEnvironment:
                 "module_1_cabinet",
                 Cabinet.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(
-                        x=counter_top_depth, y=module_1_width, z=counter_top_height
+                        x=counter_top_depth,
+                        y=module_1_width,
+                        z=counter_cabinet_height,
                     ),
                     wall_thickness=0.02,
                 ),
@@ -460,7 +494,7 @@ class KitchenEnvironment:
                 world_root_T_self=module_1_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=-counter_top_depth / 2,
-                    z=(counter_top_height - module_1_face_plate_height) / 2,
+                    z=(counter_cabinet_height - module_1_face_plate_height) / 2,
                 ),
                 scale=Scale(
                     x=0.02,
@@ -542,7 +576,7 @@ class KitchenEnvironment:
 
             # Module 2: Dishwasher
             module_2_pose = (
-                counter_top_pose
+                root_T_counter_cabinets
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     y=-counter_top_length / 2 + module_1_width + module_2_width / 2
                 )
@@ -551,7 +585,9 @@ class KitchenEnvironment:
                 "dishwasher",
                 Dishwasher.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(
-                        x=counter_top_depth, y=module_2_width, z=counter_top_height
+                        x=counter_top_depth,
+                        y=module_2_width,
+                        z=counter_cabinet_height,
                     ),
                     wall_thickness=0.02,
                 ),
@@ -562,7 +598,7 @@ class KitchenEnvironment:
             module_2_hinge_world_pose = (
                 module_2_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-counter_top_depth / 2, z=-counter_top_height / 2
+                    x=-counter_top_depth / 2, z=-counter_cabinet_height / 2
                 )
             )
             module_2_hinge = Hinge.create_with_new_body_in_world(
@@ -586,9 +622,9 @@ class KitchenEnvironment:
                 name="dishwasher_door",
                 world_root_T_self=module_2_hinge_world_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    z=counter_top_height / 2
+                    z=counter_cabinet_height / 2
                 ),
-                scale=Scale(x=0.02, y=module_2_width, z=counter_top_height),
+                scale=Scale(x=0.02, y=module_2_width, z=counter_cabinet_height),
             )
             for shape in module_2_door.root.visual.shapes:
                 shape.color = Color.WHITE()
@@ -605,7 +641,7 @@ class KitchenEnvironment:
                 world,
                 parent_T_self=module_2_hinge_world_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-0.02, z=counter_top_height - 0.03
+                    x=-0.02, z=counter_cabinet_height - 0.03
                 ),
             )
             for shape in module_2_handle.root.visual.shapes:
@@ -614,7 +650,7 @@ class KitchenEnvironment:
 
             # Module 3: Cabinet with Drawers
             module_3_pose = (
-                counter_top_pose
+                root_T_counter_cabinets
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     y=counter_top_length / 2 - module_3_width / 2
                 )
@@ -623,7 +659,9 @@ class KitchenEnvironment:
                 "module_3_cabinet",
                 Cabinet.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(
-                        x=counter_top_depth, y=module_3_width, z=counter_top_height
+                        x=counter_top_depth,
+                        y=module_3_width,
+                        z=counter_cabinet_height,
                     ),
                     wall_thickness=0.02,
                 ),
@@ -633,30 +671,30 @@ class KitchenEnvironment:
             counter_top.add_object(module_3_cabinet)
 
             drawer_heights = [
-                counter_top_height * 0.4,
-                counter_top_height * 0.4,
-                counter_top_height * 0.2,
+                counter_cabinet_height * 0.4,
+                counter_cabinet_height * 0.4,
+                counter_cabinet_height * 0.2,
             ]
-            drawer_z_positions = [-0.18, 0.06, 0.24]
-            for i, (height, z_pos) in enumerate(
-                zip(drawer_heights, drawer_z_positions)
-            ):
+            drawer_bottom_height = -counter_cabinet_height / 2
+            for drawer_index, height in enumerate(drawer_heights):
+                drawer_center_height = drawer_bottom_height + height / 2
                 drawer_pose = (
                     module_3_pose
                     @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                        x=-counter_top_depth / 2 + 0.15, z=z_pos
+                        x=-counter_top_depth / 2 + 0.15,
+                        z=drawer_center_height,
                     )
                 )
                 drawer = Drawer.create_with_new_body_in_world(
                     world=world,
-                    name=f"counter_drawer_{i}",
+                    name=f"counter_drawer_{drawer_index}",
                     world_root_T_self=drawer_pose,
                     scale=Scale(x=0.3, y=module_3_width - 0.04, z=height - 0.01),
                 )
 
                 slider = Slider.create_with_new_body_in_world(
                     world=world,
-                    name=f"counter_drawer_{i}_slider",
+                    name=f"counter_drawer_{drawer_index}_slider",
                     world_root_T_self=drawer_pose,
                     parent_connection_specification=Slider.parent_connection_specification(
                         axis=Vector3.NEGATIVE_X(),
@@ -683,7 +721,7 @@ class KitchenEnvironment:
                     )
                 )
                 handle = Handle.get_annotation_specification(
-                    f"counter_drawer_{i}_handle",
+                    f"counter_drawer_{drawer_index}_handle",
                     Handle.get_default_root_kinematic_structure_entity_specification(
                         scale=Scale(x=0.04, y=module_3_handle_width, z=0.02),
                         thickness=0.02,
@@ -692,6 +730,7 @@ class KitchenEnvironment:
                 for shape in handle.root.visual.shapes:
                     shape.color = Color.GRAY()
                 drawer.add(handle)
+                drawer_bottom_height += height
 
             # --- OVEN TOWER ---
             oven_width, oven_depth, oven_height = 1.20, 0.658, 1.49
