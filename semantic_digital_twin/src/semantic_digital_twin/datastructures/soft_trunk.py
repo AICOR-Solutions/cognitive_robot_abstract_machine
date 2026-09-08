@@ -43,7 +43,9 @@ class SoftTrunkSection:
     """The rest length of the section in meters."""
 
     radius: float
-    """The radius of the cylinder representing the section's volume."""
+    """
+    The radius of the cylinder representing the section's volume.
+    """
 
     resolution: int
     """The number of discrete rigid segments used to approximate the continuous curve."""
@@ -51,7 +53,9 @@ class SoftTrunkSection:
 
 @dataclass(eq=False, kw_only=True)
 class SoftEndEffector(EndEffector):
-    """Concrete implementation of EndEffector for soft robots."""
+    """
+    Concrete implementation of EndEffector for soft robots.
+    """
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(cls, robot_root):
@@ -66,7 +70,9 @@ class SoftEndEffector(EndEffector):
 
 @dataclass(eq=False, kw_only=True)
 class SoftArm(Arm):
-    """Concrete implementation of Arm for soft robots."""
+    """
+    Concrete implementation of Arm for soft robots.
+    """
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(cls, robot_root):
@@ -96,34 +102,54 @@ class SoftTrunk(SemanticAnnotation):
     """
 
     name: PrefixedName
-    """The unique prefixed name assigned to this soft trunk instance."""
+    """
+    The unique prefixed name assigned to this soft trunk instance.
+    """
 
     root: Body
-    """The base body representing the physical root of the trunk."""
+    """
+    The base body representing the physical root of the trunk.
+    """
 
     _world: World
-    """Reference to the parent world containing this robot."""
+    """
+    Reference to the parent world containing this robot.
+    """
 
     kappa_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of curvature DOFs (1/radius) ordered from base to tip."""
+    """
+    List of curvature DOFs (1/radius) ordered from base to tip.
+    """
 
     phi_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of bending plane DOFs ordered from base to tip."""
+    """
+    List of bending plane DOFs ordered from base to tip.
+    """
 
     bending_x_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of bending DOFs around the local X-axis ordered from base to tip."""
+    """
+    List of bending DOFs around the local X-axis ordered from base to tip.
+    """
 
     bending_y_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of bending DOFs around the local Y-axis ordered from base to tip."""
+    """
+    List of bending DOFs around the local Y-axis ordered from base to tip.
+    """
 
     torsion_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of axial torsion (twisting) DOFs ordered from base to tip."""
+    """
+    List of axial torsion (twisting) DOFs ordered from base to tip.
+    """
 
     extension_dofs: list[DegreeOfFreedom] = field(default_factory=list)
-    """List of longitudinal extension (stretching) DOFs ordered from base to tip."""
+    """
+    List of longitudinal extension (stretching) DOFs ordered from base to tip.
+    """
 
     arms: list[Arm] = field(default_factory=list)
-    """List of semantic Arm structures associated with this trunk."""
+    """
+    List of semantic Arm structures associated with this trunk.
+    """
 
     def __post_init__(self):
         super().__post_init__()
@@ -132,12 +158,16 @@ class SoftTrunk(SemanticAnnotation):
     def piecewise_constant_curvature_sections(
         self,
     ) -> list[tuple[DegreeOfFreedom, DegreeOfFreedom]]:
-        """Returns a list of (kappa_dof, phi_dof) pairs, ordered from base to tip."""
+        """
+        Returns a list of (kappa_dof, phi_dof) pairs, ordered from base to tip.
+        """
         return list(zip(self.kappa_dofs, self.phi_dofs))
 
     @property
     def cosserat_sections(self) -> list[tuple[DegreeOfFreedom, ...]]:
-        """Returns a list of (bx, by, torsion, extension) tuples, ordered from base to tip."""
+        """
+        Returns a list of (bx, by, torsion, extension) tuples, ordered from base to tip.
+        """
         return list(
             zip(
                 self.bending_x_dofs,
@@ -169,7 +199,6 @@ class SoftTrunk(SemanticAnnotation):
 
         :return: A SoftTrunk robot view.
         """
-
         prefix = "piecewise_constant_curvature"
         with world.modify_world():
             root_body = Body(name=PrefixedName(name="base", prefix=prefix))
@@ -239,8 +268,6 @@ class SoftTrunk(SemanticAnnotation):
                 front_facing_orientation=Quaternion(w=1.0),
                 _world=world,
             )
-            world.add_semantic_annotation(effector)
-
             arm = SoftArm(
                 name=PrefixedName("arm", prefix),
                 root=root_body,
@@ -249,7 +276,10 @@ class SoftTrunk(SemanticAnnotation):
                 end_effector=effector,
             )
             trunk.arms.append(arm)
-            world.add_semantic_annotation(trunk)
+            # Registers the arm and its end effector along with the trunk, the way a
+            # robot registers its parts. The trunk refers to them by id, so a part the
+            # world does not hold cannot be resolved when the world is rebuilt.
+            world.add_semantic_annotation_recursively(trunk)
 
         return trunk
 
@@ -276,7 +306,6 @@ class SoftTrunk(SemanticAnnotation):
 
         :return: A SoftTrunk robot view
         """
-
         prefix = "cosserat"
         with world.modify_world():
             root_body = Body(name=PrefixedName(name="base", prefix=prefix))
@@ -367,8 +396,6 @@ class SoftTrunk(SemanticAnnotation):
                 front_facing_orientation=Quaternion(w=1.0),
                 _world=world,
             )
-            world.add_semantic_annotation(effector)
-
             arm = SoftArm(
                 name=PrefixedName("arm", prefix),
                 root=root_body,
@@ -377,6 +404,9 @@ class SoftTrunk(SemanticAnnotation):
                 end_effector=effector,
             )
             trunk.arms.append(arm)
-            world.add_semantic_annotation(trunk)
+            # Registers the arm and its end effector along with the trunk, the way a
+            # robot registers its parts. The trunk refers to them by id, so a part the
+            # world does not hold cannot be resolved when the world is rebuilt.
+            world.add_semantic_annotation_recursively(trunk)
 
         return trunk

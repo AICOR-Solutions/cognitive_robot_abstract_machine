@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Self
 from uuid import UUID
 
 import krrood.symbolic_math.symbolic_math as sm
+from krrood.adapters.json_serializer import from_json, to_json
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.world_entity import (
     Connection,
@@ -14,10 +19,101 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
 from semantic_digital_twin.world import World
+from typing_extensions import Any
+
+# %% what every soft connection has to say about itself
 
 
 @dataclass(eq=False)
-class PiecewiseConstantCurvatureConnection(Connection):
+class SoftConnection(Connection, ABC):
+    """
+    A connection whose child pose comes from a deformation spread along a length of
+    backbone rather than from a joint.
+
+    Subclasses state the deformation they apply in :attr:`deformation`, which copying
+    and serializing a connection both read.
+    """
+
+    segment_length: float = field(kw_only=True)
+    """
+    The length of backbone this connection spans while undeformed.
+    """
+
+    @property
+    def deformation(self) -> dict[str, Any]:
+        """
+        The deformation this connection applies, keyed by the constructor argument each
+        value is passed as.
+        """
+        return {"segment_length": self.segment_length}
+
+    @classmethod
+    def _deformation_from_json(cls, data: dict[str, Any], **kwargs) -> dict[str, Any]:
+        """
+        Read the deformation back off a serialized connection.
+
+        :param data: The serialized connection.
+        :return: The deformation, in the form :attr:`deformation` returns it.
+        """
+        return {"segment_length": data["segment_length"]}
+
+    def copy_for_world(self, world: World) -> Self:
+        (
+            parent,
+            child,
+            parent_T_connection_expression,
+            connection_T_child_expression,
+        ) = self._find_references_in_world(world)
+        return self.__class__(
+            parent=parent,
+            child=child,
+            parent_T_connection_expression=parent_T_connection_expression,
+            connection_T_child_expression=connection_T_child_expression,
+            name=PrefixedName(self.name.name, prefix=self.name.prefix),
+            **self.deformation,
+        )
+
+    def copy_with_new_parent(
+        self,
+        new_parent: KinematicStructureEntity,
+        parent_T_connection_expression: HomogeneousTransformationMatrix,
+    ) -> Self:
+        return self.__class__(
+            parent=new_parent,
+            child=self.child,
+            parent_T_connection_expression=parent_T_connection_expression,
+            connection_T_child_expression=self.connection_T_child_expression,
+            **self.deformation,
+        )
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            **super().to_json(),
+            **{name: to_json(value) for name, value in self.deformation.items()},
+        }
+
+    @classmethod
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+        return cls(
+            name=from_json(data["name"]),
+            parent=tracker.get_world_entity_with_id(id=from_json(data["parent_id"])),
+            child=tracker.get_world_entity_with_id(id=from_json(data["child_id"])),
+            parent_T_connection_expression=from_json(
+                data["parent_T_connection_expression"], **kwargs
+            ),
+            connection_T_child_expression=from_json(
+                data["connection_T_child_expression"], **kwargs
+            ),
+            **cls._deformation_from_json(data, **kwargs),
+        )
+
+
+# %% the models a soft connection can follow
+
+
+@dataclass(eq=False)
+class PiecewiseConstantCurvatureConnection(SoftConnection):
     """
     A continuum connection based on the Piecewise Constant Curvature (PCC) model.
 
@@ -34,10 +130,21 @@ class PiecewiseConstantCurvatureConnection(Connection):
     UUID of the Degree of Freedom representing the plane of bending.
     """
 
-    segment_length: float = field(kw_only=True)
-    """
-    The physical arc length of this specific segment.
-    """
+    @property
+    def deformation(self) -> dict[str, Any]:
+        return {
+            **super().deformation,
+            "kappa_dof_id": self.kappa_dof_id,
+            "phi_dof_id": self.phi_dof_id,
+        }
+
+    @classmethod
+    def _deformation_from_json(cls, data: dict[str, Any], **kwargs) -> dict[str, Any]:
+        return {
+            **super()._deformation_from_json(data, **kwargs),
+            "kappa_dof_id": from_json(data["kappa_dof_id"]),
+            "phi_dof_id": from_json(data["phi_dof_id"]),
+        }
 
     @classmethod
     def create_with_dofs(
@@ -152,7 +259,7 @@ class PiecewiseConstantCurvatureConnection(Connection):
 
 
 @dataclass(eq=False)
-class CosseratRodConnection(Connection):
+class CosseratRodConnection(SoftConnection):
     """
     A connection implementing Cosserat Rod Theory.
 
@@ -181,10 +288,25 @@ class CosseratRodConnection(Connection):
     UUID of the Degree of Freedom for the linear stretching rate along the Z-axis (vz).
     """
 
-    segment_length: float = field(kw_only=True)
-    """
-    The intrinsic rest length of the rod segment.
-    """
+    @property
+    def deformation(self) -> dict[str, Any]:
+        return {
+            **super().deformation,
+            "bending_x_dof_id": self.bending_x_dof_id,
+            "bending_y_dof_id": self.bending_y_dof_id,
+            "torsion_dof_id": self.torsion_dof_id,
+            "extension_dof_id": self.extension_dof_id,
+        }
+
+    @classmethod
+    def _deformation_from_json(cls, data: dict[str, Any], **kwargs) -> dict[str, Any]:
+        return {
+            **super()._deformation_from_json(data, **kwargs),
+            "bending_x_dof_id": from_json(data["bending_x_dof_id"]),
+            "bending_y_dof_id": from_json(data["bending_y_dof_id"]),
+            "torsion_dof_id": from_json(data["torsion_dof_id"]),
+            "extension_dof_id": from_json(data["extension_dof_id"]),
+        }
 
     @classmethod
     def create_with_dofs(
