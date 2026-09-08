@@ -236,6 +236,9 @@ class KitchenEnvironment:
             fridge_door_height = 0.965
             fridge_door_top_gap = 0.008
             fridge_top_plate_height = 0.025
+            fridge_top_gap_facing_setback = 0.023
+            fridge_base_facing_setback = 0.07
+            fridge_base_facing_thickness = 0.02
             fridge_height = (
                 fridge_drawer_floor_gap
                 + fridge_drawer_height
@@ -285,6 +288,28 @@ class KitchenEnvironment:
             for shape in fridge_top_plate.root.visual.shapes:
                 shape.color = Color.GRAY()
             refrigerator.add_object(fridge_top_plate)
+
+            fridge_top_gap_facing = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="fridge_top_gap_facing",
+                world_root_T_self=fridge_pose
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-fridge_length / 2 + fridge_top_gap_facing_setback,
+                    z=(
+                        fridge_height / 2
+                        - fridge_top_plate_height
+                        - fridge_door_top_gap / 2
+                    ),
+                ),
+                scale=Scale(
+                    x=door_thickness,
+                    y=fridge_width,
+                    z=fridge_door_top_gap,
+                ),
+            )
+            for shape in fridge_top_gap_facing.root.visual.shapes:
+                shape.color = Color.GRAY()
+            refrigerator.add_object(fridge_top_gap_facing)
 
             hinge_local_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=-fridge_length / 2,
@@ -383,6 +408,31 @@ class KitchenEnvironment:
                 shape.color = Color.WHITE()
             refrigerator.add(fridge_drawer)
 
+            fridge_base_facing = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="fridge_base_facing",
+                world_root_T_self=drawer_world_pose
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=(
+                        -drawer_depth / 2
+                        + fridge_base_facing_setback
+                        + fridge_base_facing_thickness / 2
+                    ),
+                    z=(
+                        -fridge_drawer_height / 2
+                        - fridge_drawer_floor_gap / 2
+                    ),
+                ),
+                scale=Scale(
+                    x=fridge_base_facing_thickness,
+                    y=fridge_width,
+                    z=fridge_drawer_floor_gap,
+                ),
+            )
+            for shape in fridge_base_facing.root.visual.shapes:
+                shape.color = Color.GRAY()
+            refrigerator.add_object(fridge_base_facing)
+
             handle_depth, handle_thickness = 0.04, 0.02
             fridge_door_handle_length = 0.855
             door_handle_world_pose = (
@@ -475,7 +525,7 @@ class KitchenEnvironment:
                 ),
             )
             for shape in counter_base_facing.root.visual.shapes:
-                shape.color = Color.WHITE()
+                shape.color = Color.GRAY()
             counter_top.add_object(counter_base_facing)
 
             sink_width, sink_depth, sink_fridge_gap = 0.86, 0.50, 0.115
@@ -787,7 +837,18 @@ class KitchenEnvironment:
                 drawer_bottom_height += height
 
             # --- OVEN TOWER ---
-            oven_width, oven_depth, oven_height = 1.20, 0.658, 1.49
+            oven_width, oven_depth = 1.20, 0.658
+            oven_base_facing_height = 0.145
+            oven_side_drawer_height = 1.324
+            oven_side_drawer_top_gap = 0.008
+            oven_top_plate_height = 0.025
+            oven_top_gap_facing_setback = 0.023
+            oven_height = (
+                oven_base_facing_height
+                + oven_side_drawer_height
+                + oven_side_drawer_top_gap
+                + oven_top_plate_height
+            )
             counter_tower_gap = 0.001
             tower_center_x = (
                 fridge_counter_boundary_x
@@ -809,31 +870,115 @@ class KitchenEnvironment:
                 shape.color = Color.GRAY()
 
             center_width, side_width = 0.60, 0.30
+            side_drawer_width = 0.294
             center_front_width = 0.595
             center_door_thickness = 0.02
             center_handle_depth = 0.04
             center_handle_width = 0.505
             center_drawer_depth = 0.30
-            cabinet_height, drawer_height = 0.60, 0.15
-            oven_height_center = oven_height - cabinet_height - drawer_height
+            center_cabinet_door_height = 0.577
+            center_cabinet_drawer_gap = 0.002
+            center_drawer_height = 0.143
+            center_oven_height = (
+                oven_side_drawer_height
+                - center_cabinet_door_height
+                - center_cabinet_drawer_gap
+                - center_drawer_height
+            )
+            oven_panel_thickness = 0.02
+            oven_base_facing_setback = 0.07
+
+            oven_base_facing = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="oven_base_facing",
+                world_root_T_self=tower_pose
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=(
+                        -oven_depth / 2
+                        + oven_base_facing_setback
+                        + oven_panel_thickness / 2
+                    ),
+                    z=-oven_height / 2 + oven_base_facing_height / 2,
+                ),
+                scale=Scale(
+                    x=oven_panel_thickness,
+                    y=oven_width,
+                    z=oven_base_facing_height,
+                ),
+            )
+            for shape in oven_base_facing.root.visual.shapes:
+                shape.color = Color.GRAY()
+            tower.add_object(oven_base_facing)
+
+            oven_top_plate = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="oven_top_plate",
+                world_root_T_self=tower_pose
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-oven_depth / 2,
+                    z=oven_height / 2 - oven_top_plate_height / 2,
+                ),
+                scale=Scale(
+                    x=oven_panel_thickness,
+                    y=oven_width,
+                    z=oven_top_plate_height,
+                ),
+            )
+            for shape in oven_top_plate.root.visual.shapes:
+                shape.color = Color.GRAY()
+            tower.add_object(oven_top_plate)
+
+            oven_top_gap_facing = WallPanel.create_with_new_body_in_world(
+                world=world,
+                name="oven_top_gap_facing",
+                world_root_T_self=tower_pose
+                @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-oven_depth / 2 + oven_top_gap_facing_setback,
+                    z=(
+                        oven_height / 2
+                        - oven_top_plate_height
+                        - oven_side_drawer_top_gap / 2
+                    ),
+                ),
+                scale=Scale(
+                    x=oven_panel_thickness,
+                    y=oven_width,
+                    z=oven_side_drawer_top_gap,
+                ),
+            )
+            for shape in oven_top_gap_facing.root.visual.shapes:
+                shape.color = Color.GRAY()
+            tower.add_object(oven_top_gap_facing)
 
             # Side Drawers
             for side in [-1, 1]:
                 side_name = "left" if side == -1 else "right"
-                drawer_pose = tower_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    y=side * (center_width / 2 + side_width / 2)
+                side_drawer_pose = (
+                    tower_pose
+                    @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                        y=side * (center_width / 2 + side_width / 2),
+                        z=(
+                            -oven_height / 2
+                            + oven_base_facing_height
+                            + oven_side_drawer_height / 2
+                        ),
+                    )
                 )
                 drawer = Drawer.create_with_new_body_in_world(
                     world=world,
                     name=f"oven_side_drawer_{side_name}",
-                    world_root_T_self=drawer_pose,
-                    scale=Scale(x=oven_depth, y=side_width, z=oven_height),
+                    world_root_T_self=side_drawer_pose,
+                    scale=Scale(
+                        x=oven_depth,
+                        y=side_drawer_width,
+                        z=oven_side_drawer_height,
+                    ),
                 )
 
                 slider = Slider.create_with_new_body_in_world(
                     world=world,
                     name=f"oven_side_drawer_{side_name}_slider",
-                    world_root_T_self=drawer_pose,
+                    world_root_T_self=side_drawer_pose,
                     parent_connection_specification=Slider.parent_connection_specification(
                         axis=Vector3.NEGATIVE_X(),
                         dof_limits=DegreeOfFreedomLimits(
@@ -853,7 +998,7 @@ class KitchenEnvironment:
                 tower.add(drawer)
 
                 handle_pose = (
-                    drawer_pose
+                    side_drawer_pose
                     @ HomogeneousTransformationMatrix.from_xyz_rpy(
                         x=-oven_depth / 2, roll=np.pi / 2
                     )
@@ -861,7 +1006,11 @@ class KitchenEnvironment:
                 handle = Handle.get_annotation_specification(
                     f"oven_side_handle_{side_name}",
                     Handle.get_default_root_kinematic_structure_entity_specification(
-                        scale=Scale(x=0.04, y=oven_height - 0.08, z=0.02),
+                        scale=Scale(
+                            x=0.04,
+                            y=oven_side_drawer_height - 0.08,
+                            z=0.02,
+                        ),
                         thickness=0.02,
                     ),
                 ).spawn(world, parent_T_self=handle_pose)
@@ -870,11 +1019,15 @@ class KitchenEnvironment:
                 drawer.add(handle)
 
             # Center: Bottom Cabinet
-            cab_pose = tower_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                z=-oven_height / 2 + cabinet_height / 2
+            cabinet_pose = tower_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=(
+                    -oven_height / 2
+                    + oven_base_facing_height
+                    + center_cabinet_door_height / 2
+                )
             )
             oven_cabinet_hinge_world_pose = (
-                cab_pose
+                cabinet_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=-oven_depth / 2, y=center_front_width / 2
                 )
@@ -905,7 +1058,7 @@ class KitchenEnvironment:
                 scale=Scale(
                     x=center_door_thickness,
                     y=center_front_width,
-                    z=cabinet_height,
+                    z=center_cabinet_door_height,
                 ),
             )
             for shape in oven_cabinet_door.root.visual.shapes:
@@ -929,7 +1082,7 @@ class KitchenEnvironment:
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=-center_handle_depth / 2,
                     y=-center_front_width / 2,
-                    z=cabinet_height / 2 - 0.05,
+                    z=center_cabinet_door_height / 2 - 0.05,
                 ),
             )
             for shape in oven_cabinet_handle.root.visual.shapes:
@@ -943,7 +1096,13 @@ class KitchenEnvironment:
                     - center_door_thickness / 2
                     + center_drawer_depth / 2
                 ),
-                z=-oven_height / 2 + cabinet_height + drawer_height / 2,
+                z=(
+                    -oven_height / 2
+                    + oven_base_facing_height
+                    + center_cabinet_door_height
+                    + center_cabinet_drawer_gap
+                    + center_drawer_height / 2
+                ),
             )
             drawer = Drawer.create_with_new_body_in_world(
                 world=world,
@@ -952,7 +1111,7 @@ class KitchenEnvironment:
                 scale=Scale(
                     x=center_drawer_depth,
                     y=center_front_width,
-                    z=drawer_height - 0.01,
+                    z=center_drawer_height,
                 ),
             )
 
@@ -993,7 +1152,7 @@ class KitchenEnvironment:
                 parent_T_self=drawer_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=-center_drawer_depth / 2 - center_handle_depth / 2,
-                    z=drawer_height / 2 - 0.05,
+                    z=center_drawer_height / 2 - 0.05,
                 ),
             )
             for shape in oven_center_drawer_handle.root.visual.shapes:
@@ -1002,13 +1161,20 @@ class KitchenEnvironment:
 
             # Center: Oven (Top)
             oven_pose = tower_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                z=oven_height / 2 - oven_height_center / 2
+                z=(
+                    -oven_height / 2
+                    + oven_base_facing_height
+                    + center_cabinet_door_height
+                    + center_cabinet_drawer_gap
+                    + center_drawer_height
+                    + center_oven_height / 2
+                )
             )
             oven = Oven.create_with_new_body_in_world(
                 world=world,
                 name="oven",
                 world_root_T_self=oven_pose,
-                scale=Scale(x=oven_depth, y=center_width, z=oven_height_center),
+                scale=Scale(x=oven_depth, y=center_width, z=center_oven_height),
             )
             for shape in oven.root.visual.shapes:
                 shape.color = Color.GRAY()
@@ -1017,7 +1183,7 @@ class KitchenEnvironment:
             oven_hinge_world_pose = (
                 oven_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-oven_depth / 2, z=-oven_height_center / 2
+                    x=-oven_depth / 2, z=-center_oven_height / 2
                 )
             )
             oven_hinge = Hinge.create_with_new_body_in_world(
@@ -1041,9 +1207,9 @@ class KitchenEnvironment:
                 name="oven_door",
                 world_root_T_self=oven_hinge_world_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    z=oven_height_center / 2
+                    z=center_oven_height / 2
                 ),
-                scale=Scale(x=0.02, y=center_width, z=oven_height_center),
+                scale=Scale(x=0.02, y=center_width, z=center_oven_height),
             )
             for shape in oven_door.root.visual.shapes:
                 shape.color = Color.WHITE()
@@ -1051,8 +1217,8 @@ class KitchenEnvironment:
             oven_door.add(oven_hinge)
             oven.add(oven_door)
 
-            oven_handle_height = 0.02
-            oven_handle_top_inset = 0.14 # top handle measured from top edge of oven
+            oven_handle_height = 0.025
+            oven_handle_top_inset = 0.13  # Measured from the top edge of the oven.
             oven_handle = Handle.get_annotation_specification(
                 "oven_handle",
                 Handle.get_default_root_kinematic_structure_entity_specification(
@@ -1069,7 +1235,7 @@ class KitchenEnvironment:
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=-0.02,
                     z=(
-                        oven_height_center
+                        center_oven_height
                         - oven_handle_top_inset
                         - oven_handle_height / 2
                     ),
