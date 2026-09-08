@@ -6,7 +6,6 @@ from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.goals.tracebot import InsertCylinder
-from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from semantic_digital_twin.datastructures.definitions import GripperState
@@ -87,8 +86,8 @@ def test_insert_cylinder_with_tracy(tracy_world):
     executor.compile(motion_statechart=msc)
     executor.tick_until_end(3000)
 
-    root_T_cylinder = world.compute_forward_kinematics_np(world.root, cylinder)
-    z_axis = root_T_cylinder[:3, 2]
-    bottom = root_T_cylinder[:3, 3] + z_axis * cylinder_height / 2
-    assert np.allclose(bottom, hole_point.to_np()[:3], atol=0.02)
-    assert np.allclose(z_axis, [0.0, 0.0, -1.0], atol=0.02)
+    root_T_cylinder = world.compute_forward_kinematics(world.root, cylinder)
+    root_V_axis = root_T_cylinder.to_rotation_matrix().z_vector()
+    root_P_bottom = root_T_cylinder.to_position() + root_V_axis * (cylinder_height / 2)
+    assert np.allclose(root_P_bottom, hole_point, atol=0.02)
+    assert np.allclose(root_V_axis, Vector3(0.0, 0.0, -1.0), atol=0.02)
