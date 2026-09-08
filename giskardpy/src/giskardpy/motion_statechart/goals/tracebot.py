@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing_extensions import Optional
 
 import numpy as np
 
@@ -9,61 +8,12 @@ import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.graph_node import Goal, Task, NodeArtifacts
-from giskardpy.motion_statechart.tasks.feature_functions import ReachPoint
+from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.tasks.feature_functions import AngleGoal, ReachPoint
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
-
-
-@dataclass(eq=False, repr=False)
-class SlightlyTiltedTask(Task):
-    """
-    Tilts the tip axis by a fixed angle relative to a reference axis.
-    """
-
-    tip_V_axis: Vector3 = field(kw_only=True)
-    """
-    Axis of interest, expressed in the tip frame.
-    """
-
-    root_link: KinematicStructureEntity = field(kw_only=True)
-    """
-    Root link of the kinematic chain.
-    """
-
-    tip_link: KinematicStructureEntity = field(kw_only=True)
-    """
-    Body that is controlled.
-    """
-
-    root_V_reference: Vector3 = field(kw_only=True)
-    """
-    Reference axis to tilt against, expressed in the root frame.
-    """
-
-    tilt: float = field(kw_only=True)
-    """
-    Target angle in rad between the tip axis and the reference axis.
-    """
-
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
-        root_T_tip = context.world.compose_forward_kinematics_expression(
-            self.root_link, self.tip_link
-        )
-        root_V_axis = root_T_tip @ self.tip_V_axis
-        cos_tilt = root_V_axis.dot(self.root_V_reference)
-        cos_goal = float(np.cos(self.tilt))
-
-        artifacts = NodeArtifacts()
-        artifacts.geometry.add_position_constraint(
-            expression_current=cos_tilt,
-            expression_goal=cos_goal,
-            reference_velocity=0.1,
-            quadratic_weight=self.weight,
-        )
-        artifacts.observation = sm.abs(cos_tilt - cos_goal) <= 0.01
-        return artifacts
 
 
 @dataclass(eq=False, repr=False)
@@ -97,6 +47,16 @@ class StayOnLineTask(Task):
     End of the line segment, expressed in the root frame.
     """
 
+    reference_velocity: float = field(default=0.1, kw_only=True)
+    """
+    Normalization velocity of the constraint in m/s.
+    """
+
+    threshold: float = field(default=0.01, kw_only=True)
+    """
+    Distance in m at or below which the tool counts as on the line.
+    """
+
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         root_T_tip = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
@@ -110,54 +70,10 @@ class StayOnLineTask(Task):
         artifacts.geometry.add_point_goal_constraints(
             frame_P_current=root_P_tool,
             frame_P_goal=root_P_on_line,
-            reference_velocity=0.1,
+            reference_velocity=self.reference_velocity,
             quadratic_weight=self.weight,
         )
-        artifacts.observation = distance_to_line < 0.01
-        return artifacts
-
-
-@dataclass(eq=False, repr=False)
-class TiltStraightTask(Task):
-    """
-    Aligns the tip axis with a reference axis.
-    """
-
-    tip_V_axis: Vector3 = field(kw_only=True)
-    """
-    Axis of interest, expressed in the tip frame.
-    """
-
-    root_link: KinematicStructureEntity = field(kw_only=True)
-    """
-    Root link of the kinematic chain.
-    """
-
-    tip_link: KinematicStructureEntity = field(kw_only=True)
-    """
-    Body that is controlled.
-    """
-
-    root_V_reference: Vector3 = field(kw_only=True)
-    """
-    Reference axis to align with, expressed in the root frame.
-    """
-
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
-        root_T_tip = context.world.compose_forward_kinematics_expression(
-            self.root_link, self.tip_link
-        )
-        root_V_axis = root_T_tip @ self.tip_V_axis
-        tilt_error = root_V_axis.angle_between(self.root_V_reference)
-
-        artifacts = NodeArtifacts()
-        artifacts.geometry.add_vector_goal_constraints(
-            frame_V_current=root_V_axis,
-            frame_V_goal=self.root_V_reference,
-            reference_velocity=0.025,
-            quadratic_weight=self.weight,
-        )
-        artifacts.observation = tilt_error <= 0.01
+        artifacts.observation = distance_to_line < self.threshold
         return artifacts
 
 
@@ -173,35 +89,27 @@ class InsertCylinder(Goal):
 
     tip_link: KinematicStructureEntity = field(kw_only=True)
     """
-    Cylinder body to insert.
-
-    controlled tip of the kinematic chain.
+    Controlled tip of the kinematic chain; the grasped body to insert.
     """
 
     tip_P_tool: Point3 = field(kw_only=True)
     """
-    Leading insertion point (e.g. the object's tip), expressed in the tip frame.
+    Leading insertion point, e.g. the object's tip.
     """
 
     hole_point: Point3 = field(kw_only=True)
     """
-    Position of the hole to insert the cylinder into.
+    Position of the hole to insert into.
     """
 
-    tip_V_axis: Vector3 = field(default_factory=Vector3.Z)
+    tip_V_axis: Vector3 = field(kw_only=True)
     """
-    Insertion axis of the object, expressed in the tip frame.
-
-    Defaults to the tip frame's +Z axis. A frameless vector is interpreted in the tip
-    frame.
+    Insertion axis of the object, in the tip frame.
     """
 
-    up_axis: Vector3 = field(default_factory=Vector3.Z)
+    up_axis: Vector3 = field(kw_only=True)
     """
     Axis pointing out of the hole.
-
-    Defaults to the root frame's +Z axis. A frameless vector is interpreted in the root
-    frame.
     """
 
     pre_grasp_height: float = 0.2
@@ -220,20 +128,13 @@ class InsertCylinder(Goal):
     """
 
     reach_top: ReachPoint = field(init=False)
-    tilt_task: SlightlyTiltedTask = field(init=False)
+    tilt_task: AngleGoal = field(init=False)
     stay_on_line: StayOnLineTask = field(init=False)
     insert_task: ReachPoint = field(init=False)
-    tilt_straight_task: TiltStraightTask = field(init=False)
+    tilt_straight_task: AlignPlanes = field(init=False)
 
     def expand(self, context: MotionStatechartContext) -> None:
         root = context.world.root
-
-        if self.tip_P_tool.reference_frame is None:
-            self.tip_P_tool.reference_frame = self.tip_link
-        if self.tip_V_axis.reference_frame is None:
-            self.tip_V_axis.reference_frame = self.tip_link
-        if self.up_axis.reference_frame is None:
-            self.up_axis.reference_frame = root
 
         root_V_up = context.world.transform(self.up_axis, root)
         root_P_hole = context.world.transform(self.hole_point, root)
@@ -248,13 +149,15 @@ class InsertCylinder(Goal):
             maximum_velocity=0.1,
             weight=self.weight,
         )
-        self.tilt_task = SlightlyTiltedTask(
+        self.tilt_task = AngleGoal(
             name="Slightly Tilted",
             root_link=root,
             tip_link=self.tip_link,
-            tip_V_axis=self.tip_V_axis,
-            root_V_reference=root_V_up,
-            tilt=self.tilt,
+            tip_vector=self.tip_V_axis,
+            reference_vector=root_V_up,
+            lower_angle=self.tilt,
+            upper_angle=self.tilt,
+            threshold=0.01,
             weight=self.weight,
         )
         self.stay_on_line = StayOnLineTask(
@@ -275,12 +178,13 @@ class InsertCylinder(Goal):
             maximum_velocity=0.05,
             weight=self.weight,
         )
-        self.tilt_straight_task = TiltStraightTask(
+        self.tilt_straight_task = AlignPlanes(
             name="Tilt Straight",
             root_link=root,
             tip_link=self.tip_link,
-            tip_V_axis=self.tip_V_axis,
-            root_V_reference=root_V_up,
+            tip_normal=self.tip_V_axis,
+            goal_normal=root_V_up,
+            reference_velocity=0.025,
             weight=self.weight,
         )
 

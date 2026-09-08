@@ -6,6 +6,7 @@ from giskardpy.executor import Executor
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.goals.tracebot import InsertCylinder
+from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from semantic_digital_twin.datastructures.definitions import GripperState
@@ -64,8 +65,9 @@ def test_insert_cylinder_with_tracy(tracy_world):
     msc = MotionStatechart()
     goal = InsertCylinder(
         tip_link=cylinder,
-        tip_P_tool=Point3(0.0, 0.0, cylinder_height / 2),
-        tip_V_axis=Vector3(0.0, 0.0, -1.0),
+        tip_P_tool=Point3(0.0, 0.0, cylinder_height / 2, reference_frame=cylinder),
+        tip_V_axis=Vector3(0.0, 0.0, -1.0, reference_frame=cylinder),
+        up_axis=Vector3(0.0, 0.0, 1.0, reference_frame=world.root),
         hole_point=hole_point,
         pre_grasp_height=0.1,
     )
@@ -74,11 +76,8 @@ def test_insert_cylinder_with_tracy(tracy_world):
             GripperState.CLOSE
         )
     )
-    msc.add_node(
-        Sequence(
-            [close_gripper, goal],
-        )
-    )
+    msc.add_node(sequence := Sequence([close_gripper, goal]))
+    msc.add_node(EndMotion.when_true(sequence))
 
     executor = Executor(
         MotionStatechartContext(world=world),
