@@ -8,11 +8,12 @@ from krrood.entity_query_language.backends import (
     ProbabilisticBackend,
 )
 from krrood.entity_query_language.factories import a, an, variable_from
+from giskardpy.motion_statechart.data_types import LifeCycleValues
+
 from coraplex.datastructures.enums import (
     Arms,
     ApproachDirection,
     VerticalAlignment,
-    TaskStatus,
 )
 from coraplex.datastructures.grasp import GraspDescription
 
@@ -190,7 +191,7 @@ def test_underspecified_action(apartment_world_pr2_copy_with_context):
     with simulated_robot:
         plan.perform()
 
-    assert plan.root.status == TaskStatus.SUCCEEDED
+    assert plan.root.status == LifeCycleValues.SUCCEEDED
     candidate = plan.root.children[0]
     assert isinstance(candidate.designator, NavigateAction)
     assert plan.root.parse() is not None
@@ -228,7 +229,7 @@ def test_underspecified_action_with_ellipsis(apartment_world_pr2_copy_with_conte
     with simulated_robot:
         plan.perform()
 
-    assert plan.root.status == TaskStatus.SUCCEEDED
+    assert plan.root.status == LifeCycleValues.SUCCEEDED
     candidate = plan.root.children[-1]
     assert isinstance(candidate.designator, NavigateAction)
     assert plan.root.parse() is not None
@@ -297,7 +298,7 @@ def test_isolation_rejected_candidate_never_touches_real_world(
     with simulated_robot:
         plan.perform()
 
-    assert plan.root.status == TaskStatus.SUCCEEDED
+    assert plan.root.status == LifeCycleValues.SUCCEEDED
     assert len(plan.root.children) == 1
     assert plan.root.children[0].designator.fail_on_attempt_number is None
 
@@ -370,7 +371,7 @@ def test_real_failure_keeps_state_and_next_trial_reflects_it(
     with simulated_robot:
         plan.perform()
 
-    assert plan.root.status == TaskStatus.SUCCEEDED
+    assert plan.root.status == LifeCycleValues.SUCCEEDED
     # Both the failed and the accepted candidate are attached to the tree - a real
     # failure is not undone, only worked around by trying the next candidate.
     assert [
