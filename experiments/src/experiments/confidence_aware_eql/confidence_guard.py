@@ -73,10 +73,9 @@ class ConfidenceGuardObserver(EvaluationObserver):
             if instance is None:
                 continue
             log_likelihood = self.confidence_model.log_likelihood_of(instance)
-            if log_likelihood < self.confidence_model.threshold:
-                raise UnfamiliarInstanceError(
-                    instance, log_likelihood, self.confidence_model.threshold
-                )
+            threshold = self.confidence_model.threshold_for(instance)
+            if log_likelihood < threshold:
+                raise UnfamiliarInstanceError(instance, log_likelihood, threshold)
 
 
 def evaluate_with_confidence_guard(
