@@ -605,11 +605,11 @@ class KitchenEnvironment:
                 name="module_1_face_plate",
                 world_root_T_self=module_1_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-counter_top_depth / 2,
+                    x=-counter_top_depth / 2 + module_1_door_thickness / 2,
                     z=(counter_cabinet_height - module_1_face_plate_height) / 2,
                 ),
                 scale=Scale(
-                    x=0.02,
+                    x=module_1_door_thickness,
                     y=module_1_front_width,
                     z=module_1_face_plate_height,
                 ),
@@ -620,7 +620,7 @@ class KitchenEnvironment:
             module_1_hinge_world_pose = (
                 module_1_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-counter_top_depth / 2,
+                    x=-counter_top_depth / 2 + module_1_door_thickness / 2,
                     y=-module_1_front_width / 2,
                     z=module_1_door_center_height,
                 )
@@ -711,7 +711,8 @@ class KitchenEnvironment:
             module_2_hinge_world_pose = (
                 module_2_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-counter_top_depth / 2, z=-counter_cabinet_height / 2
+                    x=-counter_top_depth / 2 + module_2_door_thickness / 2,
+                    z=-counter_cabinet_height / 2,
                 )
             )
             module_2_hinge = Hinge.create_with_new_body_in_world(
@@ -1276,23 +1277,85 @@ class KitchenEnvironment:
             oven_door.add(oven_handle)
 
             # --- SIDEBOARD / KITCHEN ISLAND ---
-            sideboard_length, sideboard_width, sideboard_height = 2.45, 0.796, 0.845
-            sideboard_thickness = 0.04
+            sideboard_length, sideboard_width, sideboard_height = 2.250, 0.597, 0.825
+            sideboard_top_length, sideboard_top_width = 2.447, 0.796
+            sideboard_top_thickness = 0.026
+            sideboard_top_left_overhang = 0.098
+            sideboard_top_back_overhang = 0.104
+            sideboard_top_right_overhang = (
+                sideboard_top_length
+                - sideboard_length
+                - sideboard_top_left_overhang
+            )
+            sideboard_top_front_overhang = (
+                sideboard_top_width
+                - sideboard_width
+                - sideboard_top_back_overhang
+            )
+            sideboard_top_x_offset = (
+                sideboard_top_back_overhang - sideboard_top_front_overhang
+            ) / 2
+            sideboard_top_y_offset = (
+                sideboard_top_left_overhang - sideboard_top_right_overhang
+            ) / 2
+            sideboard_cooktop_width = 0.572
+            sideboard_cooktop_depth = 0.502
+            sideboard_cooktop_right_gap = 0.139
+            sideboard_cooktop_front_gap = 0.145
+            sideboard_cooktop_x_offset = (
+                sideboard_top_x_offset
+                - sideboard_top_width / 2
+                + sideboard_cooktop_front_gap
+                + sideboard_cooktop_depth / 2
+            )
+            sideboard_cooktop_y_offset = (
+                sideboard_top_y_offset
+                - sideboard_top_length / 2
+                + sideboard_cooktop_right_gap
+                + sideboard_cooktop_width / 2
+            )
             sideboard_base_facing_height = 0.099
             sideboard_base_facing_setback = 0.07
             sideboard_front_panel_thickness = 0.02
             sideboard_drawer_height = 0.288
             sideboard_drawer_depth = 0.4
             sideboard_drawer_face_plate_gap = 0.001
-            sideboard_upper_face_plate_height = (
+            sideboard_upper_face_plate_height = 0.142
+            sideboard_upper_face_plate_top_gap = (
                 sideboard_height
-                - sideboard_thickness
                 - sideboard_base_facing_height
                 - 2 * sideboard_drawer_height
                 - sideboard_drawer_face_plate_gap
+                - sideboard_upper_face_plate_height
             )
+            sideboard_outer_margin = 0.025
+            sideboard_outer_column_width = 0.595
+            sideboard_middle_column_width = 0.994
+            sideboard_column_gap = (
+                sideboard_length
+                - 2 * sideboard_outer_margin
+                - 2 * sideboard_outer_column_width
+                - sideboard_middle_column_width
+            ) / 2
+            sideboard_column_widths = [
+                sideboard_outer_column_width,
+                sideboard_middle_column_width,
+                sideboard_outer_column_width,
+            ]
+            sideboard_column_y_offsets = [
+                -sideboard_middle_column_width / 2
+                - sideboard_column_gap
+                - sideboard_outer_column_width / 2,
+                0,
+                sideboard_middle_column_width / 2
+                + sideboard_column_gap
+                + sideboard_outer_column_width / 2,
+            ]
             sideboard_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=3.545, y=0.2, z=sideboard_height / 2, yaw=np.pi / 2
+                x=3.545,
+                y=0.203 + sideboard_width / 2,
+                z=sideboard_height / 2,
+                yaw=np.pi / 2,
             )
 
             sideboard = Table.create_with_new_body_in_world(
@@ -1300,9 +1363,15 @@ class KitchenEnvironment:
                 name="sideboard",
                 world_root_T_self=sideboard_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    z=sideboard_height / 2 - sideboard_thickness / 2
+                    x=sideboard_top_x_offset,
+                    y=sideboard_top_y_offset,
+                    z=sideboard_height / 2 + sideboard_top_thickness / 2,
                 ),
-                scale=Scale(sideboard_width, sideboard_length, sideboard_thickness),
+                scale=Scale(
+                    sideboard_top_width,
+                    sideboard_top_length,
+                    sideboard_top_thickness,
+                ),
             )
             for shape in sideboard.root.visual.shapes:
                 shape.color = Color.WHITE()
@@ -1342,56 +1411,24 @@ class KitchenEnvironment:
                 shape.color = Color.GRAY()
             sideboard_cabinet.add_object(sideboard_base_facing)
 
-            sideboard_upper_face_plate = WallPanel.create_with_new_body_in_world(
-                world=world,
-                name="sideboard_upper_face_plate",
-                world_root_T_self=sideboard_pose
-                @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=(
-                        -sideboard_width / 2
-                        + sideboard_front_panel_thickness / 2
-                    ),
-                    z=(
-                        -sideboard_height / 2
-                        + sideboard_base_facing_height
-                        + 2 * sideboard_drawer_height
-                        + sideboard_drawer_face_plate_gap
-                        + sideboard_upper_face_plate_height / 2
-                    ),
-                ),
-                scale=Scale(
-                    x=sideboard_front_panel_thickness,
-                    y=sideboard_length,
-                    z=sideboard_upper_face_plate_height,
-                ),
-            )
-            for shape in sideboard_upper_face_plate.root.visual.shapes:
-                shape.color = Color.WHITE()
-            sideboard_cabinet.add_object(sideboard_upper_face_plate)
-
             sideboard_cooktop = Cooktop.create_with_new_body_in_world(
                 world=world,
                 name="sideboard_cooktop",
                 world_root_T_self=sideboard_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    y=-0.7, z=sideboard_height / 2 + 0.005
+                    x=sideboard_cooktop_x_offset,
+                    y=sideboard_cooktop_y_offset,
+                    z=sideboard_height / 2 + sideboard_top_thickness + 0.0025,
                 ),
-                scale=Scale(x=0.5, y=0.6, z=0.005),
+                scale=Scale(
+                    x=sideboard_cooktop_depth,
+                    y=sideboard_cooktop_width,
+                    z=0.005,
+                ),
             )
             for shape in sideboard_cooktop.root.visual.shapes:
                 shape.color = Color.BLACK()
             sideboard.add_object(sideboard_cooktop)
-
-            # Define widths for the three sections of the sideboard
-            width_outer, width_middle = sideboard_length * 0.3, sideboard_length * 0.4
-            widths = [width_outer, width_middle, width_outer]
-
-            # Correctly calculate y-offsets for each section
-            y_offsets = [
-                -sideboard_length / 2 + width_outer / 2,
-                0,
-                sideboard_length / 2 - width_outer / 2,
-            ]
 
             sideboard_drawer_bottom_height = (
                 -sideboard_height / 2 + sideboard_base_facing_height
@@ -1401,7 +1438,35 @@ class KitchenEnvironment:
                 sideboard_drawer_bottom_height + 3 * sideboard_drawer_height / 2,
             ]
 
-            for column_index, (width, y_offset) in enumerate(zip(widths, y_offsets)):
+            for column_index, (width, y_offset) in enumerate(
+                zip(sideboard_column_widths, sideboard_column_y_offsets)
+            ):
+                upper_face_plate = WallPanel.create_with_new_body_in_world(
+                    world=world,
+                    name=f"sideboard_upper_face_plate_{column_index}",
+                    world_root_T_self=sideboard_pose
+                    @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=(
+                            -sideboard_width / 2
+                            + sideboard_front_panel_thickness / 2
+                        ),
+                        y=y_offset,
+                        z=(
+                            sideboard_height / 2
+                            - sideboard_upper_face_plate_top_gap
+                            - sideboard_upper_face_plate_height / 2
+                        ),
+                    ),
+                    scale=Scale(
+                        x=sideboard_front_panel_thickness,
+                        y=width,
+                        z=sideboard_upper_face_plate_height,
+                    ),
+                )
+                for shape in upper_face_plate.root.visual.shapes:
+                    shape.color = Color.WHITE()
+                sideboard_cabinet.add_object(upper_face_plate)
+
                 for row_index, z_offset in enumerate(z_offsets):
                     drawer_id = f"sideboard_drawer_{column_index}_{row_index}"
                     drawer_pose = (
@@ -1419,7 +1484,7 @@ class KitchenEnvironment:
                         world_root_T_self=drawer_pose,
                         scale=Scale(
                             sideboard_drawer_depth,
-                            width - 0.01,
+                            width,
                             sideboard_drawer_height,
                         ),
                     )
@@ -1475,7 +1540,7 @@ class KitchenEnvironment:
                 world=world,
                 name="sofa",
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=3.60, y=1.20, z=0.34, yaw=4.7124
+                    x=3.60, y=1.601, z=0.34, yaw=4.7124
                 ),
                 scale=Scale(x=0.94, y=1.68, z=0.68),
             )
@@ -1792,7 +1857,7 @@ class KitchenEnvironment:
         length, width, height = 0.37, 0.91, 0.44
         thick, color = 0.02, Color.WHITE()
         pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=4.22, y=2.22, z=height, yaw=np.pi
+            x=4.22, y=2.621, z=height, yaw=np.pi
         )
 
         table = Table.create_with_new_body_in_world(
