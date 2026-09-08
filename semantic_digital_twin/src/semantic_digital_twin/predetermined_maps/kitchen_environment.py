@@ -466,6 +466,8 @@ class KitchenEnvironment:
             ) / 2
             module_1_handle_height = 0.02
             module_1_handle_top_inset = 0.04
+            module_2_door_gap = 0.005
+            module_2_door_height = counter_cabinet_height - module_2_door_gap
 
             # Module 1: Cabinet
             module_1_pose = (
@@ -622,9 +624,9 @@ class KitchenEnvironment:
                 name="dishwasher_door",
                 world_root_T_self=module_2_hinge_world_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    z=counter_cabinet_height / 2
+                    z=module_2_door_height / 2
                 ),
-                scale=Scale(x=0.02, y=module_2_width, z=counter_cabinet_height),
+                scale=Scale(x=0.02, y=module_2_width, z=module_2_door_height),
             )
             for shape in module_2_door.root.visual.shapes:
                 shape.color = Color.WHITE()
@@ -641,7 +643,7 @@ class KitchenEnvironment:
                 world,
                 parent_T_self=module_2_hinge_world_pose
                 @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=-0.02, z=counter_cabinet_height - 0.03
+                    x=-0.02, z=module_2_door_height - 0.03
                 ),
             )
             for shape in module_2_handle.root.visual.shapes:
