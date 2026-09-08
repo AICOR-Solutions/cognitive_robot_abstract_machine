@@ -8,6 +8,7 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.datastructures.soft_trunk import (
     SoftArm,
+    SoftEndEffector,
     SoftTrunk,
     SoftTrunkSection,
 )
@@ -237,10 +238,10 @@ class TestSoftConnectionFactories:
 class TestSoftConnectionRebuilding:
     """
     A soft connection carries state a plain connection does not: the degrees of freedom
-    it shares with its section, and the length of backbone it spans.
+    it shares with the other segments of its section, and its own segment length.
 
-    Copying a world or sending one somewhere rebuilds every connection in it, so a
-    segment that cannot say what it carries takes its whole world with it.
+    Copying a world and serializing one both rebuild every connection in it, so a
+    segment that does not report that state comes back deformed differently.
     """
 
     def build_piecewise_constant_curvature_world(self) -> World:
@@ -329,12 +330,15 @@ class TestSoftConnectionRebuilding:
         assert restored.extension_dof_id == segment.extension_dof_id
         assert restored.segment_length == segment.segment_length
 
-    def test_a_trunks_arm_is_registered_in_the_world(self):
+    def test_a_trunks_arm_and_end_effector_are_registered_in_the_world(self):
         """
-        The trunk refers to its arm by id, so an arm the world does not hold cannot be
-        resolved when the world is rebuilt.
+        The trunk refers to the annotations below it by id, so an annotation the world
+        does not hold cannot be resolved when the world is rebuilt.
         """
         world = self.build_piecewise_constant_curvature_world()
         trunk = world.get_semantic_annotations_by_type(SoftTrunk)[0]
 
         assert world.get_semantic_annotations_by_type(SoftArm) == trunk.arms
+        assert world.get_semantic_annotations_by_type(SoftEndEffector) == [
+            arm.end_effector for arm in trunk.arms
+        ]
