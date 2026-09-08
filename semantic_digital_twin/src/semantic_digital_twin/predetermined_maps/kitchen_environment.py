@@ -1317,6 +1317,7 @@ class KitchenEnvironment:
             sideboard_base_facing_height = 0.099
             sideboard_base_facing_setback = 0.07
             sideboard_front_panel_thickness = 0.02
+            sideboard_corpus_wall_thickness = 0.02
             sideboard_drawer_height = 0.288
             sideboard_drawer_depth = 0.4
             sideboard_drawer_face_plate_gap = 0.001
@@ -1380,7 +1381,7 @@ class KitchenEnvironment:
                 "sideboard_cabinet",
                 Cabinet.get_default_root_kinematic_structure_entity_specification(
                     scale=Scale(sideboard_width, sideboard_length, sideboard_height),
-                    wall_thickness=0.02,
+                    wall_thickness=sideboard_corpus_wall_thickness,
                 ),
             ).spawn(world, parent_T_self=sideboard_pose)
             for shape in sideboard_cabinet.root.visual.shapes:
@@ -1403,7 +1404,7 @@ class KitchenEnvironment:
                 ),
                 scale=Scale(
                     x=sideboard_front_panel_thickness,
-                    y=sideboard_length,
+                    y=sideboard_length - sideboard_corpus_wall_thickness,
                     z=sideboard_base_facing_height,
                 ),
             )
