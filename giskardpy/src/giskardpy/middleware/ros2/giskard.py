@@ -20,6 +20,7 @@ from giskardpy.middleware.ros2.graceful_shutdown import GracefulShutdownSignals
 from giskardpy.middleware.ros2.cycle_counter import CycleCounter
 from giskardpy.middleware.ros2.input_synchronization import WorldStateInputs
 from giskardpy.middleware.ros2.motion_server import MotionServer
+from giskardpy.middleware.ros2.statechart_state_logger import StatechartStateLogger
 from giskardpy.middleware.ros2.post_goal_plotters import (
     GoalGanttChartPlotter,
     GoalTrajectoryPlotter,
@@ -137,6 +138,7 @@ class Giskard:
             inputs=WorldStateInputs(world=world),
             cycle_counter=cycle_counter,
             world_updates=world_updates,
+            state_logger=self.create_state_logger(),
         )
         return MotionServer(
             executor=self.executor,
@@ -150,6 +152,16 @@ class Giskard:
             idle_frequency=self.server_config.idle_frequency,
             post_goal_plotters=self.create_post_goal_plotters(),
         )
+
+    def create_state_logger(self) -> StatechartStateLogger | None:
+        """
+        Create the console logger of the motion statechart state, if it is configured.
+        """
+        if not self.server_config.debug_mode:
+            return None
+        if not self.server_config.log_statechart_state:
+            return None
+        return StatechartStateLogger(executor=self.executor)
 
     def create_post_goal_plotters(self) -> List[PostGoalPlotter]:
         """

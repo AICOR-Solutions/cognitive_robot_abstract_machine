@@ -25,7 +25,14 @@ def main():
     giskard = Giskard(
         world_config=WorldWithTracyConfig(urdf=robot_description),
         robot_interface_config=TracyVelocityInterface(),
-        server_config=GiskardServerConfig(execution_mode=ExecutionMode.CLOSED_LOOP),
+        server_config=GiskardServerConfig(
+            execution_mode=ExecutionMode.CLOSED_LOOP,
+            debug_mode=True,
+            log_statechart_state=True,
+            plot_trajectory=True,
+            plot_gantt_chart=True,
+            plot_motion_statechart=True,
+        ),
         qp_controller_config=QPControllerConfig(
             target_frequency=80, prediction_horizon=30
         ),

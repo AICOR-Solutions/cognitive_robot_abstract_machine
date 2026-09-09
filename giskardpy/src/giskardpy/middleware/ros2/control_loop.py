@@ -13,6 +13,7 @@ from giskardpy.middleware.ros2.exceptions import (
 from giskardpy.middleware.ros2.feedback_publisher import ActionFeedbackPublisher
 from giskardpy.middleware.ros2.cycle_counter import CycleCounter
 from giskardpy.middleware.ros2.input_synchronization import WorldStateInputs
+from giskardpy.middleware.ros2.statechart_state_logger import StatechartStateLogger
 from giskardpy.middleware.ros2.world_updates import IncomingWorldUpdates
 from semantic_digital_twin.world import World
 
@@ -65,6 +66,11 @@ class ControlLoop:
     Sends the computed velocities to the robot at the end of every cycle.
     """
 
+    state_logger: StatechartStateLogger | None = None
+    """
+    Logs what the motion statechart is doing to the console; None turns it off.
+    """
+
     @property
     def world(self) -> World:
         return self.executor.context.world
@@ -95,6 +101,8 @@ class ControlLoop:
         self.executor.tick()
         self.publish_commands()
         self.feedback_publisher.publish_if_changed()
+        if self.state_logger is not None:
+            self.state_logger.log_if_changed()
         self.cycle_counter.tick()
 
     def apply_world_updates(self) -> None:

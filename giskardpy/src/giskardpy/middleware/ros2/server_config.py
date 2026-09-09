@@ -54,6 +54,12 @@ class GiskardServerConfig:
     Draw the structure of every executed motion statechart, requires ``debug_mode``.
     """
 
+    log_statechart_state: bool = False
+    """
+    Log every state change of the running motion statechart to the console, requires
+    ``debug_mode``.
+    """
+
     idle_frequency: float = 20.0
     """
     Frequency in hertz at which Giskard waits for goals.
