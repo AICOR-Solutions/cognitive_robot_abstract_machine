@@ -1213,15 +1213,14 @@ class MotionStatechart(SubclassJSONSerializer):
                 json_data, motion_statechart=motion_statechart, **kwargs
             )
             transition.owner._set_transition(transition)
-        for node in motion_statechart.nodes:
-            if isinstance(node, Goal):
-                node.nodes.clear()
+        flat_children_by_parent: dict[int, List[MotionStatechartNode]] = {}
         for node in motion_statechart.nodes:
             if node.parent_node_index is not None:
-                parent_node = motion_statechart.get_node_by_index(
-                    node.parent_node_index
+                flat_children_by_parent.setdefault(node.parent_node_index, []).append(
+                    node
                 )
-                parent_node.nodes.append(node)
+        for parent_index, children in flat_children_by_parent.items():
+            motion_statechart.get_node_by_index(parent_index).nodes = children
         return motion_statechart
 
     def sanity_check(self):

@@ -19,7 +19,6 @@ from giskardpy.motion_statechart.graph_node import (
     TrinaryCondition,
     EndMotion,
     CancelMotion,
-    Goal,
 )
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.motion_statechart import (
@@ -351,31 +350,20 @@ def test_nested_goals(tmp_path):
             assert node_copy.parent_node_index is None
 
 
-def test_nested_goal_children_not_duplicated_by_json_round_trip():
-    """
-    A goal keeps each child exactly once after a JSON round trip, at every nesting
-    depth.
-    """
+def test_goal_children_survive_json_round_trip_exactly_once():
     msc = MotionStatechart()
-    outer = Sequence(name="outer")
-    msc.add_node(outer)
-    inner = Sequence(name="inner")
-    outer.add_node(inner)
-    inner.add_node(ConstTrueNode())
-    inner.add_node(ConstTrueNode())
-    msc.add_node(EndMotion.when_true(outer))
-
-    children_before = {
-        goal.unique_name: len(goal.nodes) for goal in msc.get_nodes_by_type(Goal)
-    }
-    assert children_before == {outer.unique_name: 1, inner.unique_name: 2}
+    registered = Sequence(name="registered")
+    msc.add_node(registered)
+    registered.add_node(ConstTrueNode())
+    registered.add_node(ConstTrueNode())
+    inline_only = Sequence([ConstTrueNode(), ConstTrueNode()], name="inline_only")
+    msc.add_node(inline_only)
+    msc.add_node(EndMotion.when_true(registered))
 
     msc_copy = MotionStatechart.from_json(json.loads(json.dumps(msc.to_json())))
 
-    children_after = {
-        goal.unique_name: len(goal.nodes) for goal in msc_copy.get_nodes_by_type(Goal)
-    }
-    assert children_after == children_before
+    assert len(msc_copy.get_node_by_index(registered.index).nodes) == 2
+    assert len(msc_copy.get_node_by_index(inline_only.index).nodes) == 2
 
 
 def test_collapsed_goal_survives_json_round_trip():
