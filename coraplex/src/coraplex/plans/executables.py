@@ -279,6 +279,16 @@ class GiskardExecutable(Executable):
         Executes the motion state chart on the real robot via giskard while monitoring
         for interrupts.
         """
+        # TEMP debug: dump the chart being sent so its structure can be verified.
+        print(f"\n=== motion state chart: {self.root_node.name} ===")
+        for node in sorted(self.motion_state_chart.nodes, key=lambda n: n.index):
+            parent = node.parent_node.name if node.parent_node is not None else "-"
+            print(
+                f"  [{node.index}] {type(node).__name__} '{node.name}' (parent={parent})"
+                f"\n        start: {node.start_condition}"
+                f"\n        end:   {node.end_condition}"
+            )
+        self.motion_state_chart.draw(f"/tmp/motion_chart_{self.root_node.name}.pdf")
         self.context.giskard_wrapper.execute(self.motion_state_chart)
 
 
