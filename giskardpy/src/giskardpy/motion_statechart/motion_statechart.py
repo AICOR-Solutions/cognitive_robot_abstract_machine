@@ -1214,6 +1214,9 @@ class MotionStatechart(SubclassJSONSerializer):
             )
             transition.owner._set_transition(transition)
         for node in motion_statechart.nodes:
+            if isinstance(node, Goal):
+                node.nodes.clear()
+        for node in motion_statechart.nodes:
             if node.parent_node_index is not None:
                 parent_node = motion_statechart.get_node_by_index(
                     node.parent_node_index

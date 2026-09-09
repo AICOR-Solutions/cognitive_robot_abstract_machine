@@ -19,6 +19,7 @@ from giskardpy.motion_statechart.graph_node import (
     TrinaryCondition,
     EndMotion,
     CancelMotion,
+    Goal,
 )
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.motion_statechart import (
@@ -348,6 +349,33 @@ def test_nested_goals(tmp_path):
             assert node.parent_node.unique_name == node_copy.parent_node.unique_name
         else:
             assert node_copy.parent_node_index is None
+
+
+def test_nested_goal_children_not_duplicated_by_json_round_trip():
+    """
+    A goal keeps each child exactly once after a JSON round trip, at every nesting
+    depth.
+    """
+    msc = MotionStatechart()
+    outer = Sequence(name="outer")
+    msc.add_node(outer)
+    inner = Sequence(name="inner")
+    outer.add_node(inner)
+    inner.add_node(ConstTrueNode())
+    inner.add_node(ConstTrueNode())
+    msc.add_node(EndMotion.when_true(outer))
+
+    children_before = {
+        goal.unique_name: len(goal.nodes) for goal in msc.get_nodes_by_type(Goal)
+    }
+    assert children_before == {outer.unique_name: 1, inner.unique_name: 2}
+
+    msc_copy = MotionStatechart.from_json(json.loads(json.dumps(msc.to_json())))
+
+    children_after = {
+        goal.unique_name: len(goal.nodes) for goal in msc_copy.get_nodes_by_type(Goal)
+    }
+    assert children_after == children_before
 
 
 def test_collapsed_goal_survives_json_round_trip():
