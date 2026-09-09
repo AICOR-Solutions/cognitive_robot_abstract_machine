@@ -378,12 +378,14 @@ class RoboKudoPerception(PerceptionInterface):
 
         client = create_action_client(self.action_name, Query, self.ros_node)
         if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
+            client.destroy()
             raise PerceptionSourceUnavailable(self.action_name)
 
         goal = Query.Goal(
             obj=ObjectDesignator(type=query.semantic_annotation.__name__.lower())
         )
         result = client.send_goal(goal).result
+        client.destroy()
         detections = [
             self._to_detection(designator, query)
             for designator in result.res
