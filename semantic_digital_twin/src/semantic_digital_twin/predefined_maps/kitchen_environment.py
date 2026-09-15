@@ -28,6 +28,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cooktop,
     Oven,
     WallPanel,
+    KitchenIsland,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
@@ -1270,7 +1271,13 @@ class KitchenEnvironment:
                 yaw=np.pi / 2,
             )
 
-            sideboard = Table.create_with_new_body_in_world(
+            kitchen_island = KitchenIsland.create_with_new_body_in_world(
+                world=world,
+                name="kitchen_island",
+                world_root_T_self=sideboard_pose,
+            )
+
+            sideboard = CounterTop.create_with_new_body_in_world(
                 world=world,
                 name="sideboard",
                 world_root_T_self=sideboard_pose
@@ -1297,6 +1304,9 @@ class KitchenEnvironment:
             ).spawn(world, parent_T_self=sideboard_pose)
             for shape in sideboard_cabinet.root.visual.shapes:
                 shape.color = Color.WHITE()
+
+            kitchen_island.add(sideboard_cabinet)
+            kitchen_island.add(sideboard)
 
             sideboard_base_facing = WallPanel.create_with_new_body_in_world(
                 world=world,
