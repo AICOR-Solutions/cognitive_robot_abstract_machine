@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -23,7 +25,10 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.types import NpMatrix4x4
-from semantic_digital_twin.exceptions import MissingConnectionAxisError
+from semantic_digital_twin.exceptions import (
+    MissingConnectionAxisError,
+    WorldEntityWithIDNotInKwargs,
+)
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
@@ -31,6 +36,8 @@ from semantic_digital_twin.spatial_types import (
     Quaternion,
 )
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+
+logger = logging.getLogger("semantic_digital_twin")
 
 if TYPE_CHECKING:
     from semantic_digital_twin.world import World
@@ -172,7 +179,20 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
         parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
         child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        raw_dof = tracker.get_world_entity_with_id(id=from_json(data["dof_id"]))
+        try:
+            raw_dof = tracker.get_world_entity_with_id(id=from_json(data["dof_id"]))
+        except WorldEntityWithIDNotInKwargs:
+            # The bare id says nothing to whoever reads the traceback, but the bodies
+            # either side resolved, so name those and let the original error stand.
+            logger.error(
+                "connection %s (%s -> %s) wants degree of freedom %s, which this world "
+                "does not have",
+                from_json(data["name"]),
+                parent.name,
+                child.name,
+                from_json(data["dof_id"]),
+            )
+            raise
         return cls(
             name=from_json(data["name"]),
             parent=parent,
@@ -496,7 +516,20 @@ class ScrewConnection(ActiveConnection1DOF):
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
         parent = tracker.get_world_entity_with_id(id=from_json(data["parent_id"]))
         child = tracker.get_world_entity_with_id(id=from_json(data["child_id"]))
-        raw_dof = tracker.get_world_entity_with_id(id=from_json(data["dof_id"]))
+        try:
+            raw_dof = tracker.get_world_entity_with_id(id=from_json(data["dof_id"]))
+        except WorldEntityWithIDNotInKwargs:
+            # The bare id says nothing to whoever reads the traceback, but the bodies
+            # either side resolved, so name those and let the original error stand.
+            logger.error(
+                "connection %s (%s -> %s) wants degree of freedom %s, which this world "
+                "does not have",
+                from_json(data["name"]),
+                parent.name,
+                child.name,
+                from_json(data["dof_id"]),
+            )
+            raise
         return cls(
             name=from_json(data["name"]),
             parent=parent,
