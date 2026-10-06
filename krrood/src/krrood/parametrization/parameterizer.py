@@ -42,7 +42,9 @@ from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
 from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
 )
+from krrood.parametrization.feature_extraction.aggregations import get_aggregation_class
 from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
+from krrood.symbol_graph.helpers import get_method_return_type
 from random_events.interval import singleton
 from random_events.product_algebra import Event, SimpleEvent
 from random_events.set import Set
@@ -203,7 +205,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
     """
 
     def __post_init__(self):
-        self.statement.expression.build()
+        self.statement._get_expression_().build()
         self._random_event_compiler = WhereExpressionToRandomEventTranslator(
             and_(*self.statement._where_conditions_)
         )
@@ -239,7 +241,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
         """
         result = {v.name: v for v in self._random_event_compiler.variables.values()}
 
-        for attribute_match in self.statement.matches_with_variables:
+        for attribute_match in self.statement._matches_with_variables_:
             if attribute_match.assigned_value is None:
                 continue
 
@@ -343,11 +345,9 @@ class UnderspecifiedParameters(ModelQueryParameters):
         :param attribute_match: The attribute match with a ``Cause`` assigned value.
         :return: A dictionary of extracted variables.
         """
-        name = attribute_match.name_from_variable_access_path
-        krrood_variable = attribute_match.assigned_variable
-        type_ = self._process_attribute_match_type(krrood_variable._type_)
+        name, type_ = self._resolve_search_variable_name_and_type(attribute_match)
 
-        if not issubclass(type_, compatible_types):
+        if type_ is None or not issubclass(type_, compatible_types):
             raise InvalidEllipsis(type_)
 
         cause_variable = variable_from_name_and_type(name=name, type_=type_)
@@ -369,16 +369,55 @@ class UnderspecifiedParameters(ModelQueryParameters):
             value.
         :return: A dictionary of extracted variables.
         """
-        name = attribute_match.name_from_variable_access_path
-        krrood_variable = attribute_match.assigned_variable
-        type_ = self._process_attribute_match_type(krrood_variable._type_)
+        name, type_ = self._resolve_search_variable_name_and_type(attribute_match)
 
-        if not issubclass(type_, compatible_types):
+        if type_ is None or not issubclass(type_, compatible_types):
             raise InvalidEllipsis(type_)
 
         confounder_variable = variable_from_name_and_type(name=name, type_=type_)
         self.search_confounder_variables.append(confounder_variable)
         return {name: confounder_variable}
+
+    def _resolve_search_variable_name_and_type(
+        self, attribute_match: AttributeMatch
+    ) -> tuple[str, Optional[Type]]:
+        """
+        Resolve the qualified name and type a ``cause``/``confounder``-marked
+        attribute match ranges over.
+
+        A marked keyword usually names a literal field, whose access path already
+        gives the right qualified name and whose type
+        :meth:`AttributeMatch.assigned_variable` already carries. One that instead
+        names an aggregation statistic (e.g. ``chlorine_count`` on a class whose
+        :class:`~krrood.parametrization.feature_extraction.aggregations.AggregationStatistic`
+        subclass declares it) has no field of its own on the owner class: its type
+        falls back to that statistic's own return annotation, and its name is built
+        the same way EQL's own ``variable(AggregationClass).method()`` attribute
+        access names it (``"{AggregationClass}.{method}()"``), matching how grounding
+        actually names that variable on the circuit -- the owner class's own dotted
+        access path does not.
+
+        :param attribute_match: The attribute match to resolve a name and type for.
+        :return: The resolved name, and the resolved type (``None`` if neither a
+            field nor a matching aggregation statistic exists).
+        """
+        type_ = self._process_attribute_match_type(
+            attribute_match.assigned_variable._type_
+        )
+        if type_ is not None:
+            return attribute_match.name_from_variable_access_path, type_
+
+        owner_class = attribute_match.attribute._owner_class_
+        if owner_class is None:
+            return attribute_match.name_from_variable_access_path, None
+        aggregation_class = get_aggregation_class(owner_class)
+        if aggregation_class is None:
+            return attribute_match.name_from_variable_access_path, None
+        name = f"{aggregation_class.__name__}.{attribute_match.attribute_name}()"
+        type_ = get_method_return_type(
+            aggregation_class, attribute_match.attribute_name
+        )
+        return name, type_
 
     def _handle_literal_attribute_match(
         self, attribute_match: AttributeMatch
@@ -547,7 +586,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
         domain_objects = attribute_match.assigned_value.tolist()
 
         if not domain_objects:
-            raise EmptyVariableDomain(attribute_match.variable)
+            raise EmptyVariableDomain(attribute_match._variable_)
 
         if not type_ is None and issubclass(type_, compatible_types):
             return self._extract_variables_from_primitive_krrood_variable(
@@ -663,7 +702,7 @@ class UnderspecifiedParameters(ModelQueryParameters):
             )
             attribute_match = [
                 match
-                for match in self.statement.matches_with_variables
+                for match in self.statement._matches_with_variables_
                 if match.name_from_variable_access_path == variable_.name
             ]
             attribute_match = attribute_match[0] if attribute_match else None

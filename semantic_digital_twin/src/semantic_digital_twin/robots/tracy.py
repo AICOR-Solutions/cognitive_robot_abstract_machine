@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from abc import ABC
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib.resources import files
@@ -285,7 +286,14 @@ class TracyLeftArm(Arm[TracyLeftGripper]):
 
 
 @dataclass(eq=False)
-class TracyRightArm(Arm[TracyRightGripper]):
+class TracyRightArm(UR10eArm[TracyRightGripper]):
+
+    @classproperty
+    def topic_name(cls) -> str:
+        """
+        The topic this arm's controller publishes its joints on.
+        """
+        return TracyTopic.RIGHT_ARM_JOINT_STATES
 
     def setup_hardware_interfaces(self):
         self._setup_hardware_interfaces_for_active_connections()
@@ -379,7 +387,36 @@ class Tracy(
         )
 
     def _setup_velocity_limits(self):
-        self.tighten_dof_velocity_limits_proportionally(maximum_velocity=1.5)
+        """
+        Slow the arms down to 1.5 rad/s at their fastest joint, keeping the joints'
+        proportions.
 
-    def get_end_effectors(self) -> list[EndEffector]:
+        The grippers keep the description's own limits: a finger is no danger at that
+        speed, and scaling it down with the arms would leave it too slow to close within
+        a motion.
+        """
+        end_effector_connections = {
+            connection
+            for arm in self.all_arms
+            for connection in arm.end_effector.active_connections
+        }
+        arm_connections = [
+            connection
+            for connection in self._one_dof_connections
+            if connection not in end_effector_connections
+        ]
+        fastest_arm_velocity = max(
+            connection.raw_dof.limits.upper.velocity for connection in arm_connections
+        )
+        arm_scale = min(1.0, 1.5 / fastest_arm_velocity)
+        self.tighten_dof_velocity_limits_of_1dof_connections(
+            {
+                connection: connection.raw_dof.limits.upper.velocity
+                * (arm_scale if connection in arm_connections else 1.0)
+                for connection in self._one_dof_connections
+            }
+        )
+
+    @property
+    def all_end_effectors(self) -> list[EndEffector]:
         return [self.left_arm.end_effector, self.right_arm.end_effector]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Tuple
 
@@ -52,9 +52,10 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     AmbiguousPart,
     CannotBeAPartOf,
+    NoSupportingSurfaceError,
     UnknownPartWholeRelationshipField,
 )
-from semantic_digital_twin.reasoning.predicates import is_supported_by
+from semantic_digital_twin.reasoning.predicates import SupportedBy
 from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
@@ -954,9 +955,9 @@ class HasSupportingSurface(IsStorageSpace):
         """
         bodies = variable_from(self._world.bodies_with_collision)
         body = entity(bodies).where(
-            is_supported_by(
-                supported_body=bodies,
-                supporting_body=self.root,
+            SupportedBy(
+                supported=bodies,
+                supporting=self.root,
             )
         )
         objects = an(
@@ -1168,7 +1169,7 @@ class HasSupportingSurface(IsStorageSpace):
 
     def spawn_bounding_boxes_as_region(
         self,
-        boxes: BoundingBoxCollection[VolumetricBoundingBox],
+        boxes: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         name: Optional[PrefixedName] = None,
         color: Optional[Color] = None,
     ) -> Region:
@@ -1213,6 +1214,10 @@ class HasSupportingSurface(IsStorageSpace):
         x,y extent bounds the navigable region, and the height range determines which
         obstacles in the world count as blocking.
 
+        ..warning:: Calling this method when :attr:`supporting_surface` is None will
+            cause the method to calculate the surface and add it to the world, resulting
+            in model updates being published if the synchronizer is running.
+
         :param max_height: The height of the free space above the surface.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
@@ -1225,6 +1230,8 @@ class HasSupportingSurface(IsStorageSpace):
             search space starts comfortably above that many times over above the
             surface's own top, so the surface's own body never registers as an
             obstacle to the free space built over it.
+        :raises NoSupportingSurfaceError: If no surface is attached and none can be
+            derived from this annotation's geometry.
         :return: The graph of the free space above this surface.
         """
         from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -1235,6 +1242,11 @@ class HasSupportingSurface(IsStorageSpace):
         )
 
         world = self._world
+        if self.supporting_surface is None:
+            with world.modify_world():
+                if self.calculate_supporting_surface() is None:
+                    raise NoSupportingSurfaceError(self)
+
         origin = HomogeneousTransformationMatrix(reference_frame=self.root)
         surface_box = self.supporting_surface.area.as_bounding_box_collection_at_origin(
             origin

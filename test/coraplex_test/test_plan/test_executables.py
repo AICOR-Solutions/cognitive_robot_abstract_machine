@@ -7,46 +7,77 @@ adds a goal per plan node and a task per motion, and ``prepare_for_execution`` a
 nodes that terminate the chart, which depend on the execution type.
 """
 
-import pytest
+from copy import deepcopy
+from datetime import timedelta
 
+import pytest
+from typing_extensions import List
+
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    ExternalCollisionAvoidance,
+    SelfCollisionAvoidance,
+)
+from coraplex.plans.failures import (
+    MotionExceededSimulationTimeLimit,
+    MotionMadeNoProgress,
+    MotionViolatedCollisionAvoidance,
+)
+from giskardpy.motion_statechart.exceptions import CollisionViolatedError
 from giskardpy.motion_statechart.goals.templates import Sequence
-from giskardpy.motion_statechart.graph_node import CancelMotion, EndMotion, Task
+from giskardpy.ros_executor import Ros2Executor
+from giskardpy.motion_statechart.graph_node import (
+    CancelMotion,
+    EndMotion,
+    Goal,
+    MotionStatechartNode,
+)
 from giskardpy.motion_statechart.monitors.payload_monitors import (
     ThreadedPredicateMonitor,
 )
+from giskardpy.motion_statechart.monitors.progress_monitors import StillProgressing
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
+from semantic_digital_twin.datastructures.definitions import TorsoState
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.tiago import Tiago
+from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import Sphere
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from semantic_digital_twin.world_description.world_entity import Body
 
-from coraplex.datastructures.enums import Arms, ApproachDirection, VerticalAlignment
-from coraplex.datastructures.grasp import GraspDescription
-from coraplex.execution_environment import real_robot, simulated_robot
+from coraplex.datastructures.dataclasses import Context
+from coraplex.datastructures.enums import ExecutionType
+from coraplex.execution_environment import (
+    ExecutionEnvironment,
+    real_robot,
+    simulated_robot,
+)
+from coraplex.exceptions import ConditionNotSatisfied
+from coraplex.plans.executables import GiskardExecutable
 from coraplex.plans.factories import execute_single
 from coraplex.robot_plans.actions.core.pick_up import ReachAction
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 
 
 @pytest.fixture
-def reach_action_executable(immutable_model_world):
+def reach_action_executable(pr2_apartment_context):
     """
     A real, 2-motion ``GiskardExecutable`` with pre-/post-conditions, built the same way
     ``test_merge_motions`` in ``test_graph_parsing.py`` does.
     """
-    world, view, context = immutable_model_world
+    world, view, context = pr2_apartment_context
     milk_connection = world.get_body_by_name("milk.stl").parent_connection
     milk_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         2, 1.5, 0.7, 0, 0, 0, reference_frame=milk_connection.parent
     )
     plan = execute_single(
         ReachAction(
-            Pose.from_xyz_rpy(2, 1.5, 0.7, reference_frame=world.root),
-            Arms.RIGHT,
-            GraspDescription(
-                ApproachDirection.FRONT,
-                VerticalAlignment.NoAlignment,
-                view.right_arm.end_effector,
+            grasp=GraspCandidate.from_body_origin(
+                world.get_semantic_annotations_by_type(Milk)[0]
             ),
-            world.get_semantic_annotations_by_type(Milk)[0],
+            arm=context.robot.right_arm,
         ),
         context=context,
     )
@@ -67,25 +98,43 @@ def test_motion_state_chart_is_created_once(reach_action_executable):
     )
 
 
+def _nodes_below(goal: Goal) -> List[MotionStatechartNode]:
+    """
+    :return: Every node held by `goal` or by a goal below it.
+    """
+    return [
+        descendant
+        for child in goal.nodes
+        for descendant in [
+            child,
+            *(_nodes_below(child) if isinstance(child, Goal) else []),
+        ]
+    ]
+
+
 def test_parsing_populates_the_chart_with_the_motions(reach_action_executable):
     """
-    Every task is in the chart before execution begins, below the executable's root
-    goal.
+    Every task is below the executable's root goal before execution begins, and the root
+    goal is in the chart.
     """
     tasks = list(reach_action_executable.motion_mappings.values())
     chart = reach_action_executable.motion_state_chart
 
     assert len(tasks) == 2
-    assert chart.get_nodes_by_type(CartesianPose) == tasks
     assert reach_action_executable.root_node in chart.nodes
     for task in tasks:
-        assert task in chart.nodes
+        assert task in _nodes_below(reach_action_executable.root_node)
+        # A reach that frees its gripper carries its Cartesian goal alongside the
+        # collision rules, so the mapped node is the pair rather than the goal itself.
+        assert (
+            len([node for node in task.nodes if isinstance(node, CartesianPose)]) == 1
+        )
 
 
 def test_parsing_mirrors_the_plan_tree_as_nested_goals(reach_action_executable):
     """
     The action's motions live in a goal below the executable's root goal rather than
-    flat in the chart.
+    directly in the root goal.
     """
     tasks = list(reach_action_executable.motion_mappings.values())
     root_goal = reach_action_executable.root_node
@@ -93,8 +142,12 @@ def test_parsing_mirrors_the_plan_tree_as_nested_goals(reach_action_executable):
     assert isinstance(root_goal, Sequence)
     assert root_goal.parent_node is None
     for task in tasks:
-        assert task.parent_node is not None
-        assert task.parent_node.parent_node is root_goal
+        assert task not in root_goal.nodes
+        [parent_goal] = [
+            goal
+            for goal in root_goal.nodes
+            if isinstance(goal, Goal) and task in goal.nodes
+        ]
 
 
 def test_parsing_does_not_terminate_the_chart(reach_action_executable):
@@ -135,7 +188,9 @@ def test_execution_does_not_add_condition_monitors(
 
     chart = reach_action_executable.motion_state_chart
     assert chart.get_nodes_by_type(ThreadedPredicateMonitor) == []
-    assert chart.get_nodes_by_type(CancelMotion) == []
+    # The only way out of the chart is giving up on a motion that stopped converging.
+    [progress_cancel] = chart.get_nodes_by_type(CancelMotion)
+    assert not isinstance(progress_cancel.exception, ConditionNotSatisfied)
 
 
 # %% wiring conditions into a chart
@@ -176,3 +231,146 @@ def test_pre_condition_monitor_gates_the_root_goal(reach_action_executable):
     assert root_goal.start_condition.free_variables() == [
         pre_monitor.observation_variable
     ]
+
+
+# %% collision avoidance
+
+
+def test_prepare_for_execution_avoids_the_robot_colliding_with_itself(
+    reach_action_executable,
+):
+    """
+    A run asking for collision avoidance must get both kinds: without the self-collision
+    goal nothing stops the arm from moving through the robot's own body, since the
+    robot's ``AvoidSelfCollisions`` rule only shapes the collision matrix and never
+    becomes a constraint on its own.
+    """
+    with ExecutionEnvironment(ExecutionType.SIMULATED, collision_avoidance=True):
+        reach_action_executable.prepare_for_execution()
+
+    chart = reach_action_executable.motion_state_chart
+    assert len(chart.get_nodes_by_type(ExternalCollisionAvoidance)) == 1
+    assert len(chart.get_nodes_by_type(SelfCollisionAvoidance)) == 1
+
+
+def test_prepare_for_execution_leaves_out_collision_avoidance_when_not_asked_for(
+    reach_action_executable,
+):
+    """
+    A run that does not ask for collision avoidance gets neither goal.
+    """
+    with ExecutionEnvironment(ExecutionType.SIMULATED, collision_avoidance=False):
+        reach_action_executable.prepare_for_execution()
+
+    chart = reach_action_executable.motion_state_chart
+    assert chart.get_nodes_by_type(ExternalCollisionAvoidance) == []
+    assert chart.get_nodes_by_type(SelfCollisionAvoidance) == []
+
+
+@pytest.mark.parametrize("holds_a_body", [False, True])
+def test_a_robot_keeps_moving_while_it_holds_a_body(_tiago_world_setup, holds_a_body):
+    """
+    Holding something means the fingers touch it, so a motion that follows a grasp must
+    not abort on the grasp itself.
+
+    The held body is a sphere hanging off the tool frame, between the fingers, as a
+    grasped object hangs off it after a pick-up.
+    """
+    world = deepcopy(_tiago_world_setup)
+    tiago = world.get_semantic_annotations_by_type(Tiago)[0]
+    if holds_a_body:
+        tool_frame = tiago.get_right_arm_if_specified().end_effector.tool_frame
+        with world.modify_world():
+            held_body = Body(
+                name=PrefixedName("held"),
+                collision=ShapeCollection(shapes=[Sphere(radius=0.02)]),
+            )
+            world.add_connection(FixedConnection(parent=tool_frame, child=held_body))
+    plan = execute_single(
+        MoveTorsoAction(TorsoState.HIGH), context=Context(world, tiago)
+    )
+
+    with ExecutionEnvironment(ExecutionType.SIMULATED, collision_avoidance=True):
+        plan.perform()
+
+
+# %% how long a motion may take
+
+
+def test_prepare_for_execution_watches_the_whole_motion_for_progress(
+    reach_action_executable,
+):
+    """
+    A stalled run has to end by itself, so the chart carries a monitor watching the root
+    goal and an abort path wired to it.
+    """
+    with ExecutionEnvironment(ExecutionType.SIMULATED, collision_avoidance=False):
+        reach_action_executable.prepare_for_execution()
+
+    chart = reach_action_executable.motion_state_chart
+    [progress_monitor] = chart.get_nodes_by_type(StillProgressing)
+
+    assert progress_monitor.monitored_node is reach_action_executable.root_node
+    assert len(chart.get_nodes_by_type(CancelMotion)) == 1
+
+
+def test_a_motion_that_stops_approaching_its_goal_is_given_up_on(
+    pr2_apartment_context,
+):
+    """
+    Nothing bounds the tick loop but the monitor, so a reach the arm cannot close on has
+    to end the run rather than tick forever.
+    """
+    world, view, context = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    milk.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        2, 1.5, 50, reference_frame=milk.root.parent_connection.parent
+    )
+    plan = execute_single(
+        ReachAction(
+            grasp=GraspCandidate.from_body_origin(milk),
+            arm=context.robot.right_arm,
+        ),
+        context=context,
+    )
+    plan.notify()
+    executable = plan.parse()
+
+    with simulated_robot:
+        with pytest.raises(MotionMadeNoProgress):
+            executable.execute()
+
+
+def test_a_motion_that_outlasts_the_simulation_time_limit_is_given_up_on(
+    reach_action_executable, monkeypatch
+):
+    """
+    A simulated motion is given up on once it exceeds the simulation time limit.
+    """
+    monkeypatch.setattr(GiskardExecutable, "simulation_time_limit", timedelta(0))
+
+    with simulated_robot:
+        with pytest.raises(MotionExceededSimulationTimeLimit):
+            reach_action_executable.execute()
+
+
+def test_a_motion_that_violates_collision_avoidance_fails_as_a_plan_failure(
+    reach_action_executable, monkeypatch
+):
+    """
+    A motion that brings the robot closer to something than collision avoidance allows
+    did not work from where it started, so a plan can try another candidate instead of
+    stopping.
+    """
+    violation = CollisionViolatedError(violated_collisions=[], thresholds=[])
+
+    def violate_collision_avoidance(executor):
+        raise violation
+
+    monkeypatch.setattr(Ros2Executor, "tick", violate_collision_avoidance)
+
+    with simulated_robot:
+        with pytest.raises(MotionViolatedCollisionAvoidance) as failure:
+            reach_action_executable.execute()
+
+    assert failure.value.violation is violation

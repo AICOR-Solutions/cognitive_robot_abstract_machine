@@ -11,7 +11,7 @@ from rclpy.node import Node
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.reasoning.predicates import visible
+from semantic_digital_twin.reasoning.robot_predicates import VisibleTo
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
 from semantic_digital_twin.spatial_types import (
@@ -108,13 +108,17 @@ class PerceptionQuery(SubclassJSONSerializer):
         ]
 
         robot_camera = self.robot.get_default_camera()
-        return [body for body in region_bodies if visible(robot_camera, body)]
+        return [
+            body
+            for body in region_bodies
+            if VisibleTo(entity=body, camera=robot_camera)()
+        ]
 
-    def to_json(self) -> Dict[str, Any]:
-        result = super().to_json()
-        result["semantic_annotation"] = to_json(self.semantic_annotation)
-        result["region"] = to_json(self.region)
-        result["robot_id"] = to_json(self.robot.id)
+    def to_json(self, **kwargs) -> Dict[str, Any]:
+        result = super().to_json(**kwargs)
+        result["semantic_annotation"] = to_json(self.semantic_annotation, **kwargs)
+        result["region"] = to_json(self.region, **kwargs)
+        result["robot_id"] = to_json(self.robot.id, **kwargs)
         result["trust_detected_orientation"] = self.trust_detected_orientation
         return result
 
@@ -124,7 +128,7 @@ class PerceptionQuery(SubclassJSONSerializer):
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
-            robot=tracker.get_world_entity_with_id(id=from_json(data["robot_id"])),
+            robot=tracker.get(from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
         )

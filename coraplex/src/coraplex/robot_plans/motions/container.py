@@ -5,8 +5,7 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 from semantic_digital_twin.world_description.world_entity import Body
 
 from coraplex.robot_plans.motions.base import BaseMotion
-from coraplex.datastructures.enums import Arms
-from coraplex.view_manager import ViewManager
+from semantic_digital_twin.robots.robot_parts import Arm
 
 
 @dataclass
@@ -19,7 +18,7 @@ class OpeningMotion(BaseMotion):
     """
     Object designator for the drawer handle
     """
-    arm: Arms
+    arm: Arm
     """
     Arm that should be used.
     """
@@ -38,7 +37,7 @@ class OpeningMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot).tool_frame
+        tip = tip = self.arm.end_effector.tool_frame
         connection = self.object_part.get_first_parent_connection_of_type(
             ActiveConnection1DOF
         )
@@ -61,7 +60,7 @@ class ClosingMotion(BaseMotion):
     Object designator for the drawer handle.
     """
 
-    arm: Arms
+    arm: Arm
     """
     Arm that should be used.
     """
@@ -71,7 +70,7 @@ class ClosingMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot).tool_frame
+        tip = self.arm.end_effector.tool_frame
         return Close(
             tip_link=tip, environment_link=self.object_part, goal_joint_state=0.01
         )

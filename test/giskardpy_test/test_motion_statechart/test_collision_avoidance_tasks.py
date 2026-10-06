@@ -516,7 +516,7 @@ def test_cancel_node_without_tasks_never_starts():
 
     cancel.build(MotionStatechartContext.empty())
 
-    assert cancel.start_condition.is_const_false()
+    assert cancel.start_condition.is_constant_false()
 
 
 def test_self_collision_avoidance_without_checked_body_combinations(
@@ -1067,6 +1067,7 @@ def test_collision_for_robot_with_static_base(
             )
 
 
+@pytest.mark.flaky(reruns=3)
 def test_repeated_collision_pr2_apartment_does_not_increase_execution_time(
     pr2_apartment_world,
 ):

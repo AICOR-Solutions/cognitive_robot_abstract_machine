@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field
 
@@ -27,6 +28,7 @@ from giskardpy.motion_statechart.exceptions import (
     UnsupportedObservationVariableError,
 )
 from giskardpy.motion_statechart.graph_node import (
+    DeserializedNodeTracker,
     MotionStatechartNode,
     TrinaryCondition,
     Goal,
@@ -43,6 +45,9 @@ from giskardpy.motion_statechart.graph_node import (
 from giskardpy.motion_statechart.graph_node import Task
 from giskardpy.motion_statechart.plotters.graphviz import MotionStatechartGraphviz
 from giskardpy.qp.constraint_collection import ConstraintCollection
+from semantic_digital_twin.world_description.world_entity import (
+    WorldEntityReferenceWriter,
+)
 
 
 @dataclass(repr=False, eq=False)
@@ -154,11 +159,11 @@ class State(MutableMapping[MotionStatechartNode, float], SubclassJSONSerializer)
             data=self.data.copy(),
         )
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self, **kwargs) -> dict[str, Any]:
         """
         :return: The JSON representation of the base class, extended with the raw :attr:`data` array.
         """
-        return {**super().to_json(), "data": self.data.tolist()}
+        return {**super().to_json(**kwargs), "data": self.data.tolist()}
 
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
@@ -338,9 +343,7 @@ class ObservationState(State):
         self._compiled_updater.bind_args_to_memory_view(
             arg_idx=2, numpy_array=context.world.state._data
         )
-        self._compiled_updater.bind_args_to_memory_view(
-            arg_idx=3, numpy_array=context.float_variable_data.data
-        )
+        context.float_variable_data.bind_argument(self._compiled_updater, 3)
 
     @staticmethod
     def _check_reads_no_predicate(node: MotionStatechartNode) -> None:
@@ -462,6 +465,7 @@ class NextLifeCycle:
         return self.of(node)
 
 
+# %% state history
 @dataclass(repr=False, eq=False)
 class StateHistoryItem:
     """
@@ -518,6 +522,21 @@ class StateHistoryItem:
 
 
 @dataclass
+class StateHistoryObserver(ABC):
+    """
+    Observe newly recorded motion statechart states.
+    """
+
+    @abstractmethod
+    def on_state_change(self, history: StateHistory) -> None:
+        """
+        Observe the newest snapshot after it has been appended.
+
+        :param history: The history containing the changed state.
+        """
+
+
+@dataclass
 class StateHistory:
     """
     The recorded sequence of :class:`StateHistoryItem` snapshots of a
@@ -530,6 +549,33 @@ class StateHistory:
     duplicates.
     """
 
+    observers: list[StateHistoryObserver] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
+    """
+    The observers subscribed to newly recorded states.
+    """
+
+    def add_observer(self, observer: StateHistoryObserver) -> None:
+        """
+        Subscribe an observer once by identity.
+
+        :param observer: The observer to notify when a changed state is recorded.
+        """
+        if any(registered is observer for registered in self.observers):
+            return
+        self.observers.append(observer)
+
+    def remove_observer(self, observer: StateHistoryObserver) -> None:
+        """
+        Remove an observer's subscription if it is present.
+
+        :param observer: The observer whose subscription should end.
+        """
+        self.observers[:] = [
+            registered for registered in self.observers if registered is not observer
+        ]
+
     def append(self, next_item: StateHistoryItem):
         """
         Appends `next_item`, unless it is equal to the last recorded item, in which case
@@ -541,6 +587,8 @@ class StateHistory:
             if next_item == self.history[-1]:
                 return
         self.history.append(next_item)
+        for observer in tuple(self.observers):
+            observer.on_state_change(self)
 
     def get_life_cycle_history_of_node(
         self, node: MotionStatechartNode
@@ -564,6 +612,7 @@ class StateHistory:
         return len(self.history)
 
 
+# %% motion statechart
 @dataclass
 class MotionStatechart(SubclassJSONSerializer):
     """
@@ -1102,20 +1151,23 @@ class MotionStatechart(SubclassJSONSerializer):
         """
         Executes a single tick of the motion statechart.
 
-        First the observation state is updated, then the life cycle state.
+        Record completed observation and life cycle updates before reporting a native
+        cancellation. Failed updates do not publish a partial control cycle.
 
         :param context: The context required to execute the tick.
         """
         self._update_observation_state(context)
         self._update_life_cycle_state(context)
-        self._raise_if_cancel_motion()
-        self.history.append(
-            next_item=StateHistoryItem(
-                control_cycle=len(self.history),
-                life_cycle_state=self.life_cycle_state,
-                observation_state=self.observation_state,
+        try:
+            self.history.append(
+                next_item=StateHistoryItem(
+                    control_cycle=len(self.history),
+                    life_cycle_state=self.life_cycle_state,
+                    observation_state=self.observation_state,
+                )
             )
-        )
+        finally:
+            self._raise_if_cancel_motion()
 
     def get_nodes_by_type(
         self, node_type: Type[GenericMotionStatechartNode]
@@ -1179,17 +1231,22 @@ class MotionStatechart(SubclassJSONSerializer):
             self, second_width_in_cm=second_length_in_cm, context=context
         ).plot_gantt_chart(path)
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self, **kwargs) -> dict[str, Any]:
         """
+        World entities are written as references, because whoever reads a motion
+        statechart resolves them against its own world, which has the same entities.
+
         :return: The JSON representation of this motion statechart, including all nodes and their unique edges.
         .. warning:: This rebuilds the graph's edges from the nodes' current conditions as a side effect, see :meth:`_add_transitions`.
         """
+        kwargs = {**kwargs, **WorldEntityReferenceWriter().create_kwargs()}
         self._add_transitions()
-        result = super().to_json()
+        result = super().to_json(**kwargs)
         result["nodes"] = [
-            to_json(node) for node in sorted(self.nodes, key=lambda n: n.index)
+            to_json(node, **kwargs)
+            for node in sorted(self.nodes, key=lambda n: n.index)
         ]
-        result["unique_edges"] = [edge.to_json() for edge in self.unique_edges]
+        result["unique_edges"] = [edge.to_json(**kwargs) for edge in self.unique_edges]
         return result
 
     @classmethod
@@ -1197,7 +1254,8 @@ class MotionStatechart(SubclassJSONSerializer):
         """
         Reconstructs a motion statechart from its JSON representation, as produced by
         :meth:`to_json`: first all nodes, then their transition conditions, then
-        goal/child parent links.
+        goal/child parent links. A goal that serializes its own nodes already holds
+        them, so it is not handed them a second time.
 
         :param data: The JSON dict.
         :param kwargs: Forwarded to :func:`~krrood.adapters.json_serializer.from_json`
@@ -1205,6 +1263,7 @@ class MotionStatechart(SubclassJSONSerializer):
         :return: The deserialized motion statechart.
         """
         motion_statechart = cls()
+        DeserializedNodeTracker.from_kwargs(kwargs)
         for json_data in data["nodes"]:
             node = from_json(json_data, **kwargs)
             motion_statechart.add_node(node)
@@ -1213,14 +1272,12 @@ class MotionStatechart(SubclassJSONSerializer):
                 json_data, motion_statechart=motion_statechart, **kwargs
             )
             transition.owner._set_transition(transition)
-        flat_children_by_parent: dict[int, List[MotionStatechartNode]] = {}
         for node in motion_statechart.nodes:
-            if node.parent_node_index is not None:
-                flat_children_by_parent.setdefault(node.parent_node_index, []).append(
-                    node
-                )
-        for parent_index, children in flat_children_by_parent.items():
-            motion_statechart.get_node_by_index(parent_index).nodes = children
+            if node.parent_node_index is None:
+                continue
+            parent_node = motion_statechart.get_node_by_index(node.parent_node_index)
+            if node not in parent_node.nodes:
+                parent_node.nodes.append(node)
         return motion_statechart
 
     def sanity_check(self):

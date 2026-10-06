@@ -20,8 +20,6 @@ from giskardpy.motion_statechart.data_types import (
 from giskardpy.motion_statechart.exceptions import GoalPointsReferenceFrameMismatchError
 from giskardpy.motion_statechart.goals.templates import Parallel
 from giskardpy.motion_statechart.error_signals import (
-    SampledErrorSignal,
-    SymbolicErrorSignal,
     joint_position_and_velocity_variables,
     time_derivative_from_joint_motion,
 )
@@ -185,9 +183,7 @@ class CartesianPosition(CartesianTask):
             artifacts, goal=root_P_goal, current=root_P_current
         )
 
-        artifacts.error = SymbolicErrorSignal(
-            root_P_goal.euclidean_distance(root_P_current)
-        )
+        artifacts.error = root_P_goal.euclidean_distance(root_P_current)
         return artifacts
 
 
@@ -298,7 +294,7 @@ class CartesianPositionTrajectory(CartesianTask):
         )
 
         self.compile_current_point_on_tick(context)
-        artifacts.error = SampledErrorSignal(self.remaining_distance)
+        artifacts.error = self.remaining_distance
         return artifacts
 
     def _init_remaining_distance(self, float_variable_data: FloatVariableData) -> None:
@@ -360,8 +356,8 @@ class CartesianPositionTrajectory(CartesianTask):
         self._compiled_goal_reference_frame_P_tip.bind_args_to_memory_view(
             0, context.world.state.positions
         )
-        self._compiled_goal_reference_frame_P_tip.bind_args_to_memory_view(
-            1, context.float_variable_data.data
+        context.float_variable_data.bind_argument(
+            self._compiled_goal_reference_frame_P_tip, 1
         )
 
     def _update_trajectory_index(self, goal_reference_frame_P_tip_np: np.ndarray):
@@ -568,9 +564,7 @@ class CartesianPositionStraight(CartesianTask):
             artifacts, goal=root_P_goal, current=root_P_tip
         )
 
-        artifacts.error = SymbolicErrorSignal(
-            root_P_goal.euclidean_distance(root_P_tip)
-        )
+        artifacts.error = root_P_goal.euclidean_distance(root_P_tip)
         return artifacts
 
 
@@ -630,9 +624,7 @@ class CartesianOrientation(CartesianTask):
             artifacts, goal=root_R_goal, current=root_R_current
         )
 
-        artifacts.error = SymbolicErrorSignal(
-            sm.abs(root_R_current.rotational_error(root_R_goal))
-        )
+        artifacts.error = sm.abs(root_R_current.rotational_distance(root_R_goal))
         return artifacts
 
 
