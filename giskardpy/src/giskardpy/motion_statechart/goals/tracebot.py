@@ -126,7 +126,8 @@ class InsertCylinder(Goal):
     """
     Task priority relative to other tasks.
     """
-    insertion_velocity : float = 0.05
+
+    insertion_velocity: float = 0.05
 
     reach_top: ReachPoint = field(init=False)
     tilt_task: AngleGoal = field(init=False)
@@ -168,6 +169,7 @@ class InsertCylinder(Goal):
             tip_P_tool=self.tip_P_tool,
             root_P_start=root_P_hole,
             root_P_end=root_P_top,
+            reference_velocity=2 * self.insertion_velocity,
             weight=self.weight,
         )
         self.insert_task = ReachPoint(
