@@ -126,6 +126,7 @@ class InsertCylinder(Goal):
     """
     Task priority relative to other tasks.
     """
+    insertion_velocity : float = 0.05
 
     reach_top: ReachPoint = field(init=False)
     tilt_task: AngleGoal = field(init=False)
@@ -175,7 +176,7 @@ class InsertCylinder(Goal):
             tip_link=self.tip_link,
             tip_point=self.tip_P_tool,
             reference_point=root_P_hole,
-            maximum_velocity=0.05,
+            maximum_velocity=self.insertion_velocity,
             weight=self.weight,
         )
         self.tilt_straight_task = AlignPlanes(
