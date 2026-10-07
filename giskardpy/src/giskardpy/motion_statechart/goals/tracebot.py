@@ -213,6 +213,7 @@ class InsertCylinder(Goal):
         self.reach_top.end_condition = init_done
         self.tilt_task.end_condition = bottom_reached
         self.insert_task.start_condition = init_done
+        self.stay_on_line.start_condition = init_done
         self.tilt_straight_task.start_condition = bottom_reached
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
