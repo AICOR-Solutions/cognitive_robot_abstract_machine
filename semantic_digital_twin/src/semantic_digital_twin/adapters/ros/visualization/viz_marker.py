@@ -130,9 +130,8 @@ class VizMarkerPublisher(ModelChangeCallback, HasROS2Node):
         )
         time.sleep(0.2)
         self.notify_model_change()
-        logger.info(
-            f"VizMarkerPublisher started. Fixed frame is {self._world.root.name}"
-        )
+        fixed_frame = "none yet" if self._world.is_empty() else self._world.root.name
+        logger.info(f"VizMarkerPublisher started. Fixed frame is {fixed_frame}")
         time.sleep(0.2)
 
     def _tf_publisher_of_world(self) -> TFPublisher:
