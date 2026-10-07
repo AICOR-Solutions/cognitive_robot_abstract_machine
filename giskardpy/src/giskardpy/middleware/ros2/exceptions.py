@@ -226,8 +226,15 @@ class ExecutionAbortedException(ExecutionException):
     Raised when the execution is aborted by Giskard.
     """
 
+    server_error: str = ""
+    """
+    What the server said went wrong, for an error this client could not rebuild.
+    """
+
     def error_message(self) -> str:
-        return "Execution aborted by Giskard."
+        if not self.server_error:
+            return "Execution aborted by Giskard."
+        return f"Execution aborted by Giskard: {self.server_error}"
 
     def suggest_correction(self) -> str:
         return ""

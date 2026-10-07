@@ -22,7 +22,6 @@ from giskardpy.middleware.ros2.exceptions import (
 )
 from giskardpy.middleware.ros2 import rospy
 from giskardpy.middleware.ros2.event_loop_manager import get_event_loop
-from krrood.adapters.exceptions import JSONSerializationError
 from krrood.adapters.json_serializer import from_json
 
 
@@ -226,8 +225,11 @@ class MyActionClient:
             return ExecutionAbortedException()
         try:
             return from_json(error)
-        except (JSONSerializationError, TypeError):
-            return ExecutionAbortedException()
+        except Exception:
+            # Any rebuild failure, not just a malformed payload: the client may lack the
+            # error's class, or the world its spatial types refer to. The abort still has
+            # to reach the caller, so it carries what the server said instead.
+            return ExecutionAbortedException(server_error=json.dumps(error)[:500])
 
     def __goal_accepted_cb(self, future: Future):
         goal_handle = future.result()
