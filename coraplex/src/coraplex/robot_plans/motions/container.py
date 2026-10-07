@@ -37,7 +37,7 @@ class OpeningMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        tip = tip = self.arm.end_effector.tool_frame
+        tip = self.arm.end_effector.tool_frame
         connection = self.object_part.get_first_parent_connection_of_type(
             ActiveConnection1DOF
         )
