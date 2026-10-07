@@ -364,10 +364,8 @@ class ReachPoint(FeatureFunctionGoal):
             reference_velocity=self.maximum_velocity,
             quadratic_weight=self.weight,
         )
-        artifacts.error = SymbolicErrorSignal(
-            self.root_P_controlled_feature.euclidean_distance(
-                self.root_P_reference_feature
-            )
+        artifacts.error = self.root_P_controlled_feature.euclidean_distance(
+            self.root_P_reference_feature
         )
         return artifacts
 

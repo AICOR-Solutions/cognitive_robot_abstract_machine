@@ -6,7 +6,7 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Any, List, Type, TYPE_CHECKING, Iterable
+from typing import Optional, Any, Dict, List, Type, TYPE_CHECKING, Iterable
 
 from typing_extensions import Union, Iterator
 

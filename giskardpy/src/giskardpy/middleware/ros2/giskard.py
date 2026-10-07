@@ -138,7 +138,6 @@ class Giskard:
             inputs=WorldStateInputs(world=world, reapplies_inputs=True),
             cycle_counter=cycle_counter,
             world_updates=world_updates,
-            state_logger=self.create_state_logger(),
         )
         return MotionServer(
             executor=self.executor,

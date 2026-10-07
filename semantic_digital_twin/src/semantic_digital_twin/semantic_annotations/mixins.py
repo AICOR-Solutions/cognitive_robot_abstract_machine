@@ -29,7 +29,6 @@ from random_events.variable import Symbolic
 from typing_extensions import (
     TYPE_CHECKING,
     Generic,
-    Generator,
     List,
     Optional,
     Self,
@@ -64,7 +63,6 @@ from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     Vector3,
 )
-from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
@@ -100,7 +98,6 @@ if TYPE_CHECKING:
         ShelfLayer,
         Wall,
     )
-    from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
         PlanarGraphOfBoundingBoxes,
     )
@@ -415,20 +412,6 @@ class HasRootBody(HasRootKinematicStructureEntity[Body]):
             scale.to_simple_event().as_composite_set(),
             connection_specification=connection_specification,
         )
-
-
-@dataclass(eq=False)
-class HasGraspPose(HasRootBody, ABC):
-    """
-    A mixin class for semantic annotations that have a grasp pose.
-    """
-
-    @abstractmethod
-    def grasp_poses(self) -> Generator[Pose, None, None]:
-        """
-        Yield candidate grasp poses in the frame of the root body.
-        """
-        ...
 
 
 @dataclass(eq=False)

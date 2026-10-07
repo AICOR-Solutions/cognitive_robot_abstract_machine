@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-from abc import ABC
-from collections import defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
 from importlib.resources import files
@@ -23,11 +21,10 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_part_mixins import (
     HasLeftRightArm,
     HasTwoFingers,
-    TGenericLeftFinger,
-    TGenericRightFinger,
-    HasEndEffector,
     HasSensors,
 )
+from krrood.ormatic.utils import classproperty
+from semantic_digital_twin.robots.ur10e_arm import UR10eArm
 from semantic_digital_twin.robots.robot_parts import (
     AbstractRobot,
     Arm,
@@ -36,10 +33,19 @@ from semantic_digital_twin.robots.robot_parts import (
     EndEffector,
 )
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
-from semantic_digital_twin.spatial_types import Quaternion, Vector3
+from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
+
+
+class TracyTopic(StrEnum):
+    """
+    The topics Tracy's controllers publish on.
+    """
+
+    LEFT_ARM_JOINT_STATES = "/left_arm/joint_states"
+    RIGHT_ARM_JOINT_STATES = "/right_arm/joint_states"
 
 
 class TracyJoint(StrEnum):
@@ -169,6 +175,14 @@ class TracyLeftGripper(
     EndEffector, HasTwoFingers[TracyLeftGripperLeftFinger, TracyLeftGripperRightFinger]
 ):
 
+    @property
+    def approach_axis(self) -> Vector3:
+        return Vector3.Z(reference_frame=self.tool_frame)
+
+    @property
+    def closing_axis(self) -> Vector3:
+        return Vector3.X(reference_frame=self.tool_frame)
+
     def setup_hardware_interfaces(self):
         self._setup_hardware_interfaces_for_active_connections()
 
@@ -210,7 +224,6 @@ class TracyLeftGripper(
             tool_frame=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "l_gripper_tool_frame"
             ),
-            front_facing_orientation=Quaternion(0.5, 0.5, 0.5, 0.5),
         )
 
 
@@ -219,6 +232,14 @@ class TracyRightGripper(
     EndEffector,
     HasTwoFingers[TracyRightGripperLeftFinger, TracyRightGripperRightFinger],
 ):
+
+    @property
+    def approach_axis(self) -> Vector3:
+        return Vector3.Z(reference_frame=self.tool_frame)
+
+    @property
+    def closing_axis(self) -> Vector3:
+        return Vector3.X(reference_frame=self.tool_frame)
 
     def setup_hardware_interfaces(self):
         self._setup_hardware_interfaces_for_active_connections()
@@ -254,7 +275,6 @@ class TracyRightGripper(
             tool_frame=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "r_gripper_tool_frame"
             ),
-            front_facing_orientation=Quaternion(0.5, 0.5, 0.5, 0.5),
         )
 
 

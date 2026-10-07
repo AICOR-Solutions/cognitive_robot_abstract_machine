@@ -117,6 +117,27 @@ class HasGraspCandidates(HasRootBody):
             )
         ]
 
+    def grasp_candidate_approaching(self, direction: Vector3) -> GraspCandidate:
+        """
+        The grasp whose approach runs most nearly along ``direction``.
+
+        A robot that cannot drive has no standing pose to settle its grasp by, so what
+        settles it is the direction the gripper comes from: straight down onto something
+        standing on a table, say.
+
+        :param direction: The direction the gripper should travel in, in any frame.
+        :return: The grasp of this annotation that best matches it.
+        """
+        world = self.root._world
+        wanted = world.transform(direction, world.root).to_np()[:3]
+        return max(
+            self.grasp_candidates(),
+            key=lambda candidate: float(
+                candidate.world_T_grasp.to_rotation_matrix().x_vector().to_np()[:3]
+                @ wanted
+            ),
+        )
+
 
 # %% grasp geometry helpers
 
