@@ -23,15 +23,6 @@ class OpeningMotion(BaseMotion):
     Arm that should be used.
     """
 
-    limit_margin: float = 0.0
-    """
-    How far short of the degree of freedom's upper limit to stop, in metres or radians.
-
-    Driving onto the limit itself, the default, never quite reaches it: the controller
-    keeps the degree of freedom inside that same bound. Leave a margin where the motion
-    has to report success.
-    """
-
     def perform(self):
         return
 
@@ -45,7 +36,7 @@ class OpeningMotion(BaseMotion):
         return Open(
             tip_link=tip,
             environment_link=self.object_part,
-            goal_joint_state=upper_limit - self.limit_margin,
+            goal_joint_state=upper_limit,
         )
 
 

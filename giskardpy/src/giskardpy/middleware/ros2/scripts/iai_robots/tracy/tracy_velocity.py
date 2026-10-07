@@ -27,11 +27,11 @@ def main():
         robot_interface_config=TracyVelocityInterface(),
         server_config=GiskardServerConfig(
             execution_mode=ExecutionMode.CLOSED_LOOP,
-            debug_mode=True,
+            debug_mode=False,
             log_statechart_state=True,
             plot_trajectory=True,
-            plot_gantt_chart=True,
-            plot_motion_statechart=True,
+            plot_gantt_chart=False,
+            plot_motion_statechart=False,
         ),
         qp_controller_config=QPControllerConfig(
             target_frequency=80, prediction_horizon=30
