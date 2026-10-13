@@ -12,7 +12,6 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.error_signals import SymbolicErrorSignal
 from giskardpy.motion_statechart.graph_node import (
     ConvergingTask,
     NodeArtifacts,
@@ -174,7 +173,7 @@ class AlignPerpendicular(FeatureFunctionGoal):
             task_expression=expr,
             name=f"{self.name}_constraint",
         )
-        artifacts.error = SymbolicErrorSignal(sm.abs(expr))
+        artifacts.error = sm.abs(expr)
         return artifacts
 
 
@@ -240,9 +239,7 @@ class HeightGoal(FeatureFunctionGoal):
             name=f"{self.name}_constraint",
         )
 
-        artifacts.error = SymbolicErrorSignal(
-            sm.max(self.lower_limit - expr, expr - self.upper_limit)
-        )
+        artifacts.error = sm.max(self.lower_limit - expr, expr - self.upper_limit)
         return artifacts
 
 
@@ -319,9 +316,7 @@ class DistanceGoal(FeatureFunctionGoal):
                 name=f"{self.name}_extra_{axis_name}",
             )
 
-        artifacts.error = SymbolicErrorSignal(
-            sm.max(self.lower_limit - expr, expr - self.upper_limit)
-        )
+        artifacts.error = sm.max(self.lower_limit - expr, expr - self.upper_limit)
         return artifacts
 
 
@@ -353,11 +348,6 @@ class ReachPoint(FeatureFunctionGoal):
     Maximum allowed velocity for the reaching motion in meters per second.
     """
 
-    threshold: float = field(default=0.01, kw_only=True)
-    """
-    Distance below which the goal is considered achieved, in meters.
-    """
-
     def get_controlled_and_reference_features(self):
         return self.tip_point, self.reference_point
 
@@ -369,10 +359,8 @@ class ReachPoint(FeatureFunctionGoal):
             reference_velocity=self.maximum_velocity,
             quadratic_weight=self.weight,
         )
-        artifacts.error = SymbolicErrorSignal(
-            self.root_P_controlled_feature.euclidean_distance(
-                self.root_P_reference_feature
-            )
+        artifacts.error = self.root_P_controlled_feature.euclidean_distance(
+            self.root_P_reference_feature
         )
         return artifacts
 
@@ -439,7 +427,5 @@ class AngleGoal(FeatureFunctionGoal):
             name=f"{self.name}_constraint",
         )
 
-        artifacts.error = SymbolicErrorSignal(
-            sm.max(self.lower_angle - expr, expr - self.upper_angle)
-        )
+        artifacts.error = sm.max(self.lower_angle - expr, expr - self.upper_angle)
         return artifacts

@@ -188,7 +188,7 @@ class InsertCylinder(Goal):
             weight=self.weight,
         )
 
-        self.add_nodes(
+        self._add_children_to_motion_statechart(
             [
                 self.reach_top,
                 self.tilt_task,
