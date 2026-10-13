@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
@@ -21,9 +21,11 @@ from semantic_digital_twin.robots.exceptions import (
     UnexpectedInputSourceError,
 )
 from semantic_digital_twin.robots.input_source import SimulatedJointPositionSource
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.robot_parts import Sensor
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
+    Point3,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
@@ -101,6 +103,18 @@ class ConstantLidarSource(LidarSource):
 
     def get_lidar_reading(self, lidar: Lidar) -> LidarReading:
         return self.reading
+
+
+@dataclass(eq=False)
+class RobotCarryingLidar(MinimalRobot):
+    """
+    A robot whose only part is a lidar.
+    """
+
+    lidar: BodyMountedLidar = field(kw_only=True)
+    """
+    The lidar the robot carries.
+    """
 
 
 def forward_beam_reading(mount: Body) -> LidarReading:
@@ -248,6 +262,39 @@ def test_simulated_source_reports_infinity_beyond_its_maximum_range():
     assert reading.ranges.tolist() == [math.inf]
 
 
+def test_simulated_source_does_not_see_the_robot_carrying_it():
+    world, mount = world_with_walls(FAR_WALL_DISTANCE)
+    robot_root = Body(name=PrefixedName("robot_root"))
+    robot_shell = Body(
+        name=PrefixedName("robot_shell"),
+        collision=ShapeCollection([Box(scale=Scale(WALL_THICKNESS, 2.0, 2.0))]),
+    )
+    lidar = simulated_lidar(mount, forward_beam_pattern())
+    with world.modify_world():
+        world.add_body(robot_root)
+        world.add_body(robot_shell)
+        world.remove_connection(mount.parent_connection)
+        world.add_connection(FixedConnection(parent=world.root, child=robot_root))
+        world.add_connection(FixedConnection(parent=robot_root, child=mount))
+        world.add_connection(
+            FixedConnection(
+                parent=robot_root,
+                child=robot_shell,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=NEAR_WALL_DISTANCE
+                ),
+            )
+        )
+        world.add_semantic_annotation_recursively(
+            RobotCarryingLidar(root=robot_root, lidar=lidar)
+        )
+
+    reading = lidar.get_lidar_reading()
+
+    [distance] = reading.ranges
+    assert distance == pytest.approx(wall_surface_distance(FAR_WALL_DISTANCE))
+
+
 def test_simulated_source_returns_one_range_per_beam():
     _, mount = world_with_walls(FAR_WALL_DISTANCE)
     pattern = ScanPattern(
@@ -289,6 +336,85 @@ def test_simulated_source_reading_carries_the_lidars_scan_pattern():
     reading = lidar.get_lidar_reading()
 
     assert reading.scan_pattern is lidar.scan_pattern
+
+
+# %% beams crossing a segment
+
+
+def three_beam_pattern() -> ScanPattern:
+    """
+    :return: A pattern of three beams, pointing forward and an eighth turn to either side
+        of it.
+    """
+    return ScanPattern(
+        minimum_angle=-np.pi / 4,
+        maximum_angle=np.pi / 4,
+        angle_increment=np.pi / 4,
+        minimum_range=0.0,
+        maximum_range=10.0,
+    )
+
+
+def unobstructed_reading(mount: Body, scan_pattern: ScanPattern) -> LidarReading:
+    """
+    :return: A reading of the given pattern taken by a lidar on the given body, whose
+        beams all hit nothing.
+    """
+    return LidarReading(
+        reference_frame=mount,
+        scan_pattern=scan_pattern,
+        ranges=np.full(scan_pattern.beam_count, np.inf),
+    )
+
+
+def test_distances_to_segment_measure_along_the_beams_that_cross_it():
+    _, mount = world_with_walls()
+    reading = unobstructed_reading(mount, three_beam_pattern())
+
+    distances = reading.distances_to_segment(
+        Point3(1, -0.5, 0, reference_frame=mount),
+        Point3(1, 0.5, 0, reference_frame=mount),
+    )
+
+    assert distances.tolist() == [math.inf, pytest.approx(1.0), math.inf]
+
+
+def test_distances_to_segment_ignore_a_segment_behind_the_lidar():
+    _, mount = world_with_walls()
+    reading = unobstructed_reading(mount, three_beam_pattern())
+
+    distances = reading.distances_to_segment(
+        Point3(-1, -0.5, 0, reference_frame=mount),
+        Point3(-1, 0.5, 0, reference_frame=mount),
+    )
+
+    assert distances.tolist() == [math.inf] * reading.scan_pattern.beam_count
+
+
+def test_distances_to_segment_are_measured_from_the_readings_frame():
+    world = World.create_with_root_body("map")
+    mount = Body(name=PrefixedName("lidar_mount"))
+    mount_x = 0.5
+    with world.modify_world():
+        world.add_body(mount)
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=mount,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=mount_x
+                ),
+            )
+        )
+    reading = unobstructed_reading(mount, forward_beam_pattern())
+    segment_x = 2.0
+
+    [distance] = reading.distances_to_segment(
+        Point3(segment_x, -0.5, 0, reference_frame=world.root),
+        Point3(segment_x, 0.5, 0, reference_frame=world.root),
+    )
+
+    assert distance == pytest.approx(segment_x - mount_x)
 
 
 # %% lidar robot part

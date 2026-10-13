@@ -365,7 +365,12 @@ class AbstractRobotPart(HasRootBody, HasRobotParts, ABC):
     def _robot(self) -> Optional[AbstractRobot]:
         """
         Computes backreference to the robot this robot part belongs to.
+
+        :return: The robot, or ``None`` if no robot in this part's world holds it, or the
+            part is in no world at all.
         """
+        if self._world is None:
+            return None
         robot_variable = variable(AbstractRobot, self._world.semantic_annotations)
         robot = (
             a(entity(robot_variable))

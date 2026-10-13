@@ -47,22 +47,36 @@ class SimulatedLidarSource(LidarSource):
     """
     A source that measures the world's collision geometry by casting a ray along every
     beam of the lidar's scan pattern.
+
+    The robot carrying the lidar is invisible to it, as a real scanner filters out its
+    own robot.
     """
 
     def get_lidar_reading(self, lidar: Lidar) -> LidarReading:
+        world = lidar.root._world
         world_T_lidar = lidar.root.global_transform.to_np()
         world_V_beams = lidar.scan_pattern.beam_directions @ world_T_lidar[:3, :3].T
         world_P_lidar = np.tile(
             world_T_lidar[:3, 3], (lidar.scan_pattern.beam_count, 1)
         )
 
-        points, index_ray, _ = lidar.root._world.ray_tracer.ray_test(
+        points, index_ray, hit_bodies = world.ray_tracer.ray_test(
             world_P_lidar,
             world_P_lidar + world_V_beams * lidar.scan_pattern.maximum_range,
             multiple_hits=True,
             min_distance=lidar.scan_pattern.minimum_range,
             max_distance=lidar.scan_pattern.maximum_range,
         )
+        robot = lidar._robot
+        if robot is not None:
+            robot_entities = set(
+                world.get_kinematic_structure_entities_of_branch(robot.root)
+            )
+            hits_elsewhere = np.array(
+                [body not in robot_entities for body in hit_bodies], dtype=bool
+            )
+            points = points[hits_elsewhere]
+            index_ray = index_ray[hits_elsewhere]
 
         return LidarReading(
             reference_frame=lidar.root,
