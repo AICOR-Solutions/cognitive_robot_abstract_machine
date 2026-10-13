@@ -86,7 +86,7 @@ def test_insert_cylinder_with_tracy(tracy_world):
     executor.tick_until_end(3000)
 
     root_T_cylinder = world.compute_forward_kinematics(world.root, cylinder)
-    root_V_axis = root_T_cylinder.to_rotation_matrix().z_vector()
-    root_P_bottom = root_T_cylinder.to_position() + root_V_axis * (cylinder_height / 2)
+    root_V_axis = root_T_cylinder.rotation_matrix.z_vector()
+    root_P_bottom = root_T_cylinder.position + root_V_axis * (cylinder_height / 2)
     assert np.allclose(root_P_bottom, hole_point, atol=0.02)
     assert np.allclose(root_V_axis, Vector3(0.0, 0.0, -1.0), atol=0.02)
