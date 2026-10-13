@@ -16,11 +16,14 @@ from giskardpy.motion_statechart.goals.templates import Parallel
 from giskardpy.motion_statechart.monitors.joint_monitors import (
     JointPositionReached,
 )
+from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable_from, and_, ConditionType
 from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
 from semantic_digital_twin.reasoning.robot_predicates import is_pose_free_for_robot
+from semantic_digital_twin.robots.exceptions import MissingLidarError
+from semantic_digital_twin.robots.robot_part_mixins import HasLidar
 from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Level,
@@ -249,8 +252,8 @@ class PathPlanningNavigateAction(ActionDescription):
 class ElevatorNavigation(ActionDescription):
     """
     Navigates a robot to another level of a building using an elevator, the robot drives
-    in the elevator and waits there until the doors open again and the elevator is at
-    the right level.
+    in the elevator, turns towards the doors and waits there until its lidar sees the
+    doors open again and the elevator is at the right level.
     """
 
     elevator: Elevator
@@ -271,7 +274,7 @@ class ElevatorNavigation(ActionDescription):
 
     arrival_threshold: float = field(default=0.01, kw_only=True)
     """
-    Position error within which the elevator's drive and doors count as having arrived.
+    Position error within which the elevator's drive counts as having arrived.
     """
 
     @property
@@ -291,6 +294,7 @@ class ElevatorNavigation(ActionDescription):
                     monitor=self._elevator_open_at_floor(self._current_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.elevator.root),
+                TurnMotion(self._pose_infront_of_elevator),
                 pause_until(
                     [NavigateAction(self._pose_infront_of_elevator)],
                     monitor=self._elevator_open_at_floor(self.target_floor),
@@ -320,13 +324,23 @@ class ElevatorNavigation(ActionDescription):
         return current_floor[0]
 
     @property
-    def _pose_infront_of_elevator(self):
+    def _pose_infront_of_elevator(self) -> Pose:
+        """
+        Where the robot stands in front of the elevator's opening,
+        :attr:`exit_clearance` away from it.
+        """
         return Pose.from_xyz_rpy(
-            x=self.elevator.hole_direction[0]
-            * (self.elevator.scale.x / 2 + self.exit_clearance),
+            x=self._doorway_x + self.elevator.hole_direction[0] * self.exit_clearance,
             z=self._height_in_cabin,
             reference_frame=self.elevator.root,
         )
+
+    @property
+    def _doorway_x(self) -> float:
+        """
+        Position of the elevator's opening along the cabin's x-axis.
+        """
+        return float(self.elevator.hole_direction[0] * self.elevator.scale.x / 2)
 
     @property
     def _height_in_cabin(self) -> float:
@@ -342,31 +356,45 @@ class ElevatorNavigation(ActionDescription):
 
     def _elevator_open_at_floor(self, target_floor: Level) -> Parallel:
         """
-        Observes True once the cabin serves :attr:`target_floor` with its doors open.
+        Observes True once the cabin serves :attr:`target_floor` and the robot's lidar
+        sees a passage as wide as its base through the cabin's opening.
+
+        :raises MissingMovableJointError: If the elevator has no drive.
+        :raises MissingLidarError: If the robot's mobile base carries no lidar.
         """
-        nodes = []
-        for door in self.elevator.doors:
-            if door.movable_joint is None:
-                raise MissingMovableJointError(door)
-            nodes.append(
-                JointPositionReached(
-                    connection=door.movable_joint,
-                    position=door.movable_joint.dof.limits.upper.position,
-                    threshold=self.arrival_threshold,
-                    name=f"{door.name}Open",
-                )
-            )
         if self.elevator.movable_joint is None:
             raise MissingMovableJointError(self.elevator)
-        nodes.append(
-            JointPositionReached(
-                connection=self.elevator.movable_joint,
-                position=self.elevator.drive_position_for_floor(target_floor),
-                threshold=self.arrival_threshold,
-                name="ElevatorAtTargetFloor",
-            )
+        mobile_base = self.robot.mobile_base
+        if not isinstance(mobile_base, HasLidar):
+            raise MissingLidarError(robot_part=mobile_base)
+        doorway_clear = PassageClear(
+            lidar=mobile_base.lidar,
+            passage_start=Point3(
+                self._doorway_x,
+                -mobile_base.base_radius,
+                self._height_in_cabin,
+                reference_frame=self.elevator.root,
+            ),
+            passage_end=Point3(
+                self._doorway_x,
+                mobile_base.base_radius,
+                self._height_in_cabin,
+                reference_frame=self.elevator.root,
+            ),
+            name="ElevatorDoorwayClear",
         )
+        # Once the robot drives into the doorway its lidar no longer looks through it,
+        # so the doorway counts as clear from the first time it is seen clear.
+        doorway_clear.end_condition = doorway_clear.observation_variable
         return Parallel(
-            nodes,
+            [
+                doorway_clear,
+                JointPositionReached(
+                    connection=self.elevator.movable_joint,
+                    position=self.elevator.drive_position_for_floor(target_floor),
+                    threshold=self.arrival_threshold,
+                    name="ElevatorAtTargetFloor",
+                ),
+            ],
             name="ElevatorOpenAtTargetFloor",
         )

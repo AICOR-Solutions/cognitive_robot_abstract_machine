@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 from rustworkx.rustworkx import NoEdgeBetweenNodes
-from typing_extensions import Iterable, Tuple, Generator
+from typing_extensions import Iterable, Tuple, Generator, Self
 
 from coraplex.alternative_motion_mappings.hsrb_motion_mapping import HSRBMoveMotion
 from coraplex.alternative_motion_mappings.stretch_motion_mapping import (
@@ -55,8 +55,18 @@ from semantic_digital_twin.datastructures.definitions import (
     GripperState,
     StaticJointState,
 )
+from semantic_digital_twin.datastructures.joint_state import JointState
+from semantic_digital_twin.robots.exceptions import MissingLidarError
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
-from semantic_digital_twin.robots.robot_parts import AbstractRobot, EndEffector
+from semantic_digital_twin.robots.robot_parts import (
+    AbstractRobot,
+    EndEffector,
+    MobileBase,
+)
+from semantic_digital_twin.world_description.connections import OmniDrive
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
 from ..conftest import left_or_only_arm, right_or_only_arm
 from ..world_snapshot import WorldSnapshot
 
@@ -1001,25 +1011,6 @@ class ElevatorOperator(ModelChangeCallback):
         self.elevator.open()
 
 
-def test_elevator_navigation_needs_doors_that_can_open():
-    world = World.create_with_root_body("root")
-    with world.modify_world():
-        elevator = Elevator.create_with_new_body_in_world(
-            name="elevator", world=world, scale=Scale(2, 2, 2)
-        )
-        door = Door.create_with_new_body_in_world(
-            name="door", world=world, scale=Scale(0.05, 1, 2)
-        )
-        elevator.add(door)
-        ground_floor = GroundFloor.create_with_new_region_in_world(
-            name="ground_floor", world=world, scale=Scale(4, 4, 0.1)
-        )
-    navigation = ElevatorNavigation(elevator, ground_floor)
-
-    with pytest.raises(MissingMovableJointError):
-        navigation._elevator_open_at_floor(ground_floor)
-
-
 def test_elevator_navigation_needs_a_cabin_that_can_move():
     world = World.create_with_root_body("root")
     with world.modify_world():
@@ -1042,6 +1033,43 @@ def test_elevator_navigation_needs_a_cabin_that_can_move():
 
     with pytest.raises(MissingMovableJointError):
         navigation._elevator_open_at_floor(ground_floor)
+
+
+@dataclass(eq=False)
+class MobileBaseWithoutLidar(MobileBase[OmniDrive]):
+    """
+    A mobile base that carries no lidar, standing in for robots that cannot see their
+    surroundings.
+    """
+
+    def setup_hardware_interfaces(self):
+        pass
+
+    def setup_joint_states(self) -> list[JointState]:
+        return []
+
+    @classmethod
+    def setup_default_configuration_in_world_below_robot_root(
+        cls, robot_root: KinematicStructureEntity
+    ) -> Self:
+        return cls(root=robot_root)
+
+
+def test_elevator_navigation_needs_a_lidar(
+    multiple_robot_apartment_context, monkeypatch
+):
+    world, robot, context = multiple_robot_apartment_context
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
+    mobile_base_without_lidar = MobileBaseWithoutLidar(root=robot.mobile_base.root)
+    monkeypatch.setattr(robot, "mobile_base", mobile_base_without_lidar)
+    navigation = ElevatorNavigation(elevator, first_floor)
+    execute_single(navigation, context=context)
+
+    with pytest.raises(MissingLidarError) as raised:
+        navigation._elevator_open_at_floor(first_floor)
+
+    assert raised.value.robot_part is mobile_base_without_lidar
 
 
 def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
