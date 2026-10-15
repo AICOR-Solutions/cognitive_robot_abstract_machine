@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
-from typing import Self, List
+from typing import Self, List, Optional
 
 from krrood.ormatic.utils import classproperty
 from semantic_digital_twin.adapters.sensors.lidar import Lidar, LidarSource
@@ -499,6 +499,10 @@ class TiagoBaseLidar(Lidar):
     ..note:: The description's own beam count is not a whole number, so the scanner's
         angular resolution of a third of a degree gives the angle between two beams.
     """
+
+    @classproperty
+    def topic_name(cls) -> Optional[str]:
+        return "scan"
 
     @classmethod
     def with_source(
