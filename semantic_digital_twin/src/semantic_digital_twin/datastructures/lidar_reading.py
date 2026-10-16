@@ -39,6 +39,19 @@ class LidarReading:
     A beam that hit nothing within the scan pattern's range measures ``math.inf``.
     """
 
+    @property
+    def root_P_hit_points(self) -> npt.NDArray[np.float64]:
+        """
+        :return: Where every beam that hit something met the surface, one point per row,
+            in the frame of the world root.
+        """
+        hits = np.isfinite(self.ranges)
+        frame_P_hits = (
+            self.scan_pattern.beam_directions[hits] * self.ranges[hits, np.newaxis]
+        )
+        root_T_frame = self.reference_frame.global_transform.to_np()
+        return frame_P_hits @ root_T_frame[:3, :3].T + root_T_frame[:3, 3]
+
     def distances_to_segment(
         self, start: Point3, end: Point3
     ) -> npt.NDArray[np.float64]:

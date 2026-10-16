@@ -93,3 +93,13 @@ def test_every_part_read_from_the_robot_is_an_input_to_apply(annotated_pr2, rclp
         any(synchronizer is part.source for synchronizer in synchronizers)
         for part in switched_parts
     )
+
+
+def test_a_subscribed_lidar_has_no_reading_before_a_scan_arrives(rclpy_node):
+    source = SubscribedLidarSource(node=rclpy_node, topic_name=SCANNER_TOPIC)
+
+    assert not source.has_reading
+
+
+def test_a_simulated_lidar_always_has_a_reading():
+    assert SimulatedLidarSource().has_reading

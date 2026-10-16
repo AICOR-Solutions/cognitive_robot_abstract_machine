@@ -101,6 +101,10 @@ class ConstantLidarSource(LidarSource):
     The reading handed back on every call.
     """
 
+    @property
+    def has_reading(self) -> bool:
+        return True
+
     def get_lidar_reading(self, lidar: Lidar) -> LidarReading:
         return self.reading
 
@@ -391,10 +395,13 @@ def test_distances_to_segment_ignore_a_segment_behind_the_lidar():
     assert distances.tolist() == [math.inf] * reading.scan_pattern.beam_count
 
 
-def test_distances_to_segment_are_measured_from_the_readings_frame():
+def world_with_mount_at(mount_x: float) -> tuple[World, Body]:
+    """
+    :param mount_x: Where the lidar's mount body sits on the x axis of the world root.
+    :return: The world and the body the lidar is mounted on.
+    """
     world = World.create_with_root_body("map")
     mount = Body(name=PrefixedName("lidar_mount"))
-    mount_x = 0.5
     with world.modify_world():
         world.add_body(mount)
         world.add_connection(
@@ -406,6 +413,12 @@ def test_distances_to_segment_are_measured_from_the_readings_frame():
                 ),
             )
         )
+    return world, mount
+
+
+def test_distances_to_segment_are_measured_from_the_readings_frame():
+    mount_x = 0.5
+    world, mount = world_with_mount_at(mount_x)
     reading = unobstructed_reading(mount, forward_beam_pattern())
     segment_x = 2.0
 
@@ -415,6 +428,35 @@ def test_distances_to_segment_are_measured_from_the_readings_frame():
     )
 
     assert distance == pytest.approx(segment_x - mount_x)
+
+
+# %% points where the beams hit
+
+
+def test_hit_points_lie_along_the_beams_in_the_world_root():
+    mount_x = 0.5
+    world, mount = world_with_mount_at(mount_x)
+    reading = LidarReading(
+        reference_frame=mount,
+        scan_pattern=three_beam_pattern(),
+        ranges=np.array([1.0, 2.0, 3.0]),
+    )
+
+    expected = np.array([mount_x, 0.0, 0.0]) + reading.scan_pattern.beam_directions * (
+        reading.ranges[:, np.newaxis]
+    )
+    assert np.allclose(reading.root_P_hit_points, expected)
+
+
+def test_hit_points_leave_out_beams_that_hit_nothing():
+    _, mount = world_with_walls()
+    reading = LidarReading(
+        reference_frame=mount,
+        scan_pattern=three_beam_pattern(),
+        ranges=np.array([math.inf, 2.0, math.inf]),
+    )
+
+    assert np.allclose(reading.root_P_hit_points, [[2.0, 0.0, 0.0]])
 
 
 # %% lidar robot part

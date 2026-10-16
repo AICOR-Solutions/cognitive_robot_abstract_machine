@@ -41,6 +41,13 @@ class LidarSource(InputSource, ABC):
         :return: The most recent sweep of that lidar.
         """
 
+    @property
+    @abstractmethod
+    def has_reading(self) -> bool:
+        """
+        :return: Whether :meth:`get_lidar_reading` has a sweep to hand back.
+        """
+
 
 @dataclass
 class SimulatedLidarSource(LidarSource):
@@ -51,6 +58,10 @@ class SimulatedLidarSource(LidarSource):
     The robot carrying the lidar is invisible to it, as a real scanner filters out its
     own robot.
     """
+
+    @property
+    def has_reading(self) -> bool:
+        return True
 
     def get_lidar_reading(self, lidar: Lidar) -> LidarReading:
         world = lidar.root._world
