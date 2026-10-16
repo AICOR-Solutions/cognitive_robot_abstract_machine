@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
 from typing_extensions import Optional, Any, Dict
 
 from coraplex.datastructures.dataclasses import Context
@@ -12,7 +13,6 @@ from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
 from coraplex.robot_plans.motions.navigation import MoveMotion, TurnMotion
 from coraplex.robot_plans.motions.robot_body import LookingMotion
-from giskardpy.motion_statechart.goals.templates import Parallel
 from giskardpy.motion_statechart.monitors.joint_monitors import (
     JointPositionReached,
 )
@@ -26,6 +26,7 @@ from semantic_digital_twin.robots.exceptions import MissingLidarError
 from semantic_digital_twin.robots.robot_part_mixins import HasLidar
 from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Door,
     Level,
     Elevator,
     Floor,
@@ -39,6 +40,10 @@ from semantic_digital_twin.spatial_types.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+)
+from semantic_digital_twin.world_description.world_entity import Region
 
 
 @dataclass
@@ -249,6 +254,139 @@ class PathPlanningNavigateAction(ActionDescription):
 
 
 @dataclass
+class PassDoorAction(ActionDescription):
+    """
+    Drives the robot through a doorway towards a destination: it lines up in front of
+    the doorway on the side away from the destination, waits until its lidar sees a
+    passage as wide as its base, and drives through to the destination's side.
+    """
+
+    doors: list[Door]
+    """
+    The doors covering the doorway, such as both leaves of a double door.
+    """
+
+    destination: Point3
+    """
+    A point on the side of the doorway the robot should end up on.
+    """
+
+    approach_distance: float = field(default=0.5, kw_only=True)
+    """
+    Distance from the doorway at which the robot waits for the passage to clear.
+    """
+
+    exit_distance: float = field(default=0.5, kw_only=True)
+    """
+    Distance from the doorway at which the robot stops on the other side.
+    """
+
+    @property
+    def _action_plan(self) -> PlanNode:
+        side = self._destination_side
+        return sequential(
+            [
+                NavigateAction(self._pose_at(-side * self.approach_distance, side)),
+                pause_until(
+                    [NavigateAction(self._pose_at(side * self.exit_distance, side))],
+                    monitor=self._passage_clear(),
+                ),
+            ]
+        )
+
+    @property
+    def _doorway_frame(self) -> Region:
+        """
+        The frame the doorway is measured in: the entry way of the first door, whose
+        x-axis points through the doorway.
+        """
+        return self.doors[0].entry_way.root
+
+    @property
+    def _doorway(self) -> VolumetricBoundingBox:
+        """
+        The space all entry ways of the doors span together, in :attr:`_doorway_frame`.
+        """
+        return BoundingBoxCollection(
+            shapes=[
+                box
+                for door in self.doors
+                for box in door.entry_way.root.area.as_bounding_box_collection_in_frame(
+                    self._doorway_frame
+                )
+            ],
+            reference_frame=self._doorway_frame,
+        ).bounding_box()
+
+    @property
+    def _destination_side(self) -> int:
+        """
+        ``1`` if :attr:`destination` lies on the positive x side of the doorway, ``-1``
+        otherwise.
+        """
+        destination_x = self.world.transform(self.destination, self._doorway_frame).x
+        return 1 if float(destination_x) >= float(self._doorway.center.x) else -1
+
+    @property
+    def _height_in_doorway_frame(self) -> float:
+        """
+        The robot's height in :attr:`_doorway_frame`, which its drive cannot change.
+        """
+        return float(
+            self.world.transform(
+                self.robot.root.global_transform, self._doorway_frame
+            ).z
+        )
+
+    def _pose_at(self, distance: float, heading: int) -> Pose:
+        """
+        :param distance: Signed distance from the doorway's centre along the doorway
+            frame's x-axis.
+        :param heading: ``1`` to face along the doorway frame's x-axis, ``-1`` against
+            it.
+        :return: A pose centred on the doorway at that distance.
+        """
+        return Pose.from_xyz_rpy(
+            x=float(self._doorway.center.x) + distance,
+            y=float(self._doorway.center.y),
+            z=self._height_in_doorway_frame,
+            yaw=0.0 if heading > 0 else np.pi,
+            reference_frame=self._doorway_frame,
+        )
+
+    def _passage_clear(self) -> PassageClear:
+        """
+        Observes True from the first time the robot's lidar sees a passage as wide as
+        its base through the centre of the doorway.
+
+        :raises MissingLidarError: If the robot's mobile base carries no lidar.
+        """
+        mobile_base = self.robot.mobile_base
+        if not isinstance(mobile_base, HasLidar):
+            raise MissingLidarError(robot_part=mobile_base)
+        passage_clear = PassageClear(
+            lidar=mobile_base.lidar,
+            passage_start=Point3(
+                self._doorway.center.x,
+                self._doorway.center.y - mobile_base.base_radius,
+                self._height_in_doorway_frame,
+                reference_frame=self._doorway_frame,
+            ),
+            passage_end=Point3(
+                self._doorway.center.x,
+                self._doorway.center.y + mobile_base.base_radius,
+                self._height_in_doorway_frame,
+                reference_frame=self._doorway_frame,
+            ),
+            name="DoorwayClear",
+        )
+        # Once the robot drives into the doorway its lidar no longer looks through it,
+        # so the doorway counts as clear from the first time it is seen clear.
+        passage_clear.end_condition = passage_clear.observation_variable
+        return passage_clear
+
+
+@dataclass
 class ElevatorNavigation(ActionDescription):
     """
     Navigates a robot to another level of a building using an elevator, the robot drives
@@ -279,25 +417,31 @@ class ElevatorNavigation(ActionDescription):
 
     @property
     def _action_plan(self) -> PlanNode:
+        half_cabin_depth = float(self.elevator.scale.x) / 2
         return sequential(
             [
-                NavigateAction(self._pose_infront_of_elevator),
                 pause_until(
                     [
-                        NavigateAction(
-                            Pose.from_xyz_rpy(
-                                z=self._height_in_cabin,
-                                reference_frame=self.elevator.root,
-                            )
+                        PassDoorAction(
+                            self.elevator.doors,
+                            destination=Point3(reference_frame=self.elevator.root),
+                            approach_distance=self.exit_clearance,
+                            exit_distance=half_cabin_depth,
                         )
                     ],
-                    monitor=self._elevator_open_at_floor(self._current_floor),
+                    monitor=self._cabin_at_floor(self._current_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.elevator.root),
-                TurnMotion(self._pose_infront_of_elevator),
                 pause_until(
-                    [NavigateAction(self._pose_infront_of_elevator)],
-                    monitor=self._elevator_open_at_floor(self.target_floor),
+                    [
+                        PassDoorAction(
+                            self.elevator.doors,
+                            destination=self._point_outside_cabin,
+                            approach_distance=half_cabin_depth,
+                            exit_distance=self.exit_clearance,
+                        )
+                    ],
+                    monitor=self._cabin_at_floor(self.target_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.world.root),
             ]
@@ -324,77 +468,30 @@ class ElevatorNavigation(ActionDescription):
         return current_floor[0]
 
     @property
-    def _pose_infront_of_elevator(self) -> Pose:
+    def _point_outside_cabin(self) -> Point3:
         """
-        Where the robot stands in front of the elevator's opening,
-        :attr:`exit_clearance` away from it.
+        A point a cabin depth beyond the elevator's opening.
         """
-        return Pose.from_xyz_rpy(
-            x=self._doorway_x + self.elevator.hole_direction[0] * self.exit_clearance,
-            z=self._height_in_cabin,
+        cabin_depth = float(self.elevator.scale.x)
+        hole_direction = self.elevator.hole_direction
+        return Point3(
+            float(hole_direction[0]) * cabin_depth,
+            float(hole_direction[1]) * cabin_depth,
+            float(hole_direction[2]) * cabin_depth,
             reference_frame=self.elevator.root,
         )
 
-    @property
-    def _doorway_x(self) -> float:
+    def _cabin_at_floor(self, floor: Level) -> JointPositionReached:
         """
-        Position of the elevator's opening along the cabin's x-axis.
-        """
-        return float(self.elevator.hole_direction[0] * self.elevator.scale.x / 2)
-
-    @property
-    def _height_in_cabin(self) -> float:
-        """
-        The robot's height in the cabin's frame.
-
-        Taken from where the robot stands now, because it is the same throughout the
-        ride and the robot's drive cannot change it anyway.
-        """
-        return float(
-            self.world.transform(self.robot.root.global_transform, self.elevator.root).z
-        )
-
-    def _elevator_open_at_floor(self, target_floor: Level) -> Parallel:
-        """
-        Observes True once the cabin serves :attr:`target_floor` and the robot's lidar
-        sees a passage as wide as its base through the cabin's opening.
+        Observes True once the cabin serves ``floor``.
 
         :raises MissingMovableJointError: If the elevator has no drive.
-        :raises MissingLidarError: If the robot's mobile base carries no lidar.
         """
         if self.elevator.movable_joint is None:
             raise MissingMovableJointError(self.elevator)
-        mobile_base = self.robot.mobile_base
-        if not isinstance(mobile_base, HasLidar):
-            raise MissingLidarError(robot_part=mobile_base)
-        doorway_clear = PassageClear(
-            lidar=mobile_base.lidar,
-            passage_start=Point3(
-                self._doorway_x,
-                -mobile_base.base_radius,
-                self._height_in_cabin,
-                reference_frame=self.elevator.root,
-            ),
-            passage_end=Point3(
-                self._doorway_x,
-                mobile_base.base_radius,
-                self._height_in_cabin,
-                reference_frame=self.elevator.root,
-            ),
-            name="ElevatorDoorwayClear",
-        )
-        # Once the robot drives into the doorway its lidar no longer looks through it,
-        # so the doorway counts as clear from the first time it is seen clear.
-        doorway_clear.end_condition = doorway_clear.observation_variable
-        return Parallel(
-            [
-                doorway_clear,
-                JointPositionReached(
-                    connection=self.elevator.movable_joint,
-                    position=self.elevator.drive_position_for_floor(target_floor),
-                    threshold=self.arrival_threshold,
-                    name="ElevatorAtTargetFloor",
-                ),
-            ],
-            name="ElevatorOpenAtTargetFloor",
+        return JointPositionReached(
+            connection=self.elevator.movable_joint,
+            position=self.elevator.drive_position_for_floor(floor),
+            threshold=self.arrival_threshold,
+            name="ElevatorAtFloor",
         )
