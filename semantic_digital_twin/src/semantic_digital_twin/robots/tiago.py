@@ -90,6 +90,17 @@ class TiagoJoint(StrEnum):
     RIGHT_ARM_7 = "arm_right_7_joint"
     RIGHT_GRIPPER_FINGER = "gripper_right_finger_joint"
 
+class TiagoTopic(StrEnum):
+    ODOMETRY = "direct_laser_odometry/odom"
+    """
+    Odom topic the robot publishes, this is the odom topic which is already integrated with the laser scan
+    """
+
+    LIDAR = "scan"
+    """
+    Topic name on which the lidar readings are published
+    """
+
 
 @dataclass(eq=False)
 class TiagoLeftThumb(Finger):
@@ -502,7 +513,7 @@ class TiagoBaseLidar(Lidar):
 
     @classproperty
     def topic_name(cls) -> Optional[str]:
-        return "scan"
+        return TiagoTopic.LIDAR
 
     @classmethod
     def with_source(
@@ -529,6 +540,13 @@ class TiagoMobileBase(
     HasTorso[TiagoTorso],
     HasLidar[TiagoBaseLidar],
 ):
+
+    @classproperty
+    def topic_name(cls) -> str:
+        """
+        The topic the Tiago publishes the pose of its base on.
+        """
+        return TiagoTopic.ODOMETRY
 
     @classproperty
     def forward_axis(cls) -> Vector3:
