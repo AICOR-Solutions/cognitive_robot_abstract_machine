@@ -131,6 +131,17 @@ class DegreeOfFreedomLimits(Generic[T]):
         self.lower = self.lower or DerivativeMap()
         self.upper = self.upper or DerivativeMap()
 
+    def validate_position_range(self, degree_of_freedom_name: PrefixedName) -> None:
+        """
+        :param degree_of_freedom_name: The degree of freedom these limits belong to.
+        :raises InvalidConnectionLimits: If the lower position limit lies above the
+            upper one.
+        """
+        lower = self.lower.position
+        upper = self.upper.position
+        if lower is not None and upper is not None and lower > upper:
+            raise InvalidConnectionLimits(degree_of_freedom_name, self)
+
     @classmethod
     def from_position_range_and_speed(
         cls,
@@ -202,10 +213,7 @@ class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
 
     def __post_init__(self):
         self.limits = self.limits or DegreeOfFreedomLimits()
-        lower = self.limits.lower.position
-        upper = self.limits.upper.position
-        if lower is not None and upper is not None and lower > upper:
-            raise InvalidConnectionLimits(self.name, self.limits)
+        self.limits.validate_position_range(self.name)
 
     def create_variables(self):
         """

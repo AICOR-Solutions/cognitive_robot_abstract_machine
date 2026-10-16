@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Optional, Self, Tuple, TYPE_CHECKING, Union
 
@@ -20,6 +21,7 @@ from semantic_digital_twin.exceptions import (
     InvalidHingeActiveAxis,
     MissingSemanticAnnotationError,
     MissingMovableJointError,
+    DoorLeafNotFoundError,
 )
 from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.semantic_annotations.part_whole import (
@@ -40,6 +42,8 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasLegs,
     HasSink,
     HasShelfLayers,
+    HasRootKinematicStructureEntity,
+    PartWholeRelationship,
 )
 from semantic_digital_twin.grasping.grasp_candidates import (
     GraspCandidate,
@@ -67,7 +71,10 @@ from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
 )
-from semantic_digital_twin.specifications.connections import ConnectionSpecification
+from semantic_digital_twin.specifications.connections import (
+    ActiveConnection1DOFSpecification,
+    ConnectionSpecification,
+)
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
     KinematicStructureEntitySpecification,
@@ -195,7 +202,7 @@ class Aperture(HasRootRegion):
 
     def _mount_strategy(
         self,
-        main_has_root_body_annotation: HasRootBody,
+        main_has_root_body_annotation: PartWholeRelationship,
         relationship: IsPartWholeRelationship,
     ) -> None:
         """
@@ -300,6 +307,10 @@ class Door(HasHandle, HasMovableJoint):
     """
     A door is a physical entity that has covers an opening, has a movable body and a
     handle.
+
+    Its root is the door frame, fixed to the door's parent and holding everything the
+    door consists of: the :attr:`leaf` that moves on the :attr:`movable_joint` and
+    carries the handle, and the entry way, which stays put when the door opens.
     """
 
     entry_way: Optional[EntryWay] = field(
@@ -320,6 +331,70 @@ class Door(HasHandle, HasMovableJoint):
         """
         return Scale(0.03, 1, 2)
 
+    @property
+    def leaf(self) -> Body:
+        """
+        The moving part of the door: the body hanging from its frame that is not the
+        root of another annotation, such as a part about to be mounted.
+
+        :raises DoorLeafNotFoundError: If the frame does not hold exactly one such body.
+        """
+        annotation_roots = {
+            annotation.root
+            for annotation in self.root._world.semantic_annotations
+            if isinstance(annotation, HasRootKinematicStructureEntity)
+        }
+        bodies_on_frame = [
+            child
+            for child in self.root.child_kinematic_structure_entities
+            if isinstance(child, Body) and child not in annotation_roots
+        ]
+        if len(bodies_on_frame) != 1:
+            raise DoorLeafNotFoundError(door=self, leaf_count=len(bodies_on_frame))
+        return bodies_on_frame[0]
+
+    @property
+    def moving_body(self) -> Body:
+        return self.leaf
+
+    def entity_holding(self, part: HasRootKinematicStructureEntity) -> Body:
+        """
+        :param part: A part of this door.
+        :return: The leaf for a handle, which has to move with the door, and the frame
+            for every other part.
+        """
+        if isinstance(part, Handle):
+            return self.leaf
+        return self.root
+
+    @classmethod
+    def from_leaf(cls, leaf: Body) -> Self:
+        """
+        Annotate a door around an existing leaf by putting a frame between the leaf and
+        its parent, where the leaf's connection sits at its zero position.
+
+        :param leaf: The moving body of the door.
+        :return: The door, whose leaf keeps the type and degree of freedom of the
+            connection it hung from.
+        """
+        world = leaf._world
+        leaf_connection = leaf.parent_connection
+        parent_T_leaf = leaf_connection.parent_T_connection_expression
+        with world.modify_world():
+            frame = Body(name=PrefixedName(f"{leaf.name.name}_frame", leaf.name.prefix))
+            world.add_body(frame)
+            world.add_connection(
+                FixedConnection(
+                    parent=leaf_connection.parent,
+                    child=frame,
+                    parent_T_connection_expression=parent_T_leaf,
+                )
+            )
+            world.move_branch(leaf, frame, True)
+            door = cls(root=frame)
+            world.add_semantic_annotation(door)
+        return door
+
     @classmethod
     def get_annotation_specification(
         cls,
@@ -331,33 +406,55 @@ class Door(HasHandle, HasMovableJoint):
         part_specifications: Optional[dict] = None,
     ) -> SemanticAnnotationWithRootSpecification[Self]:
         """
-        Extend the door specification with its entry way, declared as a nested part so a
-        door always carries the passage it covers.
+        Build the door from a geometry-free frame at the requested pose, holding the
+        leaf described by ``root_specification`` and the entry way the leaf covers.
 
-        The entry way is coextensive with the door leaf, so it is sized from the root
-        specification's own geometry rather than from a separately supplied scale. A
-        caller-supplied ``entry_way`` entry replaces the default one.
+        The entry way is coextensive with the leaf, so it is sized from the leaf's own
+        geometry rather than from a separately supplied scale. A caller-supplied
+        ``entry_way`` entry replaces the default one.
 
-        :param name: The name of the annotation and its root entity.
-        :param root_specification: The specification of the door's root body.
-        :param parent_connection_specification: Connection attaching the root to its
-            parent.
+        :param name: The name of the annotation and its frame.
+        :param root_specification: The specification of the door's leaf.
+        :param parent_connection_specification: Connection the leaf moves on relative to
+            the frame.
         :param annotation_kwargs: Inert keyword arguments for the annotation
             constructor.
         :param part_specifications: Nested annotation parts keyed by part-whole
             relationship field name.
         :return: The annotation specification.
         """
+        leaf_connection_specification = (
+            parent_connection_specification
+            or root_specification.connection_specification
+        )
+        # the frame is spawned before the leaf's joint, so invalid limits must fail first
+        if (
+            isinstance(leaf_connection_specification, ActiveConnection1DOFSpecification)
+            and leaf_connection_specification.dof_limits is not None
+        ):
+            leaf_connection_specification.dof_limits.validate_position_range(
+                PrefixedName("dof", f"{name}_T_{name}_leaf")
+            )
+        leaf_specification = dataclasses.replace(
+            root_specification,
+            name=f"{name}_leaf",
+            parent_T_self=HomogeneousTransformationMatrix(),
+            connection_specification=leaf_connection_specification,
+        )
+        frame_specification = BodySpecification(
+            name=name,
+            parent_T_self=root_specification.parent_T_self,
+            child_specifications=[leaf_specification],
+        )
         entry_way_specification = EntryWay.get_annotation_specification(
             f"{name}_entry_way",
             EntryWay.get_default_root_kinematic_structure_entity_specification(
-                scale=root_specification.scale
+                scale=leaf_specification.scale
             ),
         )
         return super().get_annotation_specification(
             name,
-            root_specification,
-            parent_connection_specification=parent_connection_specification,
+            frame_specification,
             annotation_kwargs=annotation_kwargs,
             part_specifications={
                 "entry_way": entry_way_specification,
@@ -396,18 +493,19 @@ class Door(HasHandle, HasMovableJoint):
         self, axis: Vector3
     ) -> HomogeneousTransformationMatrix:
         """
-        Calculate where the door's hinge sits: on the edge opposite its handle.
+        Calculate where the door's hinge sits: on the edge of the leaf opposite its
+        handle.
 
-        :param axis: The axis the door swings about, in the door frame, along one of the
+        :param axis: The axis the door swings about, in the leaf frame, along one of the
             frame's axes in either direction.
-        :return: The pose of the hinge in the door frame.
+        :return: The pose of the hinge in the leaf frame.
         """
         if self.handle is None:
             raise MissingSemanticAnnotationError(self.__class__, Handle)
 
         connection = self.handle.root.parent_connection
         door_P_handle = connection.origin_expression.position
-        scale = self.root.collision.scale
+        scale = self.leaf.collision.scale
 
         # The axis' sign only decides which way the door swings, not which edge it
         # swings about.

@@ -748,8 +748,7 @@ class RoboCasaDatasetLoader:
                 world.add_semantic_annotation(child_annotation)
                 parent_annotation.add(child_annotation)
             elif "door" in child_name and isinstance(parent_annotation, HasDoors):
-                child_annotation = Door(root=child_body)
-                world.add_semantic_annotation(child_annotation)
+                child_annotation = Door.from_leaf(child_body)
                 parent_annotation.add(child_annotation)
             elif "drawer" in child_name and isinstance(parent_annotation, HasDrawers):
                 child_annotation = Drawer(root=child_body)

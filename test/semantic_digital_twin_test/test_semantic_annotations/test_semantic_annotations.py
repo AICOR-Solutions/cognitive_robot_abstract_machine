@@ -652,9 +652,10 @@ def test_door_joint_is_the_revolute_connection_it_hangs_from_its_whole_on(
         "fridge_door"
     )
 
-    assert fridge_door.movable_joint is fridge_door.root.parent_connection
+    assert fridge_door.movable_joint is fridge_door.leaf.parent_connection
     assert isinstance(fridge_door.movable_joint, RevoluteConnection)
-    assert fridge_door.movable_joint.parent is refrigerator.root
+    assert fridge_door.movable_joint.parent is fridge_door.root
+    assert fridge_door.root.parent_kinematic_structure_entity is refrigerator.root
 
 
 def test_drawer_joint_is_the_prismatic_connection_it_hangs_from_its_whole_on(

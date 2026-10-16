@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         HasSupportingSurface,
     )
     from semantic_digital_twin.grasping.grasp_candidates import HasGraspCandidates
+    from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
     from semantic_digital_twin.robots.robot_parts import (
         AbstractRobot,
         AbstractRobotPart,
@@ -798,6 +799,36 @@ class MissingMovableJointError(UsageError):
         return (
             "create it with an active parent_connection_specification, or mount it on "
             "one with mount_on_movable_joint."
+        )
+
+
+@dataclass
+class DoorLeafNotFoundError(UsageError):
+    """
+    Raised when the frame of a door does not hold exactly one leaf.
+    """
+
+    door: Door
+    """
+    The door whose leaf was looked for.
+    """
+
+    leaf_count: int
+    """
+    How many bodies hang from the door's frame.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"door {self.door.name} has {self.leaf_count} bodies hanging from its frame "
+            f"{self.door.root.name}, but needs exactly one leaf."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "create the door with Door.create_with_new_body_in_world or "
+            "Door.get_annotation_specification, or build it around an existing leaf "
+            "with Door.from_leaf."
         )
 
 

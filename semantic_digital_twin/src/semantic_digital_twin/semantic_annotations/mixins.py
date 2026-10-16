@@ -284,15 +284,16 @@ class HasRootKinematicStructureEntity(
 
     def _mount_strategy(
         self,
-        main_has_root_body_annotation: HasRootBody,
+        main_has_root_body_annotation: PartWholeRelationship,
         relationship: IsPartWholeRelationship,
     ) -> None:
         """
         Realize the relationship between this annotation (as a part) and the
         ``main_has_root_body_annotation`` (the whole) in the kinematic structure. The
-        default is to become a kinematic child of the whole, keeping the connection
-        the part hangs from; parts with a different strategy (e.g. apertures that cut
-        the whole) override this.
+        default is to become a kinematic child of the entity
+        :meth:`PartWholeRelationship.entity_holding` names, keeping the connection the
+        part hangs from; parts with a different strategy (e.g. apertures that cut the
+        whole) override this.
 
         :param main_has_root_body_annotation: The annotation (the whole) this one is
             being added to as a part.
@@ -300,7 +301,7 @@ class HasRootKinematicStructureEntity(
             mounted into, describing how the mount affects the whole.
         """
         main_has_root_body_annotation._world.move_branch(
-            self.root, main_has_root_body_annotation.root, True
+            self.root, main_has_root_body_annotation.entity_holding(self), True
         )
 
     @property
@@ -471,6 +472,15 @@ class PartWholeRelationship(HasRootKinematicStructureEntity):
     the part mount itself (:meth:`HasRootKinematicStructureEntity._mount_strategy`).
     """
 
+    def entity_holding(
+        self, part: HasRootKinematicStructureEntity
+    ) -> KinematicStructureEntity:
+        """
+        :param part: A part of this annotation.
+        :return: The entity of this annotation the part is mounted on.
+        """
+        return self.root
+
     @synchronized_attribute_modification
     def add(
         self, part: HasRootKinematicStructureEntity, *, field_name: str = ""
@@ -558,15 +568,22 @@ class HasMovableJoint(HasRootBody, ABC):
     """
 
     @property
+    def moving_body(self) -> Body:
+        """
+        The body the movable joint moves.
+        """
+        return self.root
+
+    @property
     def movable_joint(self) -> ActiveConnection1DOF | None:
         """
-        The connection the root hangs from, which moves the annotation relative to its
-        parent.
+        The connection :attr:`moving_body` hangs from, which moves the annotation
+        relative to its parent.
 
-        ``None`` while the root cannot move, such as a door fixed to its parent before
+        ``None`` while that body cannot move, such as a door fixed to its frame before
         it is mounted on a hinge.
         """
-        parent_connection = self.root.parent_connection
+        parent_connection = self.moving_body.parent_connection
         return (
             parent_connection
             if isinstance(parent_connection, ActiveConnection1DOF)
@@ -578,24 +595,26 @@ class HasMovableJoint(HasRootBody, ABC):
         self, axis: Vector3
     ) -> HomogeneousTransformationMatrix:
         """
-        Calculate where the joint that moves this annotation sits, relative to its root.
+        Calculate where the joint that moves this annotation sits, relative to
+        :attr:`moving_body`.
 
-        :param axis: The axis the joint moves along or about, in the root frame.
-        :return: The pose of the joint frame in the root frame.
+        :param axis: The axis the joint moves along or about, in the frame of
+            :attr:`moving_body`.
+        :return: The pose of the joint frame in the frame of :attr:`moving_body`.
         """
 
     def mount_on_movable_joint(
         self, connection_specification: ActiveConnection1DOFSpecification
     ) -> ActiveConnection1DOF:
         """
-        Replace the connection the root hangs from with one built from
+        Replace the connection :attr:`moving_body` hangs from with one built from
         ``connection_specification``, placed where
         :meth:`calculate_self_T_movable_joint` puts the joint, keeping the annotation
         where it is.
 
         :param connection_specification: The joint to mount on. Its own
             ``connection_T_child`` is ignored, and the specification is left unchanged.
-        :return: The connection the root now hangs from.
+        :return: The connection :attr:`moving_body` now hangs from.
         """
         placed_specification = dataclasses.replace(
             connection_specification,
@@ -603,7 +622,7 @@ class HasMovableJoint(HasRootBody, ABC):
                 connection_specification.axis
             ).inverse(),
         )
-        return placed_specification.reconnect(self._world, self.root)
+        return placed_specification.reconnect(self._world, self.moving_body)
 
 
 @dataclass(eq=False)

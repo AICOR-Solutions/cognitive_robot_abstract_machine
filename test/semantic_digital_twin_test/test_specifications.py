@@ -1019,7 +1019,7 @@ def test_connection_T_child_survives_orm_round_trip(empty_world):
     door = to_dao(specification).from_dao().spawn(empty_world)
 
     np.testing.assert_allclose(
-        door.root.parent_connection.connection_T_child_expression.to_np(),
+        door.leaf.parent_connection.connection_T_child_expression.to_np(),
         _hinge_T_door().to_np(),
     )
 
@@ -1117,7 +1117,7 @@ def test_default_spec_matches_door(empty_world):
     spec_body = Door.get_default_root_kinematic_structure_entity_specification(
         "door", scale
     ).to_domain_object()
-    _assert_same_geometry(spec_body.collision, factory.root.collision)
+    _assert_same_geometry(spec_body.collision, factory.leaf.collision)
 
 
 def test_default_spec_door_validates_plane():
@@ -1300,7 +1300,8 @@ def test_door_joint_survives_mounting_the_door_as_a_part(empty_world):
 
     [door] = cabinet.doors
     assert isinstance(door.movable_joint, RevoluteConnection)
-    assert door.movable_joint.parent is cabinet.root
+    assert door.movable_joint.parent is door.root
+    assert door.root.parent_kinematic_structure_entity is cabinet.root
     np.testing.assert_allclose(
         door.movable_joint.connection_T_child_expression.to_np(),
         _hinge_T_door().to_np(),
@@ -1707,7 +1708,7 @@ def test_entry_way_matches_custom_door_geometry(empty_world):
                 scale=Scale(0.05, 2.0, 2.5)
             ),
         ).spawn(empty_world)
-    door_scale = door.root.collision.scale
+    door_scale = door.leaf.collision.scale
     entry_way_scale = door.entry_way.root.area.scale
     assert (entry_way_scale.x, entry_way_scale.y, entry_way_scale.z) == pytest.approx(
         (door_scale.x, door_scale.y, door_scale.z)
@@ -1720,11 +1721,11 @@ def test_door_keeps_geometry_when_entry_way_is_mounted(empty_world):
         door = Door.create_with_new_body_in_world(
             name="door", world=empty_world, scale=scale
         )
-    assert len(door.root.collision.shapes) > 0
+    assert len(door.leaf.collision.shapes) > 0
     expected = Door.get_default_root_kinematic_structure_entity_specification(
         "door", scale
     ).to_domain_object()
-    _assert_same_geometry(expected.collision, door.root.collision)
+    _assert_same_geometry(expected.collision, door.leaf.collision)
 
 
 def test_entry_way_still_cuts_a_wall(empty_world):
@@ -1761,7 +1762,7 @@ def test_entry_way_is_coextensive_with_the_door_leaf(empty_world):
         )
     np.testing.assert_allclose(
         door.entry_way.root.area.combined_mesh.bounds,
-        door.root.collision.combined_mesh.bounds,
+        door.leaf.collision.combined_mesh.bounds,
     )
 
 
