@@ -28,7 +28,7 @@ from semantic_digital_twin.semantic_annotations.part_whole import (
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasCounterTop,
-    HasUnits,
+    HasCabinets,
     HasSupportingSurface,
     HasRootRegion,
     HasDrawers,
@@ -605,15 +605,9 @@ class CounterTop(Furniture, HasSupportingSurface, HasSink):
 
 
 @dataclass(eq=False)
-class KitchenIsland(Furniture, HasRootBody, HasUnits, HasCounterTop, HasDoors):
+class KitchenIsland(Furniture, HasRootBody, HasCabinets, HasCounterTop, HasDoors):
     """
-    A run of fitted kitchen units standing free of the walls, under one counter top.
-
-    What a person names is the island; what opens and holds things are the units built
-    into it. A drawer is a unit like a cabinet is, so a scan that never resolved the
-    carcass around it still says something true by reporting the drawer directly: both
-    are held the same way, and the comparison then reads as which of them was found
-    rather than as a relation nobody can express.
+    A run of kitchen cabinets standing free of the walls, under one counter top.
     """
 
     _synonyms = {"kitchen_island", "island"}

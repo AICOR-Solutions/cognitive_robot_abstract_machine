@@ -102,6 +102,7 @@ if TYPE_CHECKING:
         ShelfLayer,
         Wall,
         CounterTop,
+        Cabinet,
     )
     from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
@@ -1317,28 +1318,19 @@ class HasCaseAsRootBody(HasSupportingSurface):
 
 
 @dataclass(eq=False)
-class HasUnits(PartWholeRelationship):
+class HasCabinets(PartWholeRelationship):
     """
-    A mixin class for semantic annotations built from fitted furniture units.
-
-    A kitchen is not one piece of furniture but a run of carcasses standing side by side
-    under a shared worktop. The whole is what a person names -- the island, the counter
-    along that wall -- while the carcasses are what opens and holds things.
-
-    The parts are :class:`HasCaseAsRootBody` rather than
-    :class:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Cabinet`
-    because a dishwasher stands in such a run exactly as a cabinet does without being
-    one: what they share is the case.
+    A mixin class for semantic annotations built from cabinets.
     """
 
-    units: List[HasCaseAsRootBody] = field(
+    cabinets: list[Cabinet] = field(
         default_factory=list,
         hash=False,
         kw_only=True,
         metadata=IsPartWholeRelationship().as_dict(),
     )
     """
-    The fitted units the semantic annotation is built from.
+    The cabinets the semantic annotation is built from.
     """
 
 
