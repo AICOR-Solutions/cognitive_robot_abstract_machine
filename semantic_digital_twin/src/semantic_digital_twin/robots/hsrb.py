@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.resources import files
@@ -38,6 +39,7 @@ from semantic_digital_twin.robots.robot_part_mixins import (
 )
 from semantic_digital_twin.robots.robot_parts import (
     AbstractRobot,
+    AbstractRobotPart,
     Arm,
     Camera,
     Finger,
@@ -47,6 +49,12 @@ from semantic_digital_twin.robots.robot_parts import (
     EndEffector,
 )
 from semantic_digital_twin.spatial_types import Vector3
+from semantic_digital_twin.world_description.connection_properties import (
+    DriveServos,
+    JointServo,
+    ServoGains,
+    VelocityServoGains,
+)
 from semantic_digital_twin.world_description.connections import (
     OmniDrive,
 )
@@ -91,6 +99,42 @@ class HSRBJoint(StrEnum):
     HAND_MOTOR = "hand_motor_joint"
     HAND_LEFT_PROXIMAL = "hand_l_proximal_joint"
     HAND_RIGHT_PROXIMAL = "hand_r_proximal_joint"
+
+
+class HSRBSpringJoint(StrEnum):
+    """
+    Names of the HSRB's finger springs, as spelled in its URDF: joints that let a
+    fingertip give way against what the hand grips, which no controller commands.
+    """
+
+    HAND_LEFT_SPRING_PROXIMAL = "hand_l_spring_proximal_joint"
+    HAND_RIGHT_SPRING_PROXIMAL = "hand_r_spring_proximal_joint"
+
+
+# %% what drives the joints in a physical simulation
+
+
+@dataclass(eq=False)
+class ServoedHSRBPart(AbstractRobotPart, ABC):
+    """
+    A part of the HSRB whose joints are driven by position servos in a physical
+    simulation.
+
+    The torque limits are the effort limits of the HSRB's description; the stiffness
+    and damping are not taken from the real robot, they are tuned for the simulated
+    joints to follow their commanded positions.
+    """
+
+    @property
+    @abstractmethod
+    def servo_of_each_joint(self) -> dict[str, JointServo]:
+        """
+        What drives each joint of this part, by the joint's name.
+        """
+
+    def _setup_servos(self) -> None:
+        for joint_name, servo in self.servo_of_each_joint.items():
+            self._declare_servo(self._world.get_connection_by_name(joint_name), servo)
 
 
 @dataclass(eq=False)
@@ -140,7 +184,27 @@ class HSRBRightFinger(Finger):
 
 
 @dataclass(eq=False)
-class HSRBGripper(EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]):
+class HSRBGripper(
+    ServoedHSRBPart, EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]
+):
+
+    @property
+    def servo_of_each_joint(self) -> dict[str, JointServo]:
+        """
+        The hand's motor, which opens and closes both fingers, and the spring of each
+        finger, which holds its fingertip straight until what the hand grips presses it
+        back.
+        """
+        spring = JointServo(
+            gains=ServoGains(stiffness=10.0, damping=1.0, torque_limit=10.0)
+        )
+        return {
+            HSRBJoint.HAND_MOTOR: JointServo(
+                gains=ServoGains(stiffness=50.0, damping=5.0, torque_limit=100.0)
+            ),
+            HSRBSpringJoint.HAND_LEFT_SPRING_PROXIMAL: spring,
+            HSRBSpringJoint.HAND_RIGHT_SPRING_PROXIMAL: spring,
+        }
 
     def setup_hardware_interfaces(self):
         return
@@ -217,7 +281,21 @@ class HSRBHandCamera(Camera):
 
 
 @dataclass(eq=False)
-class HSRBArm(Arm[HSRBGripper], HasSensors[HSRBHandCamera]):
+class HSRBArm(ServoedHSRBPart, Arm[HSRBGripper], HasSensors[HSRBHandCamera]):
+
+    @property
+    def servo_of_each_joint(self) -> dict[str, JointServo]:
+        wrist = JointServo(
+            gains=ServoGains(stiffness=500.0, damping=50.0, torque_limit=100.0)
+        )
+        return {
+            HSRBJoint.ARM_FLEX: JointServo(
+                gains=ServoGains(stiffness=2000.0, damping=200.0, torque_limit=100.0)
+            ),
+            HSRBJoint.ARM_ROLL: wrist,
+            HSRBJoint.WRIST_FLEX: wrist,
+            HSRBJoint.WRIST_ROLL: wrist,
+        }
 
     def setup_hardware_interfaces(self):
         controlled_joints = [
@@ -377,7 +455,15 @@ class HSRBNeck(
         HSRBHeadRightCamera,
         HSRBHeadRGBDCamera,
     ],
+    ServoedHSRBPart,
 ):
+
+    @property
+    def servo_of_each_joint(self) -> dict[str, JointServo]:
+        head = JointServo(
+            gains=ServoGains(stiffness=300.0, damping=30.0, torque_limit=100.0)
+        )
+        return {HSRBJoint.HEAD_PAN: head, HSRBJoint.HEAD_TILT: head}
 
     def setup_hardware_interfaces(self):
         controlled_joints = [HSRBJoint.HEAD_PAN, HSRBJoint.HEAD_TILT]
@@ -403,7 +489,18 @@ class HSRBNeck(
 
 
 @dataclass(eq=False)
-class HSRBTorso(Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck]):
+class HSRBTorso(ServoedHSRBPart, Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck]):
+
+    @property
+    def servo_of_each_joint(self) -> dict[str, JointServo]:
+        """
+        The arm lift, which the torso lift follows at half its travel.
+        """
+        return {
+            HSRBJoint.ARM_LIFT: JointServo(
+                gains=ServoGains(stiffness=10000.0, damping=1000.0, torque_limit=300.0)
+            )
+        }
 
     def setup_hardware_interfaces(self):
         return
@@ -490,6 +587,25 @@ class HSRBMobileBase(
 
     def setup_joint_states(self) -> List[JointState]:
         return []
+
+    @property
+    def drive_servos(self) -> DriveServos:
+        """
+        Servos tuned for the base, which carries the whole robot, to follow its
+        commanded velocity; they are not taken from the real robot.
+        """
+        return DriveServos(
+            translation_gains=VelocityServoGains(damping=4000.0, torque_limit=2000.0),
+            rotation_gains=VelocityServoGains(damping=1000.0, torque_limit=1000.0),
+        )
+
+    def _setup_servos(self) -> None:
+        """
+        Declare the drive's servos, see :meth:`MobileBase._setup_servos`, and let a
+        physical simulation carry the weight of every body standing on the base.
+        """
+        super()._setup_servos()
+        self._compensate_gravity()
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(
