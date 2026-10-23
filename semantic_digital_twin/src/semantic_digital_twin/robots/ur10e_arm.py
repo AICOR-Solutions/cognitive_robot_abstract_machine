@@ -17,7 +17,7 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 
 @dataclass(eq=False)
 class UR10eArm(
-    ServoedRobotPart, Arm[TGenericEndEffector], Generic[TGenericEndEffector], ABC
+    Arm[TGenericEndEffector], ServoedRobotPart, Generic[TGenericEndEffector], ABC
 ):
     """
     A Universal Robots UR10e arm.

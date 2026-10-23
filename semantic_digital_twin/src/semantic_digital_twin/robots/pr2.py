@@ -262,9 +262,9 @@ class PR2LeftGripperRightFinger(Finger):
 
 @dataclass(eq=False)
 class PR2Gripper(
-    ServoedRobotPart,
     EndEffector,
     HasTwoFingers[TGenericLeftFinger, TGenericRightFinger],
+    ServoedRobotPart,
     Generic[TGenericLeftFinger, TGenericRightFinger],
     ABC,
 ):
@@ -382,7 +382,7 @@ class PR2LeftGripper(PR2Gripper[PR2LeftGripperLeftFinger, PR2LeftGripperRightFin
 
 
 @dataclass(eq=False)
-class PR2Neck(ServoedRobotPart, Neck[PR2KinectV1]):
+class PR2Neck(Neck[PR2KinectV1], ServoedRobotPart):
 
     def setup_hardware_interfaces(self):
 
@@ -428,7 +428,7 @@ class PR2Neck(ServoedRobotPart, Neck[PR2KinectV1]):
 
 @dataclass(eq=False)
 class PR2Arm(
-    ServoedRobotPart, Arm[TGenericEndEffector], Generic[TGenericEndEffector], ABC
+    Arm[TGenericEndEffector], ServoedRobotPart, Generic[TGenericEndEffector], ABC
 ):
     """
     An arm of the PR2.
@@ -569,10 +569,10 @@ class PR2RightArm(PR2Arm[PR2RightGripper]):
 
 @dataclass(eq=False)
 class PR2Torso(
-    ServoedRobotPart,
     Torso,
     HasLeftRightArm[PR2LeftArm, PR2RightArm],
     HasNeck[PR2Neck],
+    ServoedRobotPart,
 ):
 
     @classmethod

@@ -21,9 +21,9 @@ from semantic_digital_twin.world_description.connections import ActiveConnection
 
 @dataclass(eq=False)
 class Robotiq85Gripper(
-    ServoedRobotPart,
     EndEffector,
     HasTwoFingers[TGenericLeftFinger, TGenericRightFinger],
+    ServoedRobotPart,
     Generic[TGenericLeftFinger, TGenericRightFinger],
     ABC,
 ):

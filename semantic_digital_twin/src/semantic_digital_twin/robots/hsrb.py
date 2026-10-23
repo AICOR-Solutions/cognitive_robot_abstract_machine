@@ -159,7 +159,7 @@ class HSRBRightFinger(Finger):
 
 @dataclass(eq=False)
 class HSRBGripper(
-    ServoedRobotPart, EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]
+    EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger], ServoedRobotPart
 ):
 
     @property
@@ -257,7 +257,7 @@ class HSRBHandCamera(Camera):
 
 
 @dataclass(eq=False)
-class HSRBArm(ServoedRobotPart, Arm[HSRBGripper], HasSensors[HSRBHandCamera]):
+class HSRBArm(Arm[HSRBGripper], HasSensors[HSRBHandCamera], ServoedRobotPart):
 
     @property
     def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
@@ -468,7 +468,7 @@ class HSRBNeck(
 
 
 @dataclass(eq=False)
-class HSRBTorso(ServoedRobotPart, Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck]):
+class HSRBTorso(Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck], ServoedRobotPart):
 
     @property
     def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
