@@ -233,15 +233,17 @@ class HSRBGripper(
 
     def setup_joint_states(self) -> List[JointState]:
         world = self._world
+        hand_motor = world.get_connection_by_name(HSRBJoint.HAND_MOTOR)
         gripper_joints = [
             world.get_connection_by_name(HSRBJoint.HAND_LEFT_PROXIMAL),
             world.get_connection_by_name(HSRBJoint.HAND_RIGHT_PROXIMAL),
-            world.get_connection_by_name(HSRBJoint.HAND_MOTOR),
+            hand_motor,
         ]
 
+        fully_opened = hand_motor.raw_dof.limits.upper.position
         gripper_open = JointState.from_mapping(
             name=PrefixedName("gripper_open", prefix=self.name.name),
-            mapping=dict(zip(gripper_joints, [0.3, 0.3, 0.3])),
+            mapping={joint: fully_opened for joint in gripper_joints},
             state_type=GripperState.OPEN,
         )
 

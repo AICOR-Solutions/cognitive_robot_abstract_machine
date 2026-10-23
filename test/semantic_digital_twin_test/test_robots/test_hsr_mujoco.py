@@ -17,6 +17,7 @@ from ...pytest_environment import runs_in_continuous_integration
 
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.datastructures.definitions import (
+    GripperState,
     StaticJointState,
     TorsoState,
 )
@@ -93,6 +94,19 @@ def _hold_the_arm_out_sideways(hsrb: HSRB) -> dict[str, float]:
     }
     _command(hsrb, commanded)
     return commanded
+
+
+# %% the hand's states
+
+
+def test_the_open_hand_spreads_its_fingers_as_far_as_the_hand_motor_turns(hsrb):
+    hand_motor = hsrb._world.get_connection_by_name(HSRBJoint.HAND_MOTOR)
+
+    opened = hsrb.end_effector.get_joint_state_by_type(GripperState.OPEN)
+
+    assert opened.target_values == [hand_motor.raw_dof.limits.upper.position] * len(
+        opened.connections
+    )
 
 
 # %% the servos the HSRB declares
