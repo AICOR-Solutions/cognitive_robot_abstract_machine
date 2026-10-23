@@ -270,8 +270,10 @@ class LaserScanToSemDTConverter(Ros2ToSemDTConverter[LaserScan, LidarReading]):
                 beam_count=scan_pattern.beam_count,
                 range_count=len(data.ranges),
             )
+        ranges = np.asarray(data.ranges, dtype=float)
+        measured = (ranges >= data.range_min) & (ranges <= data.range_max)
         return LidarReading(
             reference_frame=root,
             scan_pattern=scan_pattern,
-            ranges=np.asarray(data.ranges, dtype=float),
+            ranges=np.where(measured, ranges, np.inf),
         )

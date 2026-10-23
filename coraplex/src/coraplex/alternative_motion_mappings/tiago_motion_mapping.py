@@ -21,3 +21,18 @@ class TiagoMoveSim(MoveMotion, AlternativeMotion[Tiago]):
         return DifferentialDriveBaseGoal(
             goal_pose=self.target,
         )
+
+
+class TiagoMoveReal(MoveMotion, AlternativeMotion[Tiago]):
+    """
+    Uses a diff drive goal for the real tiago base, done within 10 cm and 0.1 rad.
+    """
+
+    execution_type = ExecutionType.REAL
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self) -> DifferentialDriveBaseGoal:
+        return DifferentialDriveBaseGoal(goal_pose=self.target, threshold=0.1)

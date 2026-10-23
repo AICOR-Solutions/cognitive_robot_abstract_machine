@@ -105,7 +105,7 @@ def test_the_tiago_passes_the_door_and_comes_back(demonstration, populated_world
     recorder.stop()
 
     assert recorder.smallest_distance_along_door_axis == pytest.approx(
-        -demonstration.distance_from_door, abs=0.05
+        -demonstration.hallway_distance_from_door, abs=0.05
     )
     np.testing.assert_allclose(
         robot.root.global_transform.to_np()[:3, 3], start[:3, 3], atol=0.05

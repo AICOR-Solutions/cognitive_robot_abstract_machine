@@ -23,8 +23,6 @@ from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import PassDoorAction
-from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.predefined_maps.apartment_environment import (
     ApartmentEnvironment,
 )
@@ -68,19 +66,27 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
 
     world_T_door: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=-6.25, y=-0.385, z=2.25 / 2, yaw=np.pi / 2
+            x=-0.824, y=3.731, z=2.25 / 2, yaw=-0.138
         )
     )
     """
     Centre of the doorway, with the x-axis pointing through the wall into the apartment.
 
-    Measured from the frame of the left of the two doorways in the apartment's wall
-    mesh, as :class:`ApartmentEnvironment` places it.
+    Measured in the lab map at the second of the apartment's two doors.
     """
 
-    door_scale: Scale = field(default_factory=lambda: Scale(0.04, 1.46, 2.25))
+    world_T_apartment: HomogeneousTransformationMatrix = field(
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=-1.270, y=-2.264, yaw=-1.6938
+        )
+    )
     """
-    Thickness, width and height of the door, sized to the doorway in the wall mesh.
+    Pose of the apartment's origin in the lab map, fitted to the walls the robot mapped.
+    """
+
+    door_scale: Scale = field(default_factory=lambda: Scale(0.04, 0.91, 2.25))
+    """
+    Thickness, width and height of the door, sized to the real doorway.
     """
 
     odom_T_robot_start: HomogeneousTransformationMatrix = field(
@@ -89,13 +95,18 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         )
     )
     """
-    Where a simulated Tiago starts: :attr:`distance_from_door` in front of the doorway
-    in the apartment, facing it, which is also where the plan brings it back to.
+    Where a simulated Tiago starts: :attr:`room_distance_from_door` in front of the
+    doorway in the apartment, facing it, which is also where the plan brings it back to.
     """
 
-    distance_from_door: float = 1.5
+    room_distance_from_door: float = 2
     """
-    How far from the doorway the robot waits in front of it and stops behind it.
+    How far from the doorway the robot waits and stops on the side of the apartment.
+    """
+
+    hallway_distance_from_door: float = 1.5
+    """
+    How far from the doorway the robot stops and waits on the side of the hallway.
     """
 
     def build_simulated_world(self) -> World:
@@ -119,7 +130,9 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         """
         Spawn the apartment and a door into the doorway, with its leaf open.
         """
-        ApartmentEnvironment().populate(world)
+        world.merge_world_at_pose(
+            ApartmentEnvironment().get_world(), self.world_T_apartment
+        )
         with world.modify_world():
             door = Door.create_with_new_body_in_world(
                 name=self.door_name,
@@ -167,25 +180,26 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         Pass the doorway to the outside and back into the apartment.
         """
         door = context.world.get_semantic_annotation_by_name(self.door_name)
-        outside = Point3(-2 * self.distance_from_door, 0, 0, reference_frame=door.root)
-        inside = Point3(2 * self.distance_from_door, 0, 0, reference_frame=door.root)
-
-        VizMarkerPublisher(_world=context.world, node=context.ros_node)
+        outside = Point3(
+            -2 * self.hallway_distance_from_door, 0, 0, reference_frame=door.root
+        )
+        inside = Point3(
+            2 * self.room_distance_from_door, 0, 0, reference_frame=door.root
+        )
 
         return sequential(
             [
-                ParkArmsAction(context.robot.all_arms),
                 PassDoorAction(
                     [door],
                     destination=outside,
-                    approach_distance=self.distance_from_door,
-                    exit_distance=self.distance_from_door,
+                    approach_distance=self.room_distance_from_door,
+                    exit_distance=self.hallway_distance_from_door,
                 ),
                 PassDoorAction(
                     [door],
                     destination=inside,
-                    approach_distance=self.distance_from_door,
-                    exit_distance=self.distance_from_door,
+                    approach_distance=self.hallway_distance_from_door,
+                    exit_distance=self.room_distance_from_door,
                 ),
             ],
             context=context,
@@ -208,4 +222,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.PHYSICALLY_SIMULATED)
+    main(execution_type=ExecutionType.REAL)
