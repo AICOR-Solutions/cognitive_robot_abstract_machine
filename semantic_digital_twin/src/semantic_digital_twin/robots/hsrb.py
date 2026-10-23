@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
@@ -20,6 +19,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
 )
 from semantic_digital_twin.datastructures.definitions import (
+    JointName,
     GripperState,
     StaticJointState,
     TorsoState,
@@ -39,7 +39,6 @@ from semantic_digital_twin.robots.robot_part_mixins import (
 )
 from semantic_digital_twin.robots.robot_parts import (
     AbstractRobot,
-    AbstractRobotPart,
     Arm,
     Camera,
     Finger,
@@ -47,11 +46,12 @@ from semantic_digital_twin.robots.robot_parts import (
     Torso,
     MobileBase,
     EndEffector,
+    ServoedRobotPart,
 )
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world_description.connection_properties import (
     DriveServos,
-    JointServo,
+    JointDrive,
     ServoGains,
     VelocityServoGains,
 )
@@ -75,7 +75,7 @@ class HSRBTopic(StrEnum):
     """
 
 
-class HSRBJoint(StrEnum):
+class HSRBJoint(JointName):
     """
     Names of the HSRB's commandable connections, as spelled in its URDF.
 
@@ -101,7 +101,7 @@ class HSRBJoint(StrEnum):
     HAND_RIGHT_PROXIMAL = "hand_r_proximal_joint"
 
 
-class HSRBSpringJoint(StrEnum):
+class HSRBSpringJoint(JointName):
     """
     Names of the HSRB's finger springs, as spelled in its URDF: joints that let a
     fingertip give way against what the hand grips, which no controller commands.
@@ -109,50 +109,6 @@ class HSRBSpringJoint(StrEnum):
 
     HAND_LEFT_SPRING_PROXIMAL = "hand_l_spring_proximal_joint"
     HAND_RIGHT_SPRING_PROXIMAL = "hand_r_spring_proximal_joint"
-
-
-# %% what drives the joints in a physical simulation
-
-
-@dataclass(eq=False)
-class ServoedHSRBPart(AbstractRobotPart, ABC):
-    """
-    A part of the HSRB whose joints are driven by position servos in a physical
-    simulation.
-
-    The torque limits are the effort limits of the HSRB's description; the stiffness,
-    damping and armature are not taken from the real robot, they are tuned for the
-    simulated joints to follow their commanded positions.
-    """
-
-    @property
-    @abstractmethod
-    def servo_of_each_joint(self) -> dict[str, JointServo]:
-        """
-        What drives each joint of this part, by the joint's name.
-        """
-
-    @classproperty
-    def armature(cls) -> float:
-        """
-        The rotor inertia reflected through the gearbox of each servoed joint.
-        """
-        return 0.1
-
-    def _setup_servos(self) -> None:
-        """
-        Declare the servo of each joint, which keeps the passive dynamics the
-        description gives the joint and adds the :attr:`armature` to them.
-        """
-        for joint_name, servo in self.servo_of_each_joint.items():
-            connection = self._world.get_connection_by_name(joint_name)
-            self._declare_servo(
-                connection,
-                replace(
-                    servo,
-                    dynamics=replace(connection.dynamics, armature=self.armature),
-                ),
-            )
 
 
 @dataclass(eq=False)
@@ -203,25 +159,21 @@ class HSRBRightFinger(Finger):
 
 @dataclass(eq=False)
 class HSRBGripper(
-    ServoedHSRBPart, EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]
+    ServoedRobotPart, EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]
 ):
 
-    @classproperty
-    def armature(cls) -> float:
-        return 0.0
-
     @property
-    def servo_of_each_joint(self) -> dict[str, JointServo]:
+    def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
         """
         The hand's motor, which opens and closes both fingers, and the spring of each
         finger, which holds its fingertip straight until what the hand grips presses it
         back.
         """
-        spring = JointServo(
+        spring = JointDrive(
             gains=ServoGains(stiffness=10.0, damping=1.0, torque_limit=10.0)
         )
         return {
-            HSRBJoint.HAND_MOTOR: JointServo(
+            HSRBJoint.HAND_MOTOR: JointDrive(
                 gains=ServoGains(stiffness=50.0, damping=5.0, torque_limit=100.0)
             ),
             HSRBSpringJoint.HAND_LEFT_SPRING_PROXIMAL: spring,
@@ -305,16 +257,18 @@ class HSRBHandCamera(Camera):
 
 
 @dataclass(eq=False)
-class HSRBArm(ServoedHSRBPart, Arm[HSRBGripper], HasSensors[HSRBHandCamera]):
+class HSRBArm(ServoedRobotPart, Arm[HSRBGripper], HasSensors[HSRBHandCamera]):
 
     @property
-    def servo_of_each_joint(self) -> dict[str, JointServo]:
-        wrist = JointServo(
-            gains=ServoGains(stiffness=500.0, damping=50.0, torque_limit=100.0)
+    def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
+        wrist = JointDrive(
+            gains=ServoGains(stiffness=500.0, damping=50.0, torque_limit=100.0),
+            armature=0.1,
         )
         return {
-            HSRBJoint.ARM_FLEX: JointServo(
-                gains=ServoGains(stiffness=2000.0, damping=200.0, torque_limit=100.0)
+            HSRBJoint.ARM_FLEX: JointDrive(
+                gains=ServoGains(stiffness=2000.0, damping=200.0, torque_limit=100.0),
+                armature=0.1,
             ),
             HSRBJoint.ARM_ROLL: wrist,
             HSRBJoint.WRIST_FLEX: wrist,
@@ -479,13 +433,14 @@ class HSRBNeck(
         HSRBHeadRightCamera,
         HSRBHeadRGBDCamera,
     ],
-    ServoedHSRBPart,
+    ServoedRobotPart,
 ):
 
     @property
-    def servo_of_each_joint(self) -> dict[str, JointServo]:
-        head = JointServo(
-            gains=ServoGains(stiffness=300.0, damping=30.0, torque_limit=100.0)
+    def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
+        head = JointDrive(
+            gains=ServoGains(stiffness=300.0, damping=30.0, torque_limit=100.0),
+            armature=0.1,
         )
         return {HSRBJoint.HEAD_PAN: head, HSRBJoint.HEAD_TILT: head}
 
@@ -513,16 +468,17 @@ class HSRBNeck(
 
 
 @dataclass(eq=False)
-class HSRBTorso(ServoedHSRBPart, Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck]):
+class HSRBTorso(ServoedRobotPart, Torso, HasOneArm[HSRBArm], HasNeck[HSRBNeck]):
 
     @property
-    def servo_of_each_joint(self) -> dict[str, JointServo]:
+    def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
         """
         The arm lift, which the torso lift follows at half its travel.
         """
         return {
-            HSRBJoint.ARM_LIFT: JointServo(
-                gains=ServoGains(stiffness=10000.0, damping=1000.0, torque_limit=300.0)
+            HSRBJoint.ARM_LIFT: JointDrive(
+                gains=ServoGains(stiffness=10000.0, damping=1000.0, torque_limit=300.0),
+                armature=0.1,
             )
         }
 
@@ -646,6 +602,11 @@ class HSRB(AbstractRobot, HasMobileBase[HSRBMobileBase]):
     The HSRB Robot built by Toyota.
 
     https://robotsguide.com/robots/hsr
+
+    .. note:: The torque limits of its joint drives are the effort limits of its
+        description; their stiffness, damping and armature are not taken from the real
+        robot, they are tuned for the simulated joints to follow their commanded
+        positions.
     """
 
     @classmethod

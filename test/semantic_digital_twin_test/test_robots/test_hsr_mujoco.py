@@ -16,6 +16,7 @@ from typing_extensions import List
 from ...pytest_environment import runs_in_continuous_integration
 
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.definitions import (
     GripperState,
     StaticJointState,
@@ -25,6 +26,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.contact import ContactParameters
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.robots.hsrb import HSRB, HSRBJoint, HSRBSpringJoint
+from semantic_digital_twin.robots.robot_parts import ServoedRobotPart
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
 )
@@ -146,6 +148,30 @@ def test_every_commanded_joint_the_hand_and_the_drive_are_driven_by_one_servo(hs
     assert driven_by(VelocityServo) == sorted(
         str(dof.name) for dof in (drive.x_velocity, drive.y_velocity, drive.yaw)
     )
+
+
+def test_each_servoed_joint_takes_its_drive_and_keeps_its_description_damping(hsrb):
+    """
+    A servoed joint is driven with the gains of its drive and turns with the drive's
+    armature, while the damping the HSRB's description gives it stays.
+    """
+    world = hsrb._world
+    description = URDFParser.from_file(HSRB.get_ros_file_path()).parse()
+    servoed_parts = world.get_semantic_annotations_by_type(ServoedRobotPart)
+    gains_by_degree_of_freedom = {
+        degree_of_freedom: actuator.gains
+        for actuator in world.actuators
+        for degree_of_freedom in actuator.dofs
+    }
+
+    assert servoed_parts != []
+    for part in servoed_parts:
+        for joint_name, drive in part.drive_of_each_joint.items():
+            connection = world.get_connection_by_name(joint_name)
+            described = description.get_connection_by_name(joint_name)
+            assert gains_by_degree_of_freedom[connection.raw_dof] == drive.gains
+            assert connection.dynamics.armature == drive.armature
+            assert connection.dynamics.damping == described.dynamics.damping
 
 
 def test_the_drive_servos_have_the_gains_the_base_declares(hsrb):

@@ -20,6 +20,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidSelfCollisions,
 )
 from semantic_digital_twin.datastructures.definitions import (
+    JointName,
     StaticJointState,
     GripperState,
     TorsoState,
@@ -78,7 +79,7 @@ class PR2Topic(StrEnum):
     """
 
 
-class PR2Joint(StrEnum):
+class PR2Joint(JointName):
     """
     Names of the PR2's commandable connections, as spelled in its URDF.
 

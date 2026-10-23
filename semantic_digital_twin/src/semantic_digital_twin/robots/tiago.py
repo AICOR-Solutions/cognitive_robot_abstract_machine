@@ -19,6 +19,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
 )
 from semantic_digital_twin.datastructures.definitions import (
+    JointName,
     GripperState,
     StaticJointState,
     TorsoState,
@@ -66,7 +67,7 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 
-class TiagoJoint(StrEnum):
+class TiagoJoint(JointName):
     """
     Names of the Tiago's commandable connections, as spelled in its URDF.
 
@@ -603,7 +604,7 @@ class Tiago(AbstractRobot, HasMobileBase[TiagoMobileBase]):
 # %% names in MuJoCo's own model of the robot
 
 
-class TiagoMujocoFingerJoint(StrEnum):
+class TiagoMujocoFingerJoint(JointName):
     """
     Names of the sliding finger joints of MuJoCo's own model of the Tiago, which has
     them in place of the URDF's linkage; its other joints are named as in

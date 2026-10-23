@@ -35,7 +35,7 @@ from krrood.ormatic.utils import classproperty
 from krrood.utils import get_generic_type_parameters
 from semantic_digital_twin.adapters.package_resolver import CompositePathResolver
 from semantic_digital_twin.adapters.urdf import URDFParser
-from semantic_digital_twin.datastructures.definitions import JointStateType
+from semantic_digital_twin.datastructures.definitions import JointName, JointStateType
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -100,6 +100,7 @@ from semantic_digital_twin.world_description.geometry import (
 )
 from semantic_digital_twin.world_description.connection_properties import (
     DriveServos,
+    JointDrive,
     JointServo,
 )
 from semantic_digital_twin.world_description.world_entity import (
@@ -468,6 +469,26 @@ class AbstractRobotPart(HasRootBody, HasRobotParts, ABC):
                 body.add_simulator_property(GravityCompensation(fraction=1.0))
                 continue
             compensation.fraction = 1.0
+
+
+@dataclass(eq=False)
+class ServoedRobotPart(AbstractRobotPart, ABC):
+    """
+    A robot part whose joints are each driven by a :class:`JointDrive` in a physical
+    simulation.
+    """
+
+    @property
+    @abstractmethod
+    def drive_of_each_joint(self) -> dict[JointName, JointDrive]:
+        """
+        What drives each joint of this part, by the joint's name.
+        """
+
+    def _setup_servos(self) -> None:
+        for joint_name, drive in self.drive_of_each_joint.items():
+            connection = self._world.get_connection_by_name(joint_name)
+            self._declare_servo(connection, drive.servo_for(connection))
 
 
 @dataclass(eq=False)

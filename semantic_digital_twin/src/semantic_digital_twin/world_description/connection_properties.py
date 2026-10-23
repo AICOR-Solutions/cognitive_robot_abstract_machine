@@ -1,4 +1,13 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+from typing_extensions import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.world_description.connections import (
+        ActiveConnection1DOF,
+    )
 
 
 @dataclass
@@ -95,6 +104,35 @@ class JointServo:
     The joint's own inertia and friction, felt on top of the servo's torque; ``None``
     keeps those the robot's description states.
     """
+
+
+@dataclass
+class JointDrive:
+    """
+    What drives one joint in a physical simulation: a position servo, and the motor
+    turning the joint through its gearbox.
+    """
+
+    gains: ServoGains
+    """
+    How hard the servo pulls the joint towards the commanded position.
+    """
+
+    armature: float = 0.0
+    """
+    The rotor inertia the motor adds to the joint through its gearbox.
+    """
+
+    def servo_for(self, connection: ActiveConnection1DOF) -> JointServo:
+        """
+        :param connection: The joint to drive.
+        :return: The servo driving the joint, which keeps the passive dynamics the
+            description gives the joint and adds the :attr:`armature` to them.
+        """
+        return JointServo(
+            gains=self.gains,
+            dynamics=replace(connection.dynamics, armature=self.armature),
+        )
 
 
 @dataclass
