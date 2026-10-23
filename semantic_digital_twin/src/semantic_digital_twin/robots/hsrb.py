@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from importlib.resources import files
 from pathlib import Path
@@ -120,9 +120,9 @@ class ServoedHSRBPart(AbstractRobotPart, ABC):
     A part of the HSRB whose joints are driven by position servos in a physical
     simulation.
 
-    The torque limits are the effort limits of the HSRB's description; the stiffness
-    and damping are not taken from the real robot, they are tuned for the simulated
-    joints to follow their commanded positions.
+    The torque limits are the effort limits of the HSRB's description; the stiffness,
+    damping and armature are not taken from the real robot, they are tuned for the
+    simulated joints to follow their commanded positions.
     """
 
     @property
@@ -132,9 +132,27 @@ class ServoedHSRBPart(AbstractRobotPart, ABC):
         What drives each joint of this part, by the joint's name.
         """
 
+    @classproperty
+    def armature(cls) -> float:
+        """
+        The rotor inertia reflected through the gearbox of each servoed joint.
+        """
+        return 0.1
+
     def _setup_servos(self) -> None:
+        """
+        Declare the servo of each joint, which keeps the passive dynamics the
+        description gives the joint and adds the :attr:`armature` to them.
+        """
         for joint_name, servo in self.servo_of_each_joint.items():
-            self._declare_servo(self._world.get_connection_by_name(joint_name), servo)
+            connection = self._world.get_connection_by_name(joint_name)
+            self._declare_servo(
+                connection,
+                replace(
+                    servo,
+                    dynamics=replace(connection.dynamics, armature=self.armature),
+                ),
+            )
 
 
 @dataclass(eq=False)
@@ -187,6 +205,10 @@ class HSRBRightFinger(Finger):
 class HSRBGripper(
     ServoedHSRBPart, EndEffector, HasTwoFingers[HSRBLeftFinger, HSRBRightFinger]
 ):
+
+    @classproperty
+    def armature(cls) -> float:
+        return 0.0
 
     @property
     def servo_of_each_joint(self) -> dict[str, JointServo]:

@@ -77,6 +77,24 @@ def _command(hsrb: HSRB, positions: dict[str, float]) -> None:
     world.notify_state_change()
 
 
+def _hold_the_arm_out_sideways(hsrb: HSRB) -> dict[str, float]:
+    """
+    Command the arm into the pose it reaches beside the base in: lifted, swung level and
+    rolled out to the side.
+
+    :return: The commanded position of each arm joint, by the joint's name.
+    """
+    commanded = {
+        HSRBJoint.ARM_LIFT: 0.41,
+        HSRBJoint.ARM_FLEX: -1.46,
+        HSRBJoint.ARM_ROLL: 1.2,
+        HSRBJoint.WRIST_FLEX: -0.28,
+        HSRBJoint.WRIST_ROLL: -1.22,
+    }
+    _command(hsrb, commanded)
+    return commanded
+
+
 # %% the servos the HSRB declares
 
 
@@ -221,6 +239,35 @@ def test_the_torso_rises_with_half_the_arm_lift(hsrb):
 
     torso_connection = hsrb._world.get_connection_by_name(HSRBJoint.TORSO_LIFT)
     assert torso_lift == pytest.approx(0.4 * torso_connection.multiplier, abs=0.01)
+
+
+@pytest.mark.skipif(
+    not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
+)
+def test_the_arm_comes_to_rest_held_out_sideways(hsrb):
+    """
+    A servo too stiff for the light links it turns keeps them ringing around the
+    commanded position.
+    """
+    commanded = _hold_the_arm_out_sideways(hsrb)
+
+    simulation = MujocoSim(world=hsrb._world, headless=True)
+    simulation.start_stepped_simulation()
+    try:
+        simulation.step_simulation(timedelta(seconds=2))
+        held = []
+        for _ in range(100):
+            simulation.step_simulation(timedelta(milliseconds=10))
+            held.append(
+                {
+                    joint_name: simulation.simulator.get_joint_value(joint_name).result
+                    for joint_name in commanded
+                }
+            )
+    finally:
+        simulation.stop_simulation()
+
+    assert held == [pytest.approx(commanded, abs=0.02)] * len(held)
 
 
 # %% the physics: holding something
@@ -416,3 +463,25 @@ def test_the_base_stands_still_while_the_arm_swings(hsrb):
         simulation.stop_simulation()
 
     assert after == pytest.approx(standing, abs=0.005)
+
+
+@pytest.mark.skipif(
+    not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
+)
+def test_the_base_stands_still_while_the_arm_is_held_out_sideways(hsrb):
+    """
+    The arm held out to the side must not turn a base that is commanded to stand.
+    """
+    _hold_the_arm_out_sideways(hsrb)
+
+    simulation = MujocoSim(world=hsrb._world, headless=True)
+    simulation.start_stepped_simulation()
+    try:
+        simulation.step_simulation(timedelta(seconds=2))
+        standing = _simulated_base_pose(simulation, hsrb)
+        simulation.step_simulation(timedelta(seconds=5))
+        after = _simulated_base_pose(simulation, hsrb)
+    finally:
+        simulation.stop_simulation()
+
+    assert after == pytest.approx(standing, abs=0.001)
