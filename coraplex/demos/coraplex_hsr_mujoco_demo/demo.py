@@ -7,13 +7,15 @@ folder::
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+from pathlib import Path
 
 import mujoco
 import numpy as np
 from typing_extensions import Type
+
+from krrood.patterns.path_enumeration import PathEnumeration
 
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import ExecutionType
@@ -52,21 +54,15 @@ from semantic_digital_twin.world_description.world_entity import Body
 # %% the scene
 
 
-class SceneFile(StrEnum):
+class SceneFile(PathEnumeration):
     """
     The files the scene is built from, under the coraplex resources.
     """
 
-    MILK = os.path.join("objects", "milk.stl")
-
-    @property
-    def path(self) -> str:
-        """
-        :return: Where the file is read from.
-        """
-        return os.path.join(
-            os.path.dirname(__file__), "..", "..", "resources", self.value
-        )
+    MILK = Path(__file__).resolve().parents[2] / "resources" / "objects" / "milk.stl"
+    """
+    The mesh of the milk carton.
+    """
 
 
 class SceneBody(StrEnum):
@@ -182,7 +178,7 @@ class MilkTransportDemonstration(RobotDemonstration):
             semantic_annotation_type=Milk,
             root_specification=BodySpecification.mesh(
                 SceneBody.MILK,
-                SceneFile.MILK.path,
+                str(SceneFile.MILK),
                 connection_specification=Connection6DoFSpecification(),
             ),
         ).spawn(world)
