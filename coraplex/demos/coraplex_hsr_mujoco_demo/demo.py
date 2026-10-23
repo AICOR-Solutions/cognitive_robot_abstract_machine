@@ -1,13 +1,8 @@
 """
-The HSR carries a milk carton from a counter to a table, with its joints, its drive and
-the carton simulated physically in MuJoCo. Run it from this folder::
+The HSR carries a milk carton from a counter to a table in MuJoCo. Run it from this
+folder::
 
     python demo.py
-
-The scene is a counter and a table standing on a floor across from each other, and the
-carton, which stands free on the counter. The robot stands between them, takes the
-carton from the side and sets it down on the table; nothing holds the carton in its hand
-but the friction of its fingers.
 """
 
 from __future__ import annotations
@@ -24,6 +19,7 @@ from coraplex.datastructures.dataclasses import Context
 from coraplex.execution_environment import PhysicallySimulatedRobot
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan import Plan
+from coraplex.querying.predicates import IsAmongTheClosestGraspsTo
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
@@ -246,6 +242,7 @@ class MilkTransportDemonstration:
         hsrb = context.robot
         [milk] = world.get_semantic_annotations_by_type(Milk)
         [arm] = hsrb.all_arms
+        taking_pose = self._standing_pose_facing(self.counter, world)
         target = Pose.from_xyz_rpy(
             x=self.table.point_behind_the_near_edge(self.milk_depth),
             z=self.table.scale.z + self._height_of_the_milk_origin(milk),
@@ -256,8 +253,8 @@ class MilkTransportDemonstration:
             [
                 MoveTorsoAction(TorsoState.HIGH),
                 ParkArmsAction(hsrb.all_arms),
-                NavigateAction(self._standing_pose_facing(self.counter, world)),
-                PickUpAction(grasp=self._grasp_facing(self.counter, milk), arm=arm),
+                NavigateAction(taking_pose),
+                PickUpAction(grasp=self._grasp_from(taking_pose, milk), arm=arm),
                 NavigateAction(self._standing_pose_facing(self.table, world)),
                 PlaceAction(object_designator=milk, target_location=target),
                 ParkArmsAction(hsrb.all_arms),
@@ -279,31 +276,30 @@ class MilkTransportDemonstration:
             reference_frame=world.root,
         )
 
-    def _grasp_facing(self, stand: Stand, milk: Milk) -> GraspCandidate:
+    def _grasp_from(self, standing_pose: Pose, milk: Milk) -> GraspCandidate:
         """
-        :param stand: The stand the milk is taken from.
+        :param standing_pose: Where the robot stands to take the milk.
         :param milk: The milk.
-        :return: The grasp of the milk the robot approaches straight ahead when it faces
-            ``stand``, :attr:`grasp_height` above the milk's origin.
+        :return: The milk's grasp closest to the robot standing there, raised
+            :attr:`grasp_height` above the milk's origin.
         """
-        world = milk.root._world
-        robot_forward = np.array(
-            [np.cos(stand.facing_yaw), np.sin(stand.facing_yaw), 0.0]
-        )
-        grasp = max(
-            milk.grasp_candidates(),
-            key=lambda candidate: world.transform(
-                candidate.grasp_pose, world.root
-            ).to_np()[:3, 0]
-            @ robot_forward,
-        )
+        grasps = milk.grasp_candidates()
+        [closest] = [
+            grasp
+            for grasp in grasps
+            if IsAmongTheClosestGraspsTo(
+                grasp, standing_pose, grasps, number_of_grasps=1
+            )()
+        ]
         milk_T_raised_grasp = (
             HomogeneousTransformationMatrix.from_xyz_rpy(
                 z=self.grasp_height, reference_frame=milk.root
             )
-            @ world.transform(grasp.grasp_pose, milk.root).homogeneous_matrix
+            @ milk.root._world.transform(
+                closest.grasp_pose, milk.root
+            ).homogeneous_matrix
         )
-        return replace(grasp, grasp_pose=milk_T_raised_grasp.pose)
+        return replace(closest, grasp_pose=milk_T_raised_grasp.pose)
 
     def run(self) -> World:
         """
