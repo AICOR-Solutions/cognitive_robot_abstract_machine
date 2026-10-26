@@ -186,19 +186,31 @@ class OdometrySynchronizer(TopicInputSynchronizer[Odometry]):
 
     connection: Union[OmniDrive, DifferentialDrive] = field(kw_only=True)
     """
-    The drive connection whose origin follows the odometry.
+    The drive connection that places its child at the odometry's pose.
+
+    .. note:: When the child is moved under another parent, such as a robot boarding an
+        elevator, the drive connection it gets there is followed instead.
     """
 
     def apply_message(self, message: Odometry) -> None:
+        """
+        Write the reported pose into the drive's degrees of freedom, which keep
+        describing the pose in the odometry frame after the drive was moved under
+        another parent.
+        """
         pose = message.pose.pose
-        self.connection.origin = HomogeneousTransformationMatrix.from_xyz_quaternion(
-            pos_x=pose.position.x,
-            pos_y=pose.position.y,
-            pos_z=pose.position.z,
-            quat_w=pose.orientation.w,
-            quat_x=pose.orientation.x,
-            quat_y=pose.orientation.y,
-            quat_z=pose.orientation.z,
+        drive = self.connection.child.parent_connection
+        drive.origin = (
+            drive.parent_T_connection_expression
+            @ HomogeneousTransformationMatrix.from_xyz_quaternion(
+                pos_x=pose.position.x,
+                pos_y=pose.position.y,
+                pos_z=pose.position.z,
+                quat_w=pose.orientation.w,
+                quat_x=pose.orientation.x,
+                quat_y=pose.orientation.y,
+                quat_z=pose.orientation.z,
+            )
         )
 
 

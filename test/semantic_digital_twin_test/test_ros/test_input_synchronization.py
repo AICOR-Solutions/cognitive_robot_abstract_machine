@@ -138,6 +138,24 @@ def omni_drive_world() -> World:
 
 
 @pytest.fixture()
+def omni_drive_world_with_cabin(omni_drive_world: World) -> World:
+    """
+    :func:`omni_drive_world` with a cabin that can be moved anywhere, standing apart
+    from the base.
+    """
+    with omni_drive_world.modify_world():
+        cabin = Body(name=PrefixedName("cabin"))
+        cabin_connection = Connection6DoF.create_with_dofs(
+            world=omni_drive_world, parent=omni_drive_world.root, child=cabin
+        )
+        omni_drive_world.add_connection(cabin_connection)
+    cabin_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=0.5, y=3.0, reference_frame=omni_drive_world.root
+    )
+    return omni_drive_world
+
+
+@pytest.fixture()
 def world_with_two_connections() -> (
     tuple[World, ActiveConnection1DOF, ActiveConnection1DOF]
 ):
@@ -423,6 +441,61 @@ def test_odometry_synchronizer_writes_the_pose_into_the_drive(
     assert synchronizer.apply() is True
     assert_allclose(
         connection.origin.to_np().astype(float),
+        expected_pose.to_np().astype(float),
+        atol=1e-9,
+    )
+
+
+def test_odometry_follows_a_base_moved_under_another_parent(
+    rclpy_node, omni_drive_world_with_cabin: World
+):
+    world = omni_drive_world_with_cabin
+    base = world.get_body_by_name("base")
+    synchronizer = OdometrySynchronizer(
+        world=world,
+        node=rclpy_node,
+        topic_name="odom",
+        connection=base.parent_connection,
+    )
+    world.move_branch(base, world.get_body_by_name("cabin"))
+    reported_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.5, y=2.5, yaw=1.5)
+    synchronizer.latest_message = odometry_message(reported_pose)
+
+    assert synchronizer.apply() is True
+    assert_allclose(
+        base.global_transform.to_np().astype(float),
+        reported_pose.to_np().astype(float),
+        atol=1e-9,
+    )
+
+
+def test_odometry_of_a_base_moved_under_another_parent_moves_with_that_parent(
+    rclpy_node, omni_drive_world_with_cabin: World
+):
+    world = omni_drive_world_with_cabin
+    base = world.get_body_by_name("base")
+    cabin = world.get_body_by_name("cabin")
+    synchronizer = OdometrySynchronizer(
+        world=world,
+        node=rclpy_node,
+        topic_name="odom",
+        connection=base.parent_connection,
+    )
+    world.move_branch(base, cabin)
+    root_T_cabin_on_boarding = cabin.global_transform
+    cabin.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=0.5, y=3.0, z=4.0, reference_frame=world.root
+    )
+    reported_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.5, y=2.5, yaw=1.5)
+    synchronizer.latest_message = odometry_message(reported_pose)
+
+    synchronizer.apply()
+
+    expected_pose = (
+        cabin.global_transform @ root_T_cabin_on_boarding.inverse() @ reported_pose
+    )
+    assert_allclose(
+        base.global_transform.to_np().astype(float),
         expected_pose.to_np().astype(float),
         atol=1e-9,
     )
