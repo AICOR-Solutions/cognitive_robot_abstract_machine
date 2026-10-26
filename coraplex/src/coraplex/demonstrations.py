@@ -301,9 +301,19 @@ class RobotDemonstration(ABC):
                     collision_avoidance=self.collision_avoidance,
                 ), event_segmentation:
                     plan.perform()
+            self.conclude(world)
         finally:
             self.tear_down()
         return world
+
+    def conclude(self, world: World) -> None:
+        """
+        Act on the outcome once the plan was performed, while the ROS session is still up.
+
+        Does nothing unless a demonstration has something to do after its plan.
+
+        :param world: The world the plan was performed in.
+        """
 
     def tear_down(self) -> None:
         """
