@@ -12,6 +12,7 @@ from semantic_digital_twin.specifications.connections import (
     ActiveConnection1DOFSpecification,
     PrismaticConnectionSpecification,
 )
+from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
 from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.callbacks.callback import Callback
 from semantic_digital_twin.robots.daisy import DAiSy
@@ -981,6 +982,28 @@ def multi_story_building(_elevator_world_setup):
         add_level(GroundFloor, "Ground Floor", 1.5)
         add_level(FirstFloor, "First Floor", 4.5)
     return world
+
+
+@pytest.fixture(scope="session")
+def arise_office():
+    """
+    The description of the office of the TIAGo ARISE Gazebo simulator.
+    """
+    return AriseOfficeBuilding()
+
+
+@pytest.fixture(scope="session")
+def _arise_office_world_setup(arise_office):
+    return arise_office.create_world()
+
+
+@pytest.fixture(scope="function")
+def arise_office_world(_arise_office_world_setup):
+    """
+    The office of the TIAGo ARISE Gazebo simulator, with its elevator serving the ground
+    floor.
+    """
+    return deepcopy(_arise_office_world_setup)
 
 
 @pytest.fixture(scope="session")
