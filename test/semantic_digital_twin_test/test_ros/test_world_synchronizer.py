@@ -227,6 +227,17 @@ def unique_topic(name: str) -> str:
     return f"/{name}_{uuid4().hex}"
 
 
+def test_synchronizer_holds_as_many_messages_as_its_queue_depth(rclpy_node):
+    synchronizer = WorldSynchronizer(
+        node=rclpy_node, _world=create_dummy_world(), queue_depth=7
+    )
+
+    assert synchronizer.publisher.qos_profile.depth == synchronizer.queue_depth
+    assert synchronizer.subscriber.qos_profile.depth == synchronizer.queue_depth
+
+    synchronizer.close()
+
+
 def test_state_synchronization(rclpy_node):
     w1 = create_dummy_world()
     w2 = create_dummy_world()
