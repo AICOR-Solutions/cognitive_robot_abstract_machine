@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import krrood.symbolic_math.symbolic_math as sm
 from semantic_digital_twin.spatial_types import (
+    Point3,
     Vector3,
     RotationMatrix,
 )
@@ -21,6 +23,7 @@ from giskardpy.motion_statechart.graph_node import Goal, MotionStatechartNode
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianOrientation,
     CartesianPositionStraight,
+    CartesianPositionVelocityLimit,
     CartesianPose,
 )
 
@@ -35,7 +38,10 @@ class DifferentialDriveBaseGoal(Sequence):
     3. Orient to goal orientation
 
     The direction to the goal is an expression over the base's forward kinematics, so
-    steps 1 and 2 follow the base as it drives.
+    steps 1 and 2 follow the base as it drives. The goal is reached at the base's own
+    height, which the drive cannot change. Step 1 turns on the spot, see
+    :attr:`translation_velocity_while_turning`, and towards the goal's orientation if the
+    base already stands within :attr:`threshold` of the goal position.
     """
 
     diff_drive_connection: DifferentialDrive | None = field(kw_only=True, default=None)
@@ -64,6 +70,18 @@ class DifferentialDriveBaseGoal(Sequence):
     Threshold when the drive goals for the base are considered achieved.
     """
 
+    heading_threshold: float = field(default=0.02, kw_only=True)
+    """
+    Angle in radians within which the base has to face the goal position before it
+    drives there; the smaller of this and :attr:`threshold` applies.
+    """
+
+    translation_velocity_while_turning: float = field(default=0.001, kw_only=True)
+    """
+    Speed in m/s the base may drive at while it turns towards the goal position, which
+    keeps it turning on the spot instead of driving an arc.
+    """
+
     def expand(self, context: MotionStatechartContext) -> None:
         if self.diff_drive_connection is None:
             diff_drives = context.world.get_connections_by_type(DifferentialDrive)
@@ -85,14 +103,34 @@ class DifferentialDriveBaseGoal(Sequence):
         map = context.world.root
         tip = self.diff_drive_connection.child
 
-        root_T_goal = context.world.transform(self.goal_pose, map)
+        root_T_given_goal = context.world.transform(self.goal_pose, map)
         root_T_current = context.world.compose_forward_kinematics_expression(map, tip)
+        # The drive cannot change the base's height, so the goal lies at that height
+        root_T_goal = Pose(
+            position=Point3(
+                root_T_given_goal.x,
+                root_T_given_goal.y,
+                root_T_current.z,
+                reference_frame=map,
+            ),
+            orientation=root_T_given_goal.orientation,
+            reference_frame=map,
+        )
         root_V_current_to_goal = root_T_goal.position - root_T_current.position
+        distance_to_goal = root_V_current_to_goal.norm()
         root_V_current_to_goal.scale(1)
         root_V_z = Vector3.Z(reference_frame=map)
-        root_R_first_orientation = RotationMatrix.from_vectors(
-            x=root_V_current_to_goal, z=root_V_z, reference_frame=map
+        # A goal within the threshold is too close for the direction to it to mean
+        # anything, so the base turns to the goal's orientation instead.
+        root_R_first_orientation = sm.if_less(
+            distance_to_goal,
+            self.threshold,
+            root_T_goal.rotation_matrix,
+            RotationMatrix.from_vectors(
+                x=root_V_current_to_goal, z=root_V_z, reference_frame=map
+            ),
         )
+        root_R_first_orientation.reference_frame = map
 
         root_T_goal2 = Pose(
             position=root_T_goal.position,
@@ -101,13 +139,27 @@ class DifferentialDriveBaseGoal(Sequence):
         )
 
         self.nodes = [
-            CartesianOrientation(
+            Parallel(
                 name=f"{self.name}/step1",
-                root_link=map,
-                tip_link=tip,
-                goal_orientation=root_R_first_orientation,
-                weight=self.weight,
-                threshold=self.threshold,
+                nodes=[
+                    CartesianOrientation(
+                        name=f"{self.name}/step1/orientation",
+                        root_link=map,
+                        tip_link=tip,
+                        goal_orientation=root_R_first_orientation,
+                        weight=self.weight,
+                        threshold=min(self.threshold, self.heading_threshold),
+                    ),
+                    CartesianPositionVelocityLimit(
+                        name=f"{self.name}/step1/stay_in_place",
+                        root_link=map,
+                        tip_link=tip,
+                        max_linear_velocity=self.translation_velocity_while_turning,
+                        # Above the turn itself, so a base that lags behind its commands
+                        # keeps turning on the spot instead of trading it for reversing
+                        weight=DefaultWeights.WEIGHT_MAXIMUM,
+                    ),
+                ],
             ),
             CartesianPose(
                 name=f"{self.name}/step2",
