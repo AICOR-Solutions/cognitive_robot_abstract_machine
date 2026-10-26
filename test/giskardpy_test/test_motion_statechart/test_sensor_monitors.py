@@ -76,3 +76,42 @@ def test_a_passage_no_beam_crosses_is_unknown():
     ticked_executor(world, monitor)
 
     assert monitor.observation_state == ObservationStateValues.UNKNOWN
+
+
+def test_a_passage_seen_clear_once_stays_clear_when_asked_to():
+    world, mount = world_with_walls(2 * PASSAGE_DISTANCE)
+    monitor = passage_monitor(mount, PASSAGE_DISTANCE)
+    monitor.stays_clear_once_seen = True
+    executor = ticked_executor(world, monitor)
+    monitor.passage_start.x = 2 * PASSAGE_DISTANCE
+    monitor.passage_end.x = 2 * PASSAGE_DISTANCE
+
+    executor.tick()
+
+    assert monitor.observation_state == ObservationStateValues.TRUE
+
+
+def test_a_passage_seen_clear_once_is_judged_anew_by_default():
+    world, mount = world_with_walls(2 * PASSAGE_DISTANCE)
+    monitor = passage_monitor(mount, PASSAGE_DISTANCE)
+    executor = ticked_executor(world, monitor)
+    monitor.passage_start.x = 2 * PASSAGE_DISTANCE
+    monitor.passage_end.x = 2 * PASSAGE_DISTANCE
+
+    executor.tick()
+
+    assert monitor.observation_state == ObservationStateValues.FALSE
+
+
+def test_a_restarted_passage_monitor_judges_the_passage_anew():
+    world, mount = world_with_walls(2 * PASSAGE_DISTANCE)
+    monitor = passage_monitor(mount, PASSAGE_DISTANCE)
+    monitor.stays_clear_once_seen = True
+    executor = ticked_executor(world, monitor)
+    monitor.passage_start.x = 2 * PASSAGE_DISTANCE
+    monitor.passage_end.x = 2 * PASSAGE_DISTANCE
+
+    monitor.on_start(executor.context)
+    executor.tick()
+
+    assert monitor.observation_state == ObservationStateValues.FALSE

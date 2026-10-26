@@ -379,10 +379,8 @@ class PassDoorAction(ActionDescription):
                 reference_frame=self._doorway_frame,
             ),
             name="DoorwayClear",
+            stays_clear_once_seen=True,
         )
-        # Once the robot drives into the doorway its lidar no longer looks through it,
-        # so the doorway counts as clear from the first time it is seen clear.
-        passage_clear.end_condition = passage_clear.observation_variable
         return passage_clear
 
 
