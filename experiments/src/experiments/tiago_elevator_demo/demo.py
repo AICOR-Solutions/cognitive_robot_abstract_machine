@@ -3,10 +3,9 @@ Tiago rides the elevator of a building, the lab by default, from the ground floo
 first floor.
 
 Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the real
-TIAGo, or the robot of the TIAGo ARISE Gazebo simulator with the
-:class:`~semantic_digital_twin.predefined_maps.arise_office.AriseOfficeBuilding` as the
-building: the world comes from the running controller, the base lidar from ``/scan``, and
-the cabin's height from the elevator's joint states. The elevator itself is operated
+TIAGo, or the robot of the TIAGo ARISE Gazebo simulator: the world comes from the running
+controller, the base lidar from ``/scan``, and the cabin's height from the elevator's joint
+states. The elevator itself is operated
 outside the plan, by a person on the real robot and by the simulator's elevator operator
 in Gazebo.
 

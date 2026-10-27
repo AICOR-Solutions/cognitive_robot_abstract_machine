@@ -33,3 +33,12 @@ class ElevatorBuilding(ABC):
         :param world: The world the building is added to.
         :return: The elevator, serving the ground floor.
         """
+
+    def create_world(self, root_name: str = "map") -> World:
+        """
+        :param root_name: Name of the world's root body, the frame the building is in.
+        :return: A world holding nothing but this building.
+        """
+        world = World.create_with_root_body(root_name)
+        self.spawn(world)
+        return world
