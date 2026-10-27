@@ -70,6 +70,7 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    KinematicStructureEntity,
 )
 from semantic_digital_twin.specifications.connections import (
     ActiveConnection1DOFSpecification,
@@ -665,6 +666,16 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
         self.movable_joint.position = self.drive_position_for_floor(floor)
 
     @property
+    def doorway_pose(self) -> Pose:
+        """
+        :return: The middle of the doorway on the cabin's floor, its x-axis pointing into
+            the cabin, in the cabin frame.
+        """
+        return Pose.from_xyz_rpy(
+            x=-self.scale.x / 2, z=-self.scale.z / 2, reference_frame=self.root
+        )
+
+    @property
     def cabin_area(self) -> ElevatorCabinArea:
         """
         :return: The area inside this elevator's cabin.
@@ -846,6 +857,27 @@ class Level(HasRootRegion):
             min_z,
             reference_frame=self._world.root,
         )
+
+    @classmethod
+    def under(
+        cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
+    ) -> Self | None:
+        """
+        :param floor_tolerance: How far a level's floor may lie above ``entity``'s origin
+            for ``entity`` to count as standing on that level.
+        :return: The highest level of ``entity``'s world whose floor lies at most
+            ``floor_tolerance`` above ``entity``'s origin, or None if ``entity`` is below
+            every level.
+        """
+        height = float(entity.global_transform.z)
+        levels_below = [
+            level
+            for level in entity._world.get_semantic_annotations_by_type(cls)
+            if float(level.floor_plane[0].z) <= height + floor_tolerance
+        ]
+        if not levels_below:
+            return None
+        return max(levels_below, key=lambda level: float(level.floor_plane[0].z))
 
 
 @dataclass(eq=False)

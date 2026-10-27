@@ -171,7 +171,7 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
         )
         body.collision = ShapeCollection([cylinder], reference_frame=body)
         body.visual = body.collision
-        human = Human(root=body)
+        human = Human(name=PrefixedName(person_id, prefix="ros4hri"), root=body)
         with self.world.modify_world():
             self.world.add_kinematic_structure_entity(body)
             connection = Connection6DoF.create_with_dofs(
@@ -272,7 +272,7 @@ class ElevatorPeople(HasROS2Node):
             ElevatorPeopleTopic.CABIN_PERSONS,
             ElevatorPeopleTopic.CABIN_FOOTPRINT,
         )
-        robot_level = self.robot_level()
+        robot_level = Level.under(self.robot.root, self.floor_tolerance)
         if robot_level is None:
             return
         self._publish(
@@ -280,21 +280,6 @@ class ElevatorPeople(HasROS2Node):
             ElevatorPeopleTopic.WAITING_AREA_PERSONS,
             ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT,
         )
-
-    def robot_level(self) -> Level | None:
-        """
-        :return: The highest level whose floor is at most :attr:`floor_tolerance` above
-            the robot's base, or None if the robot is below every level.
-        """
-        robot_height = float(self.robot.root.global_transform.z)
-        levels_below = [
-            level
-            for level in self.elevator._world.get_semantic_annotations_by_type(Level)
-            if float(level.floor_plane[0].z) <= robot_height + self.floor_tolerance
-        ]
-        if not levels_below:
-            return None
-        return max(levels_below, key=lambda level: float(level.floor_plane[0].z))
 
     def _publish(
         self,

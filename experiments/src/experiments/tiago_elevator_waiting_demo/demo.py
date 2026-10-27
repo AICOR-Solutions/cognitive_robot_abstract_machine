@@ -42,6 +42,7 @@ from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     ElevatorArea,
+    Level,
 )
 from semantic_digital_twin.spatial_types import Point3, Pose
 from semantic_digital_twin.world import World
@@ -365,7 +366,7 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
         areas: dict[ElevatorAreaName, ElevatorArea] = {
             ElevatorAreaName.CABIN: elevator.cabin_area
         }
-        robot_level = elevator_people.robot_level()
+        robot_level = Level.under(robot.root, elevator_people.floor_tolerance)
         if robot_level is not None:
             areas[ElevatorAreaName.WAITING_AREA] = elevator.waiting_area_on(robot_level)
         tracked_persons = elevator_people.tracked_persons
