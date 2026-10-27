@@ -1,7 +1,7 @@
 """
-Tiago waits in the waiting zone in front of the open elevator of the ARISE office,
-senses the people around it through ROS4HRI and hands its base over to the social
-navigation module (IRII), which drives it around the people into the cabin.
+Tiago waits in the waiting zone in front of the open elevator of a building, the lab by
+default, senses the people around it through ROS4HRI and hands its base over to the
+social navigation module (IRII), which drives it around the people into the cabin.
 
 The people come from a ROS4HRI person manager: on the real TIAGo PAL's, in the Gazebo
 simulator ``tiago_arise_humans`` (scenario ``elevator_waiting``). Only the persons
