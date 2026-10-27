@@ -2,12 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from typing_extensions import TYPE_CHECKING
-
 from krrood.exceptions import DataclassException
-
-if TYPE_CHECKING:
-    from experiments.tiago_elevator_waiting_demo.demo import BoardingResult
 
 # %% boarding through the social navigation module
 
@@ -20,36 +15,39 @@ class BoardingTimedOutError(DataclassException):
 
     timeout: float
     """
-    Seconds the plan waited for the boarding result.
+    Seconds the plan waited for the social navigation module.
     """
 
     def error_message(self) -> str:
         return (
-            f"The social navigation module sent no boarding result within "
+            f"The social navigation module did not give the base back within "
             f"{self.timeout} s."
         )
 
     def suggest_correction(self) -> str:
         return (
             "Check that the social navigation module runs on the same ROS domain and "
-            "listens to the boarding request topic."
+            "serves the boarding action."
         )
 
 
 @dataclass
 class BoardingFailedError(DataclassException):
     """
-    Raised when the social navigation module gave the base back without the robot having
-    boarded.
+    Raised when the social navigation module gave the base back without the robot
+    standing inside the cabin.
     """
 
-    result: BoardingResult
+    elevator_name: str
     """
-    The result the social navigation module sent.
+    The name of the elevator the robot was to board.
     """
 
     def error_message(self) -> str:
-        return f"The robot did not board the elevator: {self.result.reason}."
+        return f"The robot did not board the elevator {self.elevator_name}."
 
     def suggest_correction(self) -> str:
-        return "Ask the people around the elevator to make room, or wait for the cabin to empty."
+        return (
+            "Read the social navigation module's reason in the log; ask the people "
+            "around the elevator to make room, or wait for the cabin to empty."
+        )
