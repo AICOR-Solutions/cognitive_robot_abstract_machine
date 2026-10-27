@@ -1674,6 +1674,26 @@ class ConvergingTask(ABC, Task):
 
 
 @dataclass(eq=False, repr=False)
+class AwaitingExternalResult(MotionStatechartNode, ABC):
+    """
+    A node whose outcome is decided outside the controller, such as by an action server,
+    and which observes unknown until that outcome arrives.
+
+    While it awaits its outcome, it counts as progressing rather than stalled.
+    """
+
+    @property
+    def awaits_external_result(self) -> Scalar:
+        """
+        :return: True while this node runs without its outcome having arrived, false
+            otherwise.
+        """
+        return Scalar(
+            self.life_cycle_variable == int(LifeCycleValues.RUNNING)
+        ) * Scalar(self.observation_variable == float(ObservationStateValues.UNKNOWN))
+
+
+@dataclass(eq=False, repr=False)
 class Goal(MotionStatechartNode):
     nodes: List[MotionStatechartNode] = field(default_factory=list, init=False)
     plot_specifications: NodePlotSpec = plot_specification_field(
