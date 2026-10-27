@@ -24,6 +24,7 @@ from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
+from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from experiments.ra_fetch_elevator_people.elevator_people import (
     ElevatorDrive,
     SimulatorTopic,
@@ -217,12 +218,13 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Ride the elevator to the first floor.
+        Park the arms and ride the elevator to the first floor.
         """
         elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
         first_floor = context.world.get_semantic_annotations_by_type(FirstFloor)[0]
         return sequential(
             [
+                ParkArmsAction(context.robot.all_arms),
                 ElevatorNavigation(
                     elevator,
                     first_floor,
