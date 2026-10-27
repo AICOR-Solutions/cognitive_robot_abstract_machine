@@ -6,6 +6,7 @@ from enum import StrEnum
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
@@ -48,7 +49,7 @@ class WallSide(StrEnum):
 
 
 @dataclass
-class AriseOfficeBuilding:
+class AriseOfficeBuilding(ElevatorBuilding):
     """
     World-independent description of the two-storey office of the TIAGo ARISE Gazebo
     simulator (``office_area.sdf`` and ``elevator.urdf`` of the
@@ -114,6 +115,14 @@ class AriseOfficeBuilding:
     """
     Y at which the first floor slab in front of the shaft ends.
     """
+
+    @property
+    def world_T_robot_start(self) -> HomogeneousTransformationMatrix:
+        """
+        The world origin on top of the ground floor, where the Gazebo simulator spawns
+        the robot.
+        """
+        return HomogeneousTransformationMatrix.from_xyz_rpy(z=self.ground_floor_height)
 
     def spawn(self, world: World, name: str = "arise_office") -> Elevator:
         """
