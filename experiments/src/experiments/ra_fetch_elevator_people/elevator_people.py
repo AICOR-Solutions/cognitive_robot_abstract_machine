@@ -7,8 +7,8 @@ their ``person_<personID>`` TF frame. Each update publishes, as ``hri_msgs/IdsLi
 person IDs, who is inside the cabin and who is in the waiting area in front of its doors
 on the level the robot is on, along with both areas' outlines.
 
-Running :func:`main` against the TIAGo ARISE Gazebo simulator with its
-``tiago_arise_humans`` launch gives the real data flow without a robot.
+Running :func:`main` next to a controller of the TIAGo ARISE Gazebo simulator with its
+``tiago_arise_humans`` launch gives the real data flow.
 """
 
 from __future__ import annotations
@@ -31,11 +31,13 @@ from semantic_digital_twin.adapters.ros.input_synchronization import (
     TopicInputSynchronizer,
 )
 from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
-from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
+from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
+from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
 from semantic_digital_twin.reasoning.predicates import InsideRegion
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     ElevatorArea,
@@ -58,14 +60,6 @@ class Ros4HriTopic(StrEnum):
     """
 
     TRACKED_PERSONS = "/humans/persons/tracked"
-
-
-class RobotFrame(StrEnum):
-    """
-    TF frames of the robot this module looks up.
-    """
-
-    BASE = "base_footprint"
 
 
 class ElevatorPeopleTopic(StrEnum):
@@ -221,14 +215,9 @@ class ElevatorPeople(HasROS2Node):
     The persons to watch.
     """
 
-    tf: TFWrapper = field(kw_only=True)
+    robot: AbstractRobot = field(kw_only=True)
     """
-    Where the persons' and the robot's frames are looked up.
-    """
-
-    robot_frame: str = field(default=RobotFrame.BASE, kw_only=True)
-    """
-    TF frame of the robot's base, whose height decides the robot's level.
+    The robot whose base's height decides on which level people count as waiting.
     """
 
     floor_tolerance: float = field(default=0.2, kw_only=True)
@@ -259,10 +248,10 @@ class ElevatorPeople(HasROS2Node):
         cls,
         node: Node,
         world: World,
-        robot_frame: str,
+        robot: AbstractRobot,
     ) -> Self:
         """
-        Watch the only elevator of ``world``.
+        Watch the only elevator of ``world`` for ``robot``.
         """
         return cls(
             node=node,
@@ -270,8 +259,7 @@ class ElevatorPeople(HasROS2Node):
             tracked_persons=TrackedPersons(
                 world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS
             ),
-            tf=TFWrapper(node=node),
-            robot_frame=robot_frame,
+            robot=robot,
         )
 
     def update(self) -> None:
@@ -296,12 +284,9 @@ class ElevatorPeople(HasROS2Node):
     def robot_level(self) -> Level | None:
         """
         :return: The highest level whose floor is at most :attr:`floor_tolerance` above
-            the robot's base, or None if the robot's frame is unknown or below every level.
+            the robot's base, or None if the robot is below every level.
         """
-        world_T_robot = self._lookup(self.robot_frame)
-        if world_T_robot is None:
-            return None
-        robot_height = float(world_T_robot.z)
+        robot_height = float(self.robot.root.global_transform.z)
         levels_below = [
             level
             for level in self.elevator._world.get_semantic_annotations_by_type(Level)
@@ -310,26 +295,6 @@ class ElevatorPeople(HasROS2Node):
         if not levels_below:
             return None
         return max(levels_below, key=lambda level: float(level.floor_plane[0].z))
-
-    def _lookup(self, frame: str) -> HomogeneousTransformationMatrix | None:
-        """
-        :return: The pose of ``frame`` in the world root frame, or None if TF does not
-            know it yet.
-        """
-        world = self.elevator._world
-        if not self.tf.tf_buffer.can_transform(world.root.name.name, frame, Time()):
-            return None
-        transform = self.tf.lookup_transform(world.root.name.name, frame).transform
-        return HomogeneousTransformationMatrix.from_xyz_quaternion(
-            pos_x=transform.translation.x,
-            pos_y=transform.translation.y,
-            pos_z=transform.translation.z,
-            quat_x=transform.rotation.x,
-            quat_y=transform.rotation.y,
-            quat_z=transform.rotation.z,
-            quat_w=transform.rotation.w,
-            reference_frame=world.root,
-        )
 
     def _publish(
         self,
@@ -357,19 +322,24 @@ class ElevatorPeople(HasROS2Node):
 # %% running against the Gazebo simulator
 
 
-def main(rate: float = 5.0, robot_frame: str = RobotFrame.BASE) -> None:
+def main(rate: float = 5.0) -> None:
     """
-    Watch the elevator of the ARISE Gazebo office.
+    Watch the elevator of the ARISE Gazebo office in the world a running controller
+    serves, spawning the office into it if it is not there yet.
 
     :param rate: Updates per second.
-    :param robot_frame: TF frame of the simulated robot's base.
     """
     rclpy.init()
     node = rclpy.create_node("ra_fetch_elevator_people")
     node.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
+    world = fetch_world_from_service(node)
+    WorldSynchronizer(_world=world, node=node)
     office = AriseOfficeBuilding()
-    world = office.create_world()
-    elevator_people = ElevatorPeople.for_world(node, world, robot_frame)
+    if not world.get_semantic_annotations_by_type(Elevator):
+        office.spawn(world)
+    elevator_people = ElevatorPeople.for_world(
+        node, world, world.get_semantic_annotations_by_type(AbstractRobot)[0]
+    )
     elevator_inputs = WorldStateInputs(world=world)
     elevator_inputs.add_input(
         ElevatorDrive(

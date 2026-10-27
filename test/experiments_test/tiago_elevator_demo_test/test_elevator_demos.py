@@ -24,7 +24,6 @@ from semantic_digital_twin.world import World
 
 from ..ra_fetch_elevator_people_test.test_elevator_people import (
     place_person,
-    robot_base_at_height,
     track,
 )
 
@@ -116,13 +115,7 @@ def test_boarding_request_names_the_persons_in_the_cabin_and_the_waiting_area(
     office = waiting_demonstration.office
     elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
     robot = office_world.get_semantic_annotations_by_type(Tiago)[0]
-    elevator_people = ElevatorPeople.for_world(
-        rclpy_node, office_world, robot.root.name.name
-    )
-    elevator_people.tf.tf_buffer.set_transform_static(
-        robot_base_at_height(office_world, float(robot.root.global_transform.z)),
-        "test",
-    )
+    elevator_people = ElevatorPeople.for_world(rclpy_node, office_world, robot)
     tracked_persons = elevator_people.tracked_persons
     world_T_rider = place_person(
         tracked_persons,

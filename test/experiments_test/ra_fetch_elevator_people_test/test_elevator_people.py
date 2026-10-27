@@ -5,7 +5,6 @@ from hri_msgs.msg import IdsList
 
 from experiments.ra_fetch_elevator_people.elevator_people import (
     ElevatorPeople,
-    RobotFrame,
     TrackedPersons,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -14,7 +13,11 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     GroundFloor,
     Human,
 )
+from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
+from semantic_digital_twin.world import World
 
 # %% fixtures
 
@@ -157,33 +160,33 @@ def test_persons_are_sorted_into_the_elevator_areas(
 # %% the robot's level
 
 
-def robot_base_at_height(world, height: float) -> TransformStamped:
-    transform = TransformStamped()
-    transform.header.frame_id = world.root.name.name
-    transform.child_frame_id = RobotFrame.BASE
-    transform.transform.translation.z = height
-    transform.transform.rotation.w = 1.0
-    return transform
+@pytest.fixture
+def office_with_tiago(arise_office) -> World:
+    """
+    The ARISE office with a Tiago standing on the ground floor.
+    """
+    world = WorldSpecification(
+        world_parser=None,
+        robots=[RobotSpecification(semantic_annotation_type=Tiago)],
+    ).to_domain_object()
+    arise_office.spawn(world)
+    return world
 
 
-def test_robot_stands_on_the_level_under_its_base(
-    rclpy_node, arise_office_world, arise_office
+def test_robot_stands_on_the_ground_floor_at_the_start(rclpy_node, office_with_tiago):
+    robot = office_with_tiago.get_semantic_annotations_by_type(Tiago)[0]
+    elevator_people = ElevatorPeople.for_world(rclpy_node, office_with_tiago, robot)
+    ground_floor = office_with_tiago.get_semantic_annotations_by_type(GroundFloor)[0]
+    assert elevator_people.robot_level() is ground_floor
+
+
+def test_robot_riding_the_elevator_stands_on_the_level_it_arrived_at(
+    rclpy_node, office_with_tiago
 ):
-    elevator_people = ElevatorPeople.for_world(
-        rclpy_node, arise_office_world, RobotFrame.BASE
-    )
-    elevator_people.tf.tf_buffer.set_transform_static(
-        robot_base_at_height(arise_office_world, arise_office.first_floor_height),
-        "test",
-    )
-    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    robot = office_with_tiago.get_semantic_annotations_by_type(Tiago)[0]
+    elevator = office_with_tiago.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = office_with_tiago.get_semantic_annotations_by_type(FirstFloor)[0]
+    elevator_people = ElevatorPeople.for_world(rclpy_node, office_with_tiago, robot)
+    office_with_tiago.move_branch(robot.root, elevator.root)
+    elevator.drive_to_floor(first_floor)
     assert elevator_people.robot_level() is first_floor
-
-
-def test_robot_level_is_unknown_without_the_robots_frame(
-    rclpy_node, arise_office_world
-):
-    elevator_people = ElevatorPeople.for_world(
-        rclpy_node, arise_office_world, RobotFrame.BASE
-    )
-    assert elevator_people.robot_level() is None
