@@ -16,13 +16,14 @@ from semantic_digital_twin.world import World
 @dataclass
 class LabBuilding(ElevatorBuilding):
     """
-    The lab's elevator room, its first-floor walkway and the hallway, placed in the map
-    frame of the lab occupancy grid map.
+    The foyer of the ECOTEC V building with its elevator, the landing in front of the
+    elevator on the first floor and the hallway, placed in the map frame of the lab
+    occupancy grid map.
     """
 
     elevator_room: LabElevatorRoom = field(default_factory=LabElevatorRoom)
     """
-    The room the elevator stands in, together with the walkway and the hallway.
+    The foyer the elevator stands in, together with the landing and the hallway.
     """
 
     robot_start_distance_from_doors: float = 2.0
