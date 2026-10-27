@@ -32,20 +32,14 @@ from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
-from semantic_digital_twin.reasoning.elevator_areas import (
-    ElevatorArea,
-    ElevatorCabinArea,
-    ElevatorWaitingArea,
-)
+from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
+    ElevatorArea,
     Human,
     Level,
 )
-from semantic_digital_twin.spatial_types import (
-    HomogeneousTransformationMatrix,
-    Point3,
-)
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Cylinder
@@ -188,12 +182,12 @@ class PersonMirror:
 
     def persons_in(self, area: ElevatorArea) -> list[str]:
         """
-        :return: The IDs of the mirrored persons whose frame lies inside ``area``.
+        :return: The IDs of the mirrored persons inside ``area``.
         """
         return [
             person_id
             for person_id, human in self.humans.items()
-            if area.contains(Point3(reference_frame=human.root))
+            if InsideRegion(human.root, area.root)()
         ]
 
 
@@ -338,7 +332,7 @@ class ElevatorPeople(HasROS2Node):
             self.elevator_drive.apply_to(self.elevator)
         self._mirror_tracked_persons()
         self._publish(
-            ElevatorCabinArea(self.elevator),
+            self.elevator.cabin_area,
             ElevatorPeopleTopic.CABIN_PERSONS,
             ElevatorPeopleTopic.CABIN_FOOTPRINT,
         )
@@ -346,7 +340,7 @@ class ElevatorPeople(HasROS2Node):
         if robot_level is None:
             return
         self._publish(
-            ElevatorWaitingArea(self.elevator, robot_level),
+            self.elevator.waiting_area_on(robot_level),
             ElevatorPeopleTopic.WAITING_AREA_PERSONS,
             ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT,
         )

@@ -9,6 +9,8 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
+    ElevatorCabinArea,
+    ElevatorWaitingArea,
     FirstFloor,
     Floor,
     GroundFloor,
@@ -115,11 +117,28 @@ class AriseOfficeBuilding:
     Y at which the first floor slab in front of the shaft ends.
     """
 
+    waiting_area_depth: float = 1.5
+    """
+    How far the waiting area on each level reaches out from the elevator's doors.
+    """
+
+    waiting_area_side_margin: float = 0.3
+    """
+    How far the waiting area on each level reaches beyond the cabin's width on either
+    side.
+    """
+
+    waiting_area_height: float = 2.5
+    """
+    How far the waiting area on each level reaches up from the level's floor.
+    """
+
     def spawn(self, world: World, name: str = "arise_office") -> Elevator:
         """
         Materialize the office in ``world``: floor slabs and outer walls of both
         storeys, a level annotation per storey, and the elevator serving the ground
-        floor.
+        floor with the area inside its cabin and a waiting area in front of it on each
+        level.
 
         :param world: The world the office is added to.
         :param name: Prefix for the names of every entity this office creates.
@@ -141,7 +160,17 @@ class AriseOfficeBuilding:
             self._spawn_level(
                 world, f"{name}_{level_type.__name__}_level", level_type, height
             )
-        return self._spawn_elevator(world, f"{name}_elevator")
+        elevator = self._spawn_elevator(world, f"{name}_elevator")
+        ElevatorCabinArea.spawn_for(elevator)
+        for level in world.get_semantic_annotations_by_type(Level):
+            ElevatorWaitingArea.spawn_for(
+                elevator,
+                level,
+                depth=self.waiting_area_depth,
+                side_margin=self.waiting_area_side_margin,
+                height=self.waiting_area_height,
+            )
+        return elevator
 
     # %% storeys
 

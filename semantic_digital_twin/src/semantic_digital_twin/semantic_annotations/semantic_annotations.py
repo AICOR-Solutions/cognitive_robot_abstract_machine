@@ -664,6 +664,29 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
             raise MissingMovableJointError(self)
         self.movable_joint.position = self.drive_position_for_floor(floor)
 
+    @property
+    def cabin_area(self) -> ElevatorCabinArea:
+        """
+        :return: The area inside this elevator's cabin.
+        :raises MissingSemanticAnnotationError: If no cabin area was spawned for this
+            elevator.
+        """
+        for area in self._world.get_semantic_annotations_by_type(ElevatorCabinArea):
+            if area.elevator is self:
+                return area
+        raise MissingSemanticAnnotationError(type(self), ElevatorCabinArea)
+
+    def waiting_area_on(self, level: Level) -> ElevatorWaitingArea:
+        """
+        :return: The area in front of this elevator's doors on ``level``.
+        :raises MissingSemanticAnnotationError: If no waiting area was spawned for this
+            elevator on ``level``.
+        """
+        for area in self._world.get_semantic_annotations_by_type(ElevatorWaitingArea):
+            if area.elevator is self and area.level is level:
+                return area
+        raise MissingSemanticAnnotationError(type(self), ElevatorWaitingArea)
+
 
 ############################### subclasses to Furniture
 
@@ -835,6 +858,120 @@ class FirstFloor(Level): ...
 
 @dataclass(eq=False)
 class SecondFloor(Level): ...
+
+
+@dataclass(eq=False)
+class ElevatorArea(HasRootRegion):
+    """
+    A region of space belonging to an elevator, in which the robot has to reckon with
+    people when it uses that elevator.
+    """
+
+    elevator: Elevator = field(kw_only=True)
+    """
+    The elevator the area belongs to.
+    """
+
+    def footprint(self) -> list[Point3]:
+        """
+        :return: The corners of the area's outline on its floor, counter-clockwise, in
+            the world root frame.
+        """
+        min_point, max_point = self.root.area.min_point, self.root.area.max_point
+        return [
+            self._world.transform(
+                Point3(x, y, min_point.z, reference_frame=self.root), self._world.root
+            )
+            for x, y in (
+                (min_point.x, min_point.y),
+                (max_point.x, min_point.y),
+                (max_point.x, max_point.y),
+                (min_point.x, max_point.y),
+            )
+        ]
+
+
+@dataclass(eq=False)
+class ElevatorCabinArea(ElevatorArea):
+    """
+    The inside of an elevator's cabin, wherever the cabin currently is.
+    """
+
+    @classmethod
+    def spawn_for(cls, elevator: Elevator) -> Self:
+        """
+        Add the area inside ``elevator``'s cabin to its world, fixed to the cabin.
+
+        :return: The new area.
+        """
+        return cls.get_annotation_specification(
+            f"{elevator.name.name}_cabin_area",
+            cls.get_default_root_kinematic_structure_entity_specification(
+                scale=elevator.scale
+            ),
+            annotation_kwargs={"elevator": elevator},
+        ).spawn(elevator._world, parent=elevator.root)
+
+
+@dataclass(eq=False)
+class ElevatorWaitingArea(ElevatorArea):
+    """
+    The space in front of an elevator's doors on one level, where people wait for the
+    cabin and where the robot waits before boarding.
+    """
+
+    level: Level = field(kw_only=True)
+    """
+    The level on which the area lies.
+    """
+
+    @classmethod
+    def spawn_for(
+        cls,
+        elevator: Elevator,
+        level: Level,
+        depth: float = 1.5,
+        side_margin: float = 0.3,
+        height: float = 2.5,
+    ) -> Self:
+        """
+        Add the area in front of ``elevator``'s doors on ``level`` to their world, fixed
+        to the level.
+
+        :param depth: How far the area reaches out from the elevator's doors.
+        :param side_margin: How far the area reaches beyond the cabin's width on either
+            side.
+        :param height: How far the area reaches up from the level's floor.
+        :return: The new area.
+        """
+        world = elevator._world
+        world_P_centre = world.transform(
+            Point3(
+                -elevator.scale.x / 2 - depth / 2, 0, 0, reference_frame=elevator.root
+            ),
+            world.root,
+        )
+        world_T_area = HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            Point3(
+                world_P_centre.x,
+                world_P_centre.y,
+                level.floor_plane[0].z + height / 2,
+                reference_frame=world.root,
+            ),
+            elevator.root.global_transform.rotation_matrix,
+            reference_frame=world.root,
+        )
+        return cls.get_annotation_specification(
+            f"{elevator.name.name}_{level.name.name}_waiting_area",
+            cls.get_default_root_kinematic_structure_entity_specification(
+                scale=Scale(depth, elevator.scale.y + 2 * side_margin, height)
+            ),
+            annotation_kwargs={"elevator": elevator, "level": level},
+        ).spawn(
+            world,
+            parent=level.root,
+            parent_T_self=world.transform(world_T_area, level.root),
+        )
 
 
 @dataclass(eq=False)

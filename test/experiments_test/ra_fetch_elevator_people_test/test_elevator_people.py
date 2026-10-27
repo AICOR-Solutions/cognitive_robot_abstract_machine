@@ -9,10 +9,6 @@ from experiments.ra_fetch_elevator_people.elevator_people import (
     PersonMirror,
     RobotFrame,
 )
-from semantic_digital_twin.reasoning.elevator_areas import (
-    ElevatorCabinArea,
-    ElevatorWaitingArea,
-)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
@@ -118,9 +114,9 @@ def test_persons_are_sorted_into_the_elevator_areas(
     )
     ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
     first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
-    assert mirror.persons_in(ElevatorCabinArea(elevator)) == ["rider"]
-    assert mirror.persons_in(ElevatorWaitingArea(elevator, ground_floor)) == ["waiting"]
-    assert mirror.persons_in(ElevatorWaitingArea(elevator, first_floor)) == []
+    assert mirror.persons_in(elevator.cabin_area) == ["rider"]
+    assert mirror.persons_in(elevator.waiting_area_on(ground_floor)) == ["waiting"]
+    assert mirror.persons_in(elevator.waiting_area_on(first_floor)) == []
 
 
 # %% elevator drive

@@ -38,13 +38,11 @@ from experiments.tiago_elevator_waiting_demo.exceptions import (
     BoardingFailedError,
     BoardingTimedOutError,
 )
-from semantic_digital_twin.reasoning.elevator_areas import (
-    ElevatorArea,
-    ElevatorCabinArea,
-    ElevatorWaitingArea,
-)
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Elevator
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Elevator,
+    ElevatorArea,
+)
 from semantic_digital_twin.spatial_types import Point3, Pose
 from semantic_digital_twin.world import World
 
@@ -367,13 +365,11 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
             area on the robot's level.
         """
         areas: dict[ElevatorAreaName, ElevatorArea] = {
-            ElevatorAreaName.CABIN: ElevatorCabinArea(elevator)
+            ElevatorAreaName.CABIN: elevator.cabin_area
         }
         robot_level = elevator_people.robot_level()
         if robot_level is not None:
-            areas[ElevatorAreaName.WAITING_AREA] = ElevatorWaitingArea(
-                elevator, robot_level
-            )
+            areas[ElevatorAreaName.WAITING_AREA] = elevator.waiting_area_on(robot_level)
         mirror = elevator_people.mirror
         persons = [
             PersonNearElevator(
