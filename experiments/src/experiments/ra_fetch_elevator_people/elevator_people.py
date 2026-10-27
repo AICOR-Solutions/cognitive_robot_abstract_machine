@@ -23,19 +23,17 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.time import Time
-from sensor_msgs.msg import JointState
 from typing_extensions import Self
 
+from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.adapters.ros.input_synchronization import (
     TfFrameSynchronizer,
     TopicInputSynchronizer,
 )
-from semantic_digital_twin.adapters.ros.latest_message_subscriber import (
-    LatestMessageSubscriber,
-)
 from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
 from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -60,14 +58,6 @@ class Ros4HriTopic(StrEnum):
     """
 
     TRACKED_PERSONS = "/humans/persons/tracked"
-
-
-class SimulatorTopic(StrEnum):
-    """
-    Topics of the TIAGo ARISE Gazebo simulator this module reads.
-    """
-
-    ELEVATOR_JOINT_STATES = "/elevator/joint_states"
 
 
 class RobotFrame(StrEnum):
@@ -211,53 +201,6 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
             self.world.remove_kinematic_structure_entity(human.root)
 
 
-# %% elevator drive
-
-
-@dataclass
-class ElevatorDrive(LatestMessageSubscriber[JointState]):
-    """
-    The position of a simulated elevator's drive, read from its joint states.
-    """
-
-    joint_name: str = field(default="elevator_vertical_joint", kw_only=True)
-    """
-    Name of the drive joint in the joint states.
-    """
-
-    position_offset: float = field(default=0.0, kw_only=True)
-    """
-    Semantic drive position minus joint position.
-    """
-
-    position_tolerance: float = field(default=0.001, kw_only=True)
-    """
-    How far the received position may differ from the cabin's before the cabin is moved,
-    so that an elevator standing still causes no world changes.
-    """
-
-    def apply_to(self, elevator: Elevator) -> None:
-        """
-        Move the elevator's cabin to the received drive position, if one was received
-        and it differs from the cabin's by more than :attr:`position_tolerance`.
-        """
-        if (
-            self.latest_message is None
-            or self.joint_name not in self.latest_message.name
-        ):
-            return
-        joint_position = self.latest_message.position[
-            self.latest_message.name.index(self.joint_name)
-        ]
-        drive_position = joint_position + self.position_offset
-        if (
-            abs(drive_position - elevator.movable_joint.position)
-            <= self.position_tolerance
-        ):
-            return
-        elevator.movable_joint.position = drive_position
-
-
 # %% publishing
 
 
@@ -286,11 +229,6 @@ class ElevatorPeople(HasROS2Node):
     robot_frame: str = field(default=RobotFrame.BASE, kw_only=True)
     """
     TF frame of the robot's base, whose height decides the robot's level.
-    """
-
-    elevator_drive: ElevatorDrive | None = field(default=None, kw_only=True)
-    """
-    Where the cabin's position comes from, if it moves outside the world.
     """
 
     floor_tolerance: float = field(default=0.2, kw_only=True)
@@ -322,7 +260,6 @@ class ElevatorPeople(HasROS2Node):
         node: Node,
         world: World,
         robot_frame: str,
-        elevator_drive: ElevatorDrive | None,
     ) -> Self:
         """
         Watch the only elevator of ``world``.
@@ -335,15 +272,12 @@ class ElevatorPeople(HasROS2Node):
             ),
             tf=TFWrapper(node=node),
             robot_frame=robot_frame,
-            elevator_drive=elevator_drive,
         )
 
     def update(self) -> None:
         """
         Update the tracked persons and publish both areas with the persons inside them.
         """
-        if self.elevator_drive is not None:
-            self.elevator_drive.apply_to(self.elevator)
         self.tracked_persons.apply()
         self._publish(
             self.elevator.cabin_area,
@@ -435,12 +369,18 @@ def main(rate: float = 5.0, robot_frame: str = RobotFrame.BASE) -> None:
     node.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
     office = AriseOfficeBuilding()
     world = office.create_world()
-    elevator_drive = ElevatorDrive(
-        node=node,
-        topic_name=SimulatorTopic.ELEVATOR_JOINT_STATES,
-        position_offset=office.ground_floor_height,
+    elevator_people = ElevatorPeople.for_world(node, world, robot_frame)
+    elevator_inputs = WorldStateInputs(world=world)
+    elevator_inputs.add_input(
+        ElevatorDrive(
+            world=world,
+            node=node,
+            topic_name=SimulatorTopic.ELEVATOR_JOINT_STATES,
+            elevator=elevator_people.elevator,
+            position_offset=office.ground_floor_height,
+        )
     )
-    elevator_people = ElevatorPeople.for_world(node, world, robot_frame, elevator_drive)
+    node.create_timer(1.0 / rate, elevator_inputs.synchronize)
     node.create_timer(1.0 / rate, elevator_people.update)
     rclpy.spin(node)
 

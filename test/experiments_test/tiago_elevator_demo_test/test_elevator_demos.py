@@ -117,7 +117,7 @@ def test_boarding_request_names_the_persons_in_the_cabin_and_the_waiting_area(
     elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
     robot = office_world.get_semantic_annotations_by_type(Tiago)[0]
     elevator_people = ElevatorPeople.for_world(
-        rclpy_node, office_world, robot.root.name.name, None
+        rclpy_node, office_world, robot.root.name.name
     )
     elevator_people.tf.tf_buffer.set_transform_static(
         robot_base_at_height(office_world, float(robot.root.global_transform.z)),

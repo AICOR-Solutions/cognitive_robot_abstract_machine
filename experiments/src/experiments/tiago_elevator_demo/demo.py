@@ -21,11 +21,9 @@ from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
-from experiments.ra_fetch_elevator_people.elevator_people import (
-    ElevatorDrive,
-    SimulatorTopic,
-)
+from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
+from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
@@ -118,9 +116,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
     The operator of the elevator in a kinematic simulation.
     """
 
-    elevator_drive: ElevatorDrive | None = field(init=False, default=None)
+    elevator_inputs: WorldStateInputs | None = field(init=False, default=None)
     """
-    Where the cabin's height comes from in a real run.
+    Writes the cabin's height from the elevator's joint states in a real run.
     """
 
     def build_simulated_world(self) -> World:
@@ -172,7 +170,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
         if self.execution_type is ExecutionType.REAL:
-            if self.elevator_drive is None:
+            if self.elevator_inputs is None:
                 self._follow_elevator_drive(elevator)
         elif self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
@@ -194,14 +192,18 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         """
         Keep the cabin's height in the world equal to the one the elevator reports.
         """
-        self.elevator_drive = ElevatorDrive(
-            node=self.ros_node,
-            topic_name=self.elevator_joint_state_topic,
-            position_offset=self.office.ground_floor_height,
+        self.elevator_inputs = WorldStateInputs(world=elevator._world)
+        self.elevator_inputs.add_input(
+            ElevatorDrive(
+                world=elevator._world,
+                node=self.ros_node,
+                topic_name=self.elevator_joint_state_topic,
+                elevator=elevator,
+                position_offset=self.office.ground_floor_height,
+            )
         )
         self.ros_node.create_timer(
-            self.elevator_drive_update_period,
-            lambda: self.elevator_drive.apply_to(elevator),
+            self.elevator_drive_update_period, self.elevator_inputs.synchronize
         )
 
     def build_plan(self, context: Context) -> PlanNode:

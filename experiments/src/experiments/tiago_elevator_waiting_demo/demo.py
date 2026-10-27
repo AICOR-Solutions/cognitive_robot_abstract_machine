@@ -319,9 +319,7 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
         node = self.ros_node
-        elevator_people = ElevatorPeople.for_world(
-            node, world, robot.root.name.name, None
-        )
+        elevator_people = ElevatorPeople.for_world(node, world, robot.root.name.name)
         result_arrived = threading.Event()
 
         def on_result(message: String) -> None:
