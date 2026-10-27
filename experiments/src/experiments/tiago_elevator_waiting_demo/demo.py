@@ -349,7 +349,7 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
         )
         publisher.publish(request.to_message())
         result_arrived.wait(self.boarding_timeout)
-        elevator_people.mirror.keep_only([])
+        elevator_people.tracked_persons.close()
         if self.result is None:
             raise BoardingTimedOutError(timeout=self.boarding_timeout)
         node.get_logger().info(f"Base is back, boarding result: {self.result}")
@@ -361,7 +361,7 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
     ) -> BoardingRequest:
         """
         :return: The request to board ``elevator``, with the robot's pose and the
-            persons ``elevator_people`` mirrored inside the cabin and in the waiting
+            persons ``elevator_people`` tracks inside the cabin and in the waiting
             area on the robot's level.
         """
         areas: dict[ElevatorAreaName, ElevatorArea] = {
@@ -370,17 +370,17 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
         robot_level = elevator_people.robot_level()
         if robot_level is not None:
             areas[ElevatorAreaName.WAITING_AREA] = elevator.waiting_area_on(robot_level)
-        mirror = elevator_people.mirror
+        tracked_persons = elevator_people.tracked_persons
         persons = [
             PersonNearElevator(
                 person_id=person_id,
                 area=area_name,
-                position=mirror.humans[person_id]
+                position=tracked_persons.humans[person_id]
                 .root.global_transform.to_np()[:3, 3]
                 .tolist(),
             )
             for area_name, area in areas.items()
-            for person_id in mirror.persons_in(area)
+            for person_id in tracked_persons.persons_in(area)
         ]
         world_T_robot = robot.root.global_transform
         return BoardingRequest(

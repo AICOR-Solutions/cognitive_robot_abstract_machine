@@ -16,6 +16,7 @@ from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
 from semantic_digital_twin.exceptions import (
     AlreadyTrackedByTfFrameError,
     ConnectionCannotBeTrackedByTfFrameError,
+    ConnectionNotTrackedByTfFrameError,
 )
 from semantic_digital_twin.input_synchronization import InputSynchronizer
 from semantic_digital_twin.robots.input_source import (
@@ -261,6 +262,18 @@ class TfFrameSynchronizer(InputSynchronizer, HasROS2Node):
         if not isinstance(connection, Connection6DoF):
             raise ConnectionCannotBeTrackedByTfFrameError(connection=connection)
         self.connection_to_frames[connection] = (tf_parent_frame, tf_child_frame)
+
+    def untrack(self, connection: Connection6DoF) -> None:
+        """
+        Stop writing tf transforms into ``connection``, which keeps its last origin.
+
+        :raises ConnectionNotTrackedByTfFrameError: If the connection is not tracked.
+        """
+        if connection not in self.connection_to_frames:
+            raise ConnectionNotTrackedByTfFrameError(
+                connection_name=str(connection.name)
+            )
+        del self.connection_to_frames[connection]
 
     def apply(self) -> bool:
         for connection, (

@@ -20,10 +20,13 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 
-from ..ra_fetch_elevator_people_test.test_elevator_people import robot_base_at_height
+from ..ra_fetch_elevator_people_test.test_elevator_people import (
+    place_person,
+    robot_base_at_height,
+    track,
+)
 
 # %% riding the elevator
 
@@ -120,26 +123,17 @@ def test_boarding_request_names_the_persons_in_the_cabin_and_the_waiting_area(
         robot_base_at_height(office_world, float(robot.root.global_transform.z)),
         "test",
     )
-    head_height = office.ground_floor_height + 1.65
-    world_T_rider = HomogeneousTransformationMatrix.from_xyz_rpy(
+    tracked_persons = elevator_people.tracked_persons
+    world_T_rider = place_person(
+        tracked_persons,
+        "rider",
         office.cabin_centre.x,
         office.cabin_centre.y,
-        head_height,
-        reference_frame=office_world.root,
+        office.ground_floor_height,
     )
-    elevator_people.mirror.place("rider", world_T_rider)
-    elevator_people.mirror.place(
-        "waiting",
-        HomogeneousTransformationMatrix.from_xyz_rpy(
-            0.45, 1.2, head_height, reference_frame=office_world.root
-        ),
-    )
-    elevator_people.mirror.place(
-        "walker",
-        HomogeneousTransformationMatrix.from_xyz_rpy(
-            -5.0, -2.5, head_height, reference_frame=office_world.root
-        ),
-    )
+    place_person(tracked_persons, "waiting", 0.45, 1.2, office.ground_floor_height)
+    place_person(tracked_persons, "walker", -5.0, -2.5, office.ground_floor_height)
+    track(tracked_persons, "rider", "waiting", "walker")
 
     request = waiting_demonstration._boarding_request(elevator_people, elevator, robot)
 

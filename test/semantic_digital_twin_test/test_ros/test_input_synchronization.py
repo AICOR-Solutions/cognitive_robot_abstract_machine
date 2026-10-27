@@ -27,6 +27,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     AlreadyTrackedByTfFrameError,
     ConnectionCannotBeTrackedByTfFrameError,
+    ConnectionNotTrackedByTfFrameError,
     UnboundMessageTypeError,
 )
 from semantic_digital_twin.spatial_types import (
@@ -544,6 +545,26 @@ def test_apply_writes_nothing_without_a_tracked_connection(
     assert not synchronizer.apply()
 
 
+def test_untracked_connection_is_no_longer_written(rclpy_node, tracked_connection):
+    """
+    A connection whose tf frame went away must keep the origin it last received.
+    """
+    world, connection = tracked_connection
+    synchronizer = TfFrameSynchronizer(world=world, node=rclpy_node)
+    synchronizer.tf_wrapper = RecordedTransformLookup(
+        parent_T_child=make_pose_stamped(1.0, -2.0, 0.5)
+    )
+    synchronizer.track(connection, tf_parent_frame="map", tf_child_frame="odom")
+    synchronizer.untrack(connection)
+
+    assert not synchronizer.apply()
+    assert_allclose(
+        connection.origin,
+        HomogeneousTransformationMatrix(reference_frame=connection.parent),
+        atol=1e-9,
+    )
+
+
 # %% rejecting connections it cannot write
 
 
@@ -575,3 +596,16 @@ def test_tracking_a_connection_without_six_degrees_of_freedom_is_rejected(
 
     with pytest.raises(ConnectionCannotBeTrackedByTfFrameError):
         synchronizer.track(connection, tf_parent_frame="map", tf_child_frame="odom")
+
+
+def test_untracking_a_connection_that_is_not_tracked_is_rejected(
+    rclpy_node, tracked_connection
+):
+    """
+    Untracking a connection that was never tracked points at a bookkeeping error.
+    """
+    world, connection = tracked_connection
+    synchronizer = TfFrameSynchronizer(world=world, node=rclpy_node)
+
+    with pytest.raises(ConnectionNotTrackedByTfFrameError):
+        synchronizer.untrack(connection)

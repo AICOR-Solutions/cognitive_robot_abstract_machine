@@ -19,12 +19,17 @@ from enum import StrEnum
 import rclpy
 from geometry_msgs.msg import Point32, PolygonStamped
 from hri_msgs.msg import IdsList
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.time import Time
 from sensor_msgs.msg import JointState
 from typing_extensions import Self
 
+from semantic_digital_twin.adapters.ros.input_synchronization import (
+    TfFrameSynchronizer,
+    TopicInputSynchronizer,
+)
 from semantic_digital_twin.adapters.ros.latest_message_subscriber import (
     LatestMessageSubscriber,
 )
@@ -88,81 +93,94 @@ class ElevatorPeopleTopic(StrEnum):
 
 
 @dataclass
-class TrackedPersons(LatestMessageSubscriber[IdsList]):
+class TrackedPersons(TopicInputSynchronizer[IdsList]):
     """
-    The persons a ROS4HRI person manager currently tracks.
-    """
-
-    @property
-    def person_ids(self) -> list[str]:
-        """
-        :return: The IDs of the tracked persons, none before the first message.
-        """
-        if self.latest_message is None:
-            return []
-        return list(self.latest_message.ids)
-
-
-@dataclass
-class PersonMirror:
-    """
-    Keeps one :class:`Human` in a world per tracked person, placed at the person's
-    frame.
+    Keeps one :class:`Human` in the world per person a ROS4HRI person manager tracks, at
+    the person's TF frame, for as long as TF knows that frame.
     """
 
-    world: World
-    """
-    The world the humans are kept in.
-    """
-
-    body_radius: float = 0.3
+    body_radius: float = field(default=0.3, kw_only=True)
     """
     Radius of the cylinder standing in for a person's body.
     """
 
-    body_height: float = 1.8
+    body_height: float = field(default=1.8, kw_only=True)
     """
     Height of that cylinder, which hangs down from the person's frame at head height.
     """
 
     humans: dict[str, Human] = field(default_factory=dict, init=False)
     """
-    The mirrored humans by their ROS4HRI person ID.
+    The humans of the tracked persons by their ROS4HRI person ID.
     """
 
-    def place(
-        self, person_id: str, world_T_person: HomogeneousTransformationMatrix
-    ) -> Human:
-        """
-        Put the person's human at ``world_T_person``, adding it first if it is new.
+    person_frames: TfFrameSynchronizer = field(init=False)
+    """
+    Moves each human to its person's frame.
+    """
 
-        :return: The person's human.
-        """
-        if person_id not in self.humans:
-            self.humans[person_id] = self._add_human(person_id)
-        self.humans[person_id].root.parent_connection.origin = world_T_person
-        return self.humans[person_id]
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.person_frames = TfFrameSynchronizer(world=self.world, node=self.node)
 
-    def keep_only(self, person_ids: list[str]) -> None:
+    def apply_message(self, message: IdsList) -> None:
         """
-        Remove the humans of all persons not in ``person_ids``.
+        Make the world hold exactly the humans of the tracked persons whose frames TF
+        knows, at those frames.
         """
+        located_ids = [
+            person_id
+            for person_id in message.ids
+            if self.person_frames.tf_wrapper.wait_for_transform(
+                self.world.root.name.name,
+                self.frame_of(person_id),
+                Time(),
+                Duration(),
+            )
+        ]
         for person_id in [
-            mirrored_id for mirrored_id in self.humans if mirrored_id not in person_ids
+            person_id for person_id in self.humans if person_id not in located_ids
         ]:
-            human = self.humans.pop(person_id)
-            with self.world.modify_world():
-                self.world.remove_semantic_annotation(human)
-                self.world.remove_kinematic_structure_entity(human.root)
+            self._remove_human(person_id)
+        for person_id in located_ids:
+            if person_id not in self.humans:
+                self.humans[person_id] = self._add_human(person_id)
+        self.person_frames.apply()
+
+    def close(self) -> None:
+        """
+        Unlike :meth:`InputSynchronizer.close`, also removes the humans of all persons
+        from the world.
+        """
+        for person_id in list(self.humans):
+            self._remove_human(person_id)
+        super().close()
+
+    def persons_in(self, area: ElevatorArea) -> list[str]:
+        """
+        :return: The IDs of the tracked persons inside ``area``.
+        """
+        return [
+            person_id
+            for person_id, human in self.humans.items()
+            if InsideRegion(human.root, area.root)()
+        ]
+
+    @staticmethod
+    def frame_of(person_id: str) -> str:
+        """
+        :return: The TF frame REP-155 publishes the person with ``person_id`` at.
+        """
+        return f"person_{person_id}"
 
     def _add_human(self, person_id: str) -> Human:
         """
         Add a human for ``person_id`` at the world root, as a cylinder of a person's
-        size on a free connection.
+        size on a connection that follows the person's frame.
 
         :return: The new human.
         """
-        body = Body(name=PrefixedName(f"person_{person_id}", prefix="ros4hri"))
+        body = Body(name=PrefixedName(self.frame_of(person_id), prefix="ros4hri"))
         cylinder = Cylinder(width=2 * self.body_radius, height=self.body_height)
         cylinder.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
             z=-self.body_height / 2, reference_frame=body
@@ -172,23 +190,25 @@ class PersonMirror:
         human = Human(root=body)
         with self.world.modify_world():
             self.world.add_kinematic_structure_entity(body)
-            self.world.add_connection(
-                Connection6DoF.create_with_dofs(
-                    parent=self.world.root, child=body, world=self.world
-                )
+            connection = Connection6DoF.create_with_dofs(
+                parent=self.world.root, child=body, world=self.world
             )
+            self.world.add_connection(connection)
             self.world.add_semantic_annotation(human)
+        self.person_frames.track(
+            connection, self.world.root.name.name, self.frame_of(person_id)
+        )
         return human
 
-    def persons_in(self, area: ElevatorArea) -> list[str]:
+    def _remove_human(self, person_id: str) -> None:
         """
-        :return: The IDs of the mirrored persons inside ``area``.
+        Remove the human of ``person_id`` from the world.
         """
-        return [
-            person_id
-            for person_id, human in self.humans.items()
-            if InsideRegion(human.root, area.root)()
-        ]
+        human = self.humans.pop(person_id)
+        self.person_frames.untrack(human.root.parent_connection)
+        with self.world.modify_world():
+            self.world.remove_semantic_annotation(human)
+            self.world.remove_kinematic_structure_entity(human.root)
 
 
 # %% elevator drive
@@ -244,8 +264,8 @@ class ElevatorDrive(LatestMessageSubscriber[JointState]):
 @dataclass
 class ElevatorPeople(HasROS2Node):
     """
-    Mirrors the tracked persons into a world and publishes who is inside an elevator and
-    who waits in front of it on the robot's level.
+    Publishes who of the tracked persons is inside an elevator and who waits in front of
+    it on the robot's level.
     """
 
     elevator: Elevator
@@ -256,11 +276,6 @@ class ElevatorPeople(HasROS2Node):
     tracked_persons: TrackedPersons = field(kw_only=True)
     """
     The persons to watch.
-    """
-
-    mirror: PersonMirror = field(kw_only=True)
-    """
-    The mirrored persons.
     """
 
     tf: TFWrapper = field(kw_only=True)
@@ -316,9 +331,8 @@ class ElevatorPeople(HasROS2Node):
             node=node,
             elevator=world.get_semantic_annotations_by_type(Elevator)[0],
             tracked_persons=TrackedPersons(
-                node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS
+                world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS
             ),
-            mirror=PersonMirror(world),
             tf=TFWrapper(node=node),
             robot_frame=robot_frame,
             elevator_drive=elevator_drive,
@@ -326,11 +340,11 @@ class ElevatorPeople(HasROS2Node):
 
     def update(self) -> None:
         """
-        Mirror the persons and publish both areas with the persons inside them.
+        Update the tracked persons and publish both areas with the persons inside them.
         """
         if self.elevator_drive is not None:
             self.elevator_drive.apply_to(self.elevator)
-        self._mirror_tracked_persons()
+        self.tracked_persons.apply()
         self._publish(
             self.elevator.cabin_area,
             ElevatorPeopleTopic.CABIN_PERSONS,
@@ -344,18 +358,6 @@ class ElevatorPeople(HasROS2Node):
             ElevatorPeopleTopic.WAITING_AREA_PERSONS,
             ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT,
         )
-
-    def _mirror_tracked_persons(self) -> None:
-        """
-        Make the mirror hold exactly the tracked persons whose frames TF knows, at those
-        frames.
-        """
-        person_ids = self.tracked_persons.person_ids
-        self.mirror.keep_only(person_ids)
-        for person_id in person_ids:
-            world_T_person = self._lookup(f"person_{person_id}")
-            if world_T_person is not None:
-                self.mirror.place(person_id, world_T_person)
 
     def robot_level(self) -> Level | None:
         """
@@ -406,7 +408,7 @@ class ElevatorPeople(HasROS2Node):
         """
         stamp = self.node.get_clock().now().to_msg()
         frame_id = self.elevator._world.root.name.name
-        persons = IdsList(ids=self.mirror.persons_in(area))
+        persons = IdsList(ids=self.tracked_persons.persons_in(area))
         persons.header.stamp, persons.header.frame_id = stamp, frame_id
         self.publishers[persons_topic].publish(persons)
         footprint = PolygonStamped()

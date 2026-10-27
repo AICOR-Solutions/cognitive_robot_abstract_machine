@@ -2,12 +2,13 @@ import pytest
 from sensor_msgs.msg import JointState
 
 from geometry_msgs.msg import TransformStamped
+from hri_msgs.msg import IdsList
 
 from experiments.ra_fetch_elevator_people.elevator_people import (
     ElevatorDrive,
     ElevatorPeople,
-    PersonMirror,
     RobotFrame,
+    TrackedPersons,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -25,98 +26,134 @@ def elevator(arise_office_world):
     return arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
 
 
-def person_frame_at(
-    world, x: float, y: float, floor_height: float
+@pytest.fixture
+def tracked_persons(rclpy_node, arise_office_world):
+    tracked_persons = TrackedPersons(
+        world=arise_office_world,
+        node=rclpy_node,
+        topic_name="/test/humans/persons/tracked",
+    )
+    yield tracked_persons
+    tracked_persons.close()
+
+
+def place_person(
+    tracked_persons: TrackedPersons,
+    person_id: str,
+    x: float,
+    y: float,
+    floor_height: float,
 ) -> HomogeneousTransformationMatrix:
+    """
+    Let TF know the person's frame at head height above ``x``, ``y`` on
+    ``floor_height``.
+
+    :return: The person's frame in the world root frame.
+    """
+    world = tracked_persons.world
+    head_height = floor_height + 1.65
+    transform = TransformStamped()
+    transform.header.frame_id = world.root.name.name
+    transform.child_frame_id = TrackedPersons.frame_of(person_id)
+    transform.transform.translation.x = x
+    transform.transform.translation.y = y
+    transform.transform.translation.z = head_height
+    transform.transform.rotation.w = 1.0
+    tracked_persons.person_frames.tf_wrapper.tf_buffer.set_transform_static(
+        transform, "test"
+    )
     return HomogeneousTransformationMatrix.from_xyz_rpy(
-        x,
-        y,
-        floor_height + 1.65,
-        reference_frame=world.root,
+        x, y, head_height, reference_frame=world.root
     )
 
 
-# %% mirroring persons
+def track(tracked_persons: TrackedPersons, *person_ids: str) -> None:
+    """
+    Receive a message naming ``person_ids`` as tracked and apply it.
+    """
+    tracked_persons.buffer_message(IdsList(ids=list(person_ids)))
+    tracked_persons.apply()
 
 
-def test_placed_person_becomes_a_human_at_its_frame(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
-    world_T_person = person_frame_at(
-        arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
+# %% tracking persons
+
+
+def test_tracked_person_becomes_a_human_at_its_frame(
+    tracked_persons, arise_office_world, arise_office
+):
+    world_T_person = place_person(
+        tracked_persons, "anna", 1.0, -2.0, arise_office.ground_floor_height
     )
-    human = mirror.place("anna", world_T_person)
+    track(tracked_persons, "anna")
+    human = tracked_persons.humans["anna"]
     assert human in arise_office_world.get_semantic_annotations_by_type(Human)
     assert human.root.global_transform.to_np() == pytest.approx(world_T_person.to_np())
 
 
-def test_placing_a_person_again_moves_its_human(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
-    first = mirror.place(
-        "anna",
-        person_frame_at(
-            arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
-        ),
+def test_tracked_person_follows_its_frame(tracked_persons, arise_office):
+    place_person(tracked_persons, "anna", 1.0, -2.0, arise_office.ground_floor_height)
+    track(tracked_persons, "anna")
+    first = tracked_persons.humans["anna"]
+    world_T_person = place_person(
+        tracked_persons, "anna", 2.0, -1.0, arise_office.ground_floor_height
     )
-    world_T_person = person_frame_at(
-        arise_office_world, 2.0, -1.0, arise_office.ground_floor_height
-    )
-    second = mirror.place("anna", world_T_person)
-    assert second is first
-    assert second.root.global_transform.to_np() == pytest.approx(world_T_person.to_np())
+    track(tracked_persons, "anna")
+    assert tracked_persons.humans["anna"] is first
+    assert first.root.global_transform.to_np() == pytest.approx(world_T_person.to_np())
 
 
-def test_persons_no_longer_tracked_leave_the_world(arise_office_world, arise_office):
-    mirror = PersonMirror(arise_office_world)
-    gone = mirror.place(
-        "anna",
-        person_frame_at(
-            arise_office_world, 1.0, -2.0, arise_office.ground_floor_height
-        ),
-    )
-    mirror.place(
-        "ben",
-        person_frame_at(
-            arise_office_world, 2.0, -2.0, arise_office.ground_floor_height
-        ),
-    )
-    mirror.keep_only(["ben"])
-    assert list(mirror.humans) == ["ben"]
+def test_tracked_person_without_a_frame_gets_no_human(tracked_persons):
+    track(tracked_persons, "ghost")
+    assert tracked_persons.humans == {}
+
+
+def test_persons_no_longer_tracked_leave_the_world(
+    tracked_persons, arise_office_world, arise_office
+):
+    place_person(tracked_persons, "anna", 1.0, -2.0, arise_office.ground_floor_height)
+    place_person(tracked_persons, "ben", 2.0, -2.0, arise_office.ground_floor_height)
+    track(tracked_persons, "anna", "ben")
+    gone = tracked_persons.humans["anna"]
+    track(tracked_persons, "ben")
+    assert list(tracked_persons.humans) == ["ben"]
     assert gone not in arise_office_world.get_semantic_annotations_by_type(Human)
     assert not arise_office_world.is_kinematic_structure_entity_in_world_by_name(
         gone.root.name.name
     )
 
 
+def test_closing_removes_every_human(tracked_persons, arise_office_world, arise_office):
+    place_person(tracked_persons, "anna", 1.0, -2.0, arise_office.ground_floor_height)
+    track(tracked_persons, "anna")
+    tracked_persons.close()
+    assert tracked_persons.humans == {}
+    assert arise_office_world.get_semantic_annotations_by_type(Human) == []
+
+
 def test_persons_are_sorted_into_the_elevator_areas(
-    arise_office_world, elevator, arise_office
+    tracked_persons, arise_office_world, elevator, arise_office
 ):
-    mirror = PersonMirror(arise_office_world)
-    mirror.place(
+    place_person(
+        tracked_persons,
         "rider",
-        person_frame_at(
-            arise_office_world,
-            arise_office.cabin_centre.x,
-            arise_office.cabin_centre.y,
-            arise_office.ground_floor_height,
-        ),
+        arise_office.cabin_centre.x,
+        arise_office.cabin_centre.y,
+        arise_office.ground_floor_height,
     )
-    mirror.place(
-        "waiting",
-        person_frame_at(
-            arise_office_world, 0.45, 1.2, arise_office.ground_floor_height
-        ),
+    place_person(
+        tracked_persons, "waiting", 0.45, 1.2, arise_office.ground_floor_height
     )
-    mirror.place(
-        "walker",
-        person_frame_at(
-            arise_office_world, -5.0, -2.5, arise_office.ground_floor_height
-        ),
+    place_person(
+        tracked_persons, "walker", -5.0, -2.5, arise_office.ground_floor_height
     )
+    track(tracked_persons, "rider", "waiting", "walker")
     ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
     first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
-    assert mirror.persons_in(elevator.cabin_area) == ["rider"]
-    assert mirror.persons_in(elevator.waiting_area_on(ground_floor)) == ["waiting"]
-    assert mirror.persons_in(elevator.waiting_area_on(first_floor)) == []
+    assert tracked_persons.persons_in(elevator.cabin_area) == ["rider"]
+    assert tracked_persons.persons_in(elevator.waiting_area_on(ground_floor)) == [
+        "waiting"
+    ]
+    assert tracked_persons.persons_in(elevator.waiting_area_on(first_floor)) == []
 
 
 # %% elevator drive
