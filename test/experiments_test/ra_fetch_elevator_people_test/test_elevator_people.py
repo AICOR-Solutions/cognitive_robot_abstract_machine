@@ -176,11 +176,25 @@ def office_with_tiago() -> World:
 
 
 @pytest.fixture
-def elevator_people_publisher(rclpy_node, office_with_tiago) -> ElevatorPeoplePublisher:
+def persons_around_tiago(rclpy_node, office_with_tiago) -> TrackedPersons:
+    tracked_persons = TrackedPersons(
+        world=office_with_tiago,
+        node=rclpy_node,
+        topic_name="/test/humans/persons/tracked",
+    )
+    yield tracked_persons
+    tracked_persons.close()
+
+
+@pytest.fixture
+def elevator_people_publisher(
+    rclpy_node, office_with_tiago, persons_around_tiago
+) -> ElevatorPeoplePublisher:
     return ElevatorPeoplePublisher(
         node=rclpy_node,
         elevator=office_with_tiago.get_semantic_annotations_by_type(Elevator)[0],
         robot=office_with_tiago.get_semantic_annotations_by_type(Tiago)[0],
+        tracked_persons=persons_around_tiago,
     )
 
 
@@ -218,18 +232,19 @@ def corners(footprint: PolygonStamped) -> set[tuple[float, float, float]]:
 
 
 def test_publishes_the_persons_inside_the_cabin_and_its_outline(
-    elevator_people_publisher, recorder, office_with_tiago, arise_office
+    elevator_people_publisher, persons_around_tiago, recorder, arise_office
 ):
-    person_standing_at(
-        office_with_tiago,
+    place_person(
+        persons_around_tiago,
         "rider",
         arise_office.cabin_centre.x,
         arise_office.cabin_centre.y,
         arise_office.ground_floor_height,
     )
-    person_standing_at(
-        office_with_tiago, "walker", -5.0, -2.5, arise_office.ground_floor_height
+    place_person(
+        persons_around_tiago, "walker", -5.0, -2.5, arise_office.ground_floor_height
     )
+    track(persons_around_tiago, "rider", "walker")
 
     elevator_people_publisher.publish()
     recorder.wait_for(
@@ -252,14 +267,19 @@ def test_publishes_the_persons_inside_the_cabin_and_its_outline(
 
 
 def test_publishes_the_persons_waiting_on_the_robots_level_and_their_area(
-    elevator_people_publisher, recorder, office_with_tiago, arise_office
+    elevator_people_publisher,
+    persons_around_tiago,
+    recorder,
+    office_with_tiago,
+    arise_office,
 ):
-    person_standing_at(
-        office_with_tiago, "waiting", 0.45, 1.2, arise_office.ground_floor_height
+    place_person(
+        persons_around_tiago, "waiting", 0.45, 1.2, arise_office.ground_floor_height
     )
-    person_standing_at(
-        office_with_tiago, "upstairs", 0.45, 1.2, arise_office.first_floor_height
+    place_person(
+        persons_around_tiago, "upstairs", 0.45, 1.2, arise_office.first_floor_height
     )
+    track(persons_around_tiago, "waiting", "upstairs")
 
     elevator_people_publisher.publish()
     recorder.wait_for(
@@ -282,3 +302,32 @@ def test_publishes_the_persons_waiting_on_the_robots_level_and_their_area(
         for x in (-half_width, half_width)
         for y in (door_y - waiting_area_scale.x, door_y)
     }
+
+
+def test_publishes_only_the_persons_ros4hri_tracks(
+    elevator_people_publisher,
+    persons_around_tiago,
+    recorder,
+    office_with_tiago,
+    arise_office,
+):
+    place_person(
+        persons_around_tiago,
+        "rider",
+        arise_office.cabin_centre.x,
+        arise_office.cabin_centre.y,
+        arise_office.ground_floor_height,
+    )
+    track(persons_around_tiago, "rider")
+    person_standing_at(
+        office_with_tiago,
+        "untracked",
+        arise_office.cabin_centre.x + 0.4,
+        arise_office.cabin_centre.y,
+        arise_office.ground_floor_height,
+    )
+
+    elevator_people_publisher.publish()
+    recorder.wait_for(ElevatorPeopleTopic.CABIN_PERSONS)
+
+    assert recorder.last_messages[ElevatorPeopleTopic.CABIN_PERSONS].ids == ["rider"]

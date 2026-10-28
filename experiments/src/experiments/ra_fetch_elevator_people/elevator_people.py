@@ -182,8 +182,8 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
 @dataclass
 class ElevatorPeoplePublisher(HasROS2Node):
     """
-    Publishes which humans are inside an elevator's cabin and which wait in front of it
-    on the robot's level, with the outlines of both areas.
+    Publishes which of the tracked persons are inside an elevator's cabin and which wait
+    in front of it on the robot's level, with the outlines of both areas.
     """
 
     elevator: Elevator = field(kw_only=True)
@@ -194,6 +194,11 @@ class ElevatorPeoplePublisher(HasROS2Node):
     robot: AbstractRobot = field(kw_only=True)
     """
     The robot whose base's height decides on which level people count as waiting.
+    """
+
+    tracked_persons: TrackedPersons = field(kw_only=True)
+    """
+    The persons to publish.
     """
 
     floor_tolerance: float = field(default=0.2, kw_only=True)
@@ -245,15 +250,15 @@ class ElevatorPeoplePublisher(HasROS2Node):
         footprint_topic: ElevatorPeopleTopic,
     ) -> None:
         """
-        Publish the IDs of the persons whose humans stand inside ``area`` and the area's
-        footprint.
+        Publish the IDs of the tracked persons whose humans stand inside ``area`` and
+        the area's footprint.
         """
         stamp = self.node.get_clock().now().to_msg()
         frame_id = area._world.root.name.name
         persons = IdsList(
             ids=[
-                human.name.name
-                for human in area._world.get_semantic_annotations_by_type(Human)
+                person_id
+                for person_id, human in self.tracked_persons.humans.items()
                 if InsideRegion(human.root, area)()
             ]
         )
@@ -316,13 +321,15 @@ def main(rate: float = 5.0) -> None:
             position_offset=office.ground_floor_height,
         )
     )
-    world_inputs.add_input(
-        TrackedPersons(world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS)
+    tracked_persons = TrackedPersons(
+        world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS
     )
+    world_inputs.add_input(tracked_persons)
     elevator_people_publisher = ElevatorPeoplePublisher(
         node=node,
         elevator=elevator,
         robot=world.get_semantic_annotations_by_type(AbstractRobot)[0],
+        tracked_persons=tracked_persons,
     )
     node.create_timer(1.0 / rate, world_inputs.synchronize)
     node.create_timer(1.0 / rate, elevator_people_publisher.publish)
