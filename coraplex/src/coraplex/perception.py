@@ -22,6 +22,7 @@ from semantic_digital_twin.spatial_types.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
     SemanticAnnotation,
     Body,
 )
@@ -434,7 +435,6 @@ class RoboKudoPerception(PerceptionInterface):
         :param query: The query it was answering, supplying the annotation and the frame.
         :return: The detection carrying the queried annotation and the reported pose.
         """
-        world = query.world
         pose_stamped = designator.pose[0]
         return Detection(
             semantic_annotation=query.semantic_annotation,
@@ -446,8 +446,34 @@ class RoboKudoPerception(PerceptionInterface):
                 pose_stamped.pose.orientation.y,
                 pose_stamped.pose.orientation.z,
                 pose_stamped.pose.orientation.w,
-                reference_frame=world.get_kinematic_structure_entity_by_name(
-                    pose_stamped.header.frame_id
+                reference_frame=self._reported_frame(
+                    pose_stamped.header.frame_id, query.world
                 ),
             ),
         )
+
+    @staticmethod
+    def _reported_frame(frame_id: str, world: World) -> KinematicStructureEntity:
+        """
+        The body a reported transform frame names.
+
+        A frame identifier carries no namespace, so an unnamespaced body of that name is
+        the frame it refers to. Models merged into the world keep their own namespace,
+        and a link one of them happens to carry the same name under only answers where
+        nothing else does.
+
+        :param frame_id: The transform frame the perception source reported in.
+        :param world: The world holding the frame.
+        :return: The body the frame identifier names.
+        :raises WorldEntityNotFoundError: If the world holds no such frame.
+        :raises DuplicateWorldEntityError: If several bodies answer to the name and none
+            of them is unnamespaced.
+        """
+        unnamespaced = [
+            entity
+            for entity in world.get_kinematic_structure_entities_by_name(frame_id)
+            if not entity.name.prefix
+        ]
+        if len(unnamespaced) == 1:
+            return unnamespaced[0]
+        return world.get_kinematic_structure_entity_by_name(frame_id)
