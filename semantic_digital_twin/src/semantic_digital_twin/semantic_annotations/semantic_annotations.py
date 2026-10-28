@@ -24,7 +24,7 @@ from semantic_digital_twin.exceptions import (
     MissingMovableJointError,
     DoorLeafNotFoundError,
 )
-from semantic_digital_twin.reasoning.predicates import InsideOf, InsideRegion
+from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
@@ -1710,17 +1710,6 @@ class Human(Agent):
     This class exists primarily for semantic distinction, so that algorithms can treat
     human agents differently from robots if needed.
     """
-
-    @classmethod
-    def inside(cls, region: Region) -> list[Self]:
-        """
-        :return: The humans of ``region``'s world that stand inside ``region``.
-        """
-        return [
-            human
-            for human in region._world.get_semantic_annotations_by_type(cls)
-            if InsideRegion(human.root, region)()
-        ]
 
 
 @dataclass(eq=False)

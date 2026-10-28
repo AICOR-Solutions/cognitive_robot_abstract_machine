@@ -233,24 +233,3 @@ def test_rebuilt_world_keeps_its_waiting_areas(arise_office_world, elevator):
 
     assert all(area in regions_before for area in rebuilt_waiting_areas.values())
     assert list(rebuilt_world.regions) == regions_before
-
-
-# %% humans inside an area
-
-
-def test_humans_inside_an_area_are_those_standing_in_it(
-    arise_office_world, elevator, ground_floor, arise_office
-):
-    rider = person_standing_at(
-        arise_office_world,
-        arise_office.cabin_centre.x,
-        arise_office.cabin_centre.y,
-        arise_office.ground_floor_height,
-    )
-    waiting = person_standing_at(
-        arise_office_world, 0.45, 1.2, arise_office.ground_floor_height
-    )
-    person_standing_at(arise_office_world, -5.0, -2.5, arise_office.ground_floor_height)
-
-    assert Human.inside(elevator.cabin_area) == [rider]
-    assert Human.inside(elevator.waiting_areas[ground_floor]) == [waiting]

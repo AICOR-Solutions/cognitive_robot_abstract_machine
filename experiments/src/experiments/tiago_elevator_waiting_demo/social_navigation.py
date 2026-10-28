@@ -38,6 +38,7 @@ from semantic_digital_twin.adapters.ros.semdt_to_ros2_converters import (
     Point3ToRos2Converter,
     PoseToRos2StampedConverter,
 )
+from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -141,7 +142,8 @@ class BoardElevatorActionServerTask(
                     world.transform(Point3(reference_frame=human.root), world.root)
                 ),
             )
-            for human in Human.inside(area)
+            for human in world.get_semantic_annotations_by_type(Human)
+            if InsideRegion(human.root, area)()
         ]
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:

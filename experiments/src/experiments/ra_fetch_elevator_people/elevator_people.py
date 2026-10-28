@@ -34,6 +34,7 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchroni
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -249,7 +250,13 @@ class ElevatorPeoplePublisher(HasROS2Node):
         """
         stamp = self.node.get_clock().now().to_msg()
         frame_id = area._world.root.name.name
-        persons = IdsList(ids=[human.name.name for human in Human.inside(area)])
+        persons = IdsList(
+            ids=[
+                human.name.name
+                for human in area._world.get_semantic_annotations_by_type(Human)
+                if InsideRegion(human.root, area)()
+            ]
+        )
         persons.header.stamp, persons.header.frame_id = stamp, frame_id
         self.publishers[persons_topic].publish(persons)
         footprint = PolygonStamped()
