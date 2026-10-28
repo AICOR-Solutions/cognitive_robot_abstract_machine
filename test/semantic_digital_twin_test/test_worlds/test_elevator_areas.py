@@ -46,6 +46,13 @@ def person_standing_at(world, x: float, y: float, floor_height: float) -> Human:
     )
 
 
+def box_scale(region: Region) -> Scale:
+    """
+    :return: The extents of the box that makes up ``region``.
+    """
+    return region.area[0].scale
+
+
 def floor_outline(region: Region) -> list[float]:
     """
     :return: The region's x and y extents and the height of its bottom, in the world
@@ -149,10 +156,11 @@ def test_person_beyond_the_waiting_depth_is_not_waiting(
     arise_office_world, elevator, ground_floor, arise_office
 ):
     door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
+    waiting_area_depth = box_scale(elevator.waiting_areas[ground_floor]).x
     person = person_standing_at(
         arise_office_world,
         0.0,
-        door_y - elevator.waiting_area_depth - 0.3,
+        door_y - waiting_area_depth - 0.3,
         arise_office.ground_floor_height,
     )
     assert not InsideRegion(person.root, elevator.waiting_areas[ground_floor])()
@@ -162,12 +170,13 @@ def test_waiting_area_lies_in_front_of_the_doors_on_the_level(
     elevator, ground_floor, arise_office
 ):
     door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
-    half_width = elevator.scale.y / 2 + elevator.waiting_area_side_margin
+    waiting_area_scale = box_scale(elevator.waiting_areas[ground_floor])
+    half_width = waiting_area_scale.y / 2
     assert floor_outline(elevator.waiting_areas[ground_floor]) == pytest.approx(
         [
             -half_width,
             half_width,
-            door_y - elevator.waiting_area_depth,
+            door_y - waiting_area_scale.x,
             door_y,
             arise_office.ground_floor_height,
         ]

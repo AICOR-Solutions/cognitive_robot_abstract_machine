@@ -18,6 +18,7 @@ from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
+    GroundFloor,
     Human,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -267,8 +268,10 @@ def test_publishes_the_persons_waiting_on_the_robots_level_and_their_area(
     )
 
     elevator = elevator_people_publisher.elevator
+    ground_floor = office_with_tiago.get_semantic_annotations_by_type(GroundFloor)[0]
+    waiting_area_scale = elevator.waiting_areas[ground_floor].area[0].scale
     door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
-    half_width = elevator.scale.y / 2 + elevator.waiting_area_side_margin
+    half_width = waiting_area_scale.y / 2
     assert recorder.last_messages[ElevatorPeopleTopic.WAITING_AREA_PERSONS].ids == [
         "waiting"
     ]
@@ -277,5 +280,5 @@ def test_publishes_the_persons_waiting_on_the_robots_level_and_their_area(
     ) == {
         (round(x, 5), round(y, 5), round(arise_office.ground_floor_height, 5))
         for x in (-half_width, half_width)
-        for y in (door_y - elevator.waiting_area_depth, door_y)
+        for y in (door_y - waiting_area_scale.x, door_y)
     }

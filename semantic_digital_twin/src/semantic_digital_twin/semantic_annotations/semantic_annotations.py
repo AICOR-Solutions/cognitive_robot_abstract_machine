@@ -613,22 +613,6 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
     the elevator to other floors.
     """
 
-    waiting_area_depth: float = field(default=1.5, kw_only=True)
-    """
-    How far the waiting area on each level reaches out from the elevator's doors.
-    """
-
-    waiting_area_side_margin: float = field(default=0.3, kw_only=True)
-    """
-    How far the waiting area on each level reaches beyond the cabin's width on either
-    side.
-    """
-
-    waiting_area_height: float = field(default=2.5, kw_only=True)
-    """
-    How far the waiting area on each level reaches up from the level's floor.
-    """
-
     @classproperty
     def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
@@ -710,55 +694,48 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
     def waiting_areas(self) -> dict[Level, Region]:
         """
         The space in front of this elevator's doors on each level of its world, where
-        people wait for the cabin.
+        people wait for the cabin: 1.5 m deep, 0.3 m wider than the cabin on either side
+        and 2.5 m high from the level's floor.
 
         Added to the world, each fixed to its level, on first access unless the world
         already holds them.
         """
+        scale = Scale(1.5, self.scale.y + 2 * 0.3, 2.5)
         return {
-            level: self._spawn_waiting_area_on(level)
+            level: self._region_from(
+                RegionSpecification.box(
+                    f"{self.name.name}_{level.name.name}_waiting_area", scale
+                ),
+                parent=level.root,
+                parent_T_self=self._level_T_waiting_area(level, scale),
+            )
             for level in self._world.get_semantic_annotations_by_type(Level)
         }
 
-    def _spawn_waiting_area_on(self, level: Level) -> Region:
+    def _level_T_waiting_area(
+        self, level: Level, scale: Scale
+    ) -> HomogeneousTransformationMatrix:
         """
-        Add the waiting area in front of this elevator's doors on ``level`` to the
-        world, fixed to the level, unless the world already holds it.
-
-        :return: The waiting area.
+        :param scale: The extents of the waiting area.
+        :return: Where the waiting area of ``scale`` in front of this elevator's doors
+            lies on ``level``, in the level's frame.
         """
         world = self._world
         world_P_centre = world.transform(
-            Point3(
-                -self.scale.x / 2 - self.waiting_area_depth / 2,
-                0,
-                0,
-                reference_frame=self.root,
-            ),
+            Point3(-self.scale.x / 2 - scale.x / 2, 0, 0, reference_frame=self.root),
             world.root,
         )
         world_T_area = HomogeneousTransformationMatrix.from_point_rotation_matrix(
             Point3(
                 world_P_centre.x,
                 world_P_centre.y,
-                level.floor_plane[0].z + self.waiting_area_height / 2,
+                level.floor_plane[0].z + scale.z / 2,
                 reference_frame=world.root,
             ),
             self.root.global_transform.rotation_matrix,
             reference_frame=world.root,
         )
-        return self._region_from(
-            RegionSpecification.box(
-                f"{self.name.name}_{level.name.name}_waiting_area",
-                Scale(
-                    self.waiting_area_depth,
-                    self.scale.y + 2 * self.waiting_area_side_margin,
-                    self.waiting_area_height,
-                ),
-            ),
-            parent=level.root,
-            parent_T_self=world.transform(world_T_area, level.root),
-        )
+        return world.transform(world_T_area, level.root)
 
     def _region_from(
         self,
