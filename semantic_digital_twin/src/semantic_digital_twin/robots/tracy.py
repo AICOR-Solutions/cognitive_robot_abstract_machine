@@ -13,6 +13,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
 )
 from semantic_digital_twin.datastructures.definitions import (
+    JointName,
     GripperState,
     StaticJointState,
 )
@@ -48,7 +49,7 @@ class TracyTopic(StrEnum):
     RIGHT_ARM_JOINT_STATES = "/right_arm/joint_states"
 
 
-class TracyJoint(StrEnum):
+class TracyJoint(JointName):
     """
     Names of the Tracy's commandable connections, as spelled in its URDF.
 

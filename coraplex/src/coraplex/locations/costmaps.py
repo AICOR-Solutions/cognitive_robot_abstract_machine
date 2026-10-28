@@ -119,7 +119,7 @@ class Costmap(Location):
             not np.allclose(self.origin.x, other.origin.x)
             or not np.allclose(self.origin.y, other.origin.y)
             or not np.allclose(
-                self.origin.to_rotation_matrix(), other.origin.to_rotation_matrix()
+                self.origin.rotation_matrix, other.origin.rotation_matrix
             )
         ):
             raise ValueError(
@@ -214,7 +214,7 @@ class Costmap(Location):
             )
             + np.pi
         )[0]
-        return RotationMatrix.from_rpy(0, 0, angle).to_quaternion()
+        return RotationMatrix.from_rpy(0, 0, angle).quaternion
 
     def _budget_per_segment(
         self, segments: List[np.ndarray], number_of_samples: int
@@ -294,7 +294,7 @@ class Costmap(Location):
                 # Compute world position independent of origin orientation:
                 # map indices increase with world axes; origin is at the center.
                 offset = (index - center) * self.resolution
-                position = self.origin.to_position() + Vector3(offset[0], offset[1], 0)
+                position = self.origin.position + Vector3(offset[0], offset[1], 0)
 
                 orientation: Quaternion = self._orientation_facing_origin(position)
                 yield Pose(
@@ -371,7 +371,7 @@ class OccupancyCostmap(Costmap):
 
         :return: A 2d numpy array of the occupied space
         """
-        origin_position = self.origin.to_position().to_list()
+        origin_position = self.origin.position.to_list()
         # Generate 2d grid with indices
         indices = np.concatenate(
             np.dstack(
@@ -426,28 +426,19 @@ class OccupancyCostmap(Costmap):
             floor.root for floor in self.world.get_semantic_annotations_by_type(Floor)
         }
 
-    def inflate_obstacles(self, map: np.ndarray):
+    def inflate_obstacles(self, free_space: np.ndarray) -> np.ndarray:
         """
         Inflates found obstacles in the environment by the distance_to_obstacle factor.
 
-        :param map: Map of obstacles to inflate.
-        :return: The map with inflated obstacles.
+        :param free_space: 1 where a cell is free, 0 where an obstacle occupies it.
+        :return: 1 where the whole window of :attr:`distance_to_obstacle` around a cell
+            is free, 0 elsewhere, shrunk by the window's size.
         """
-        window_shape = (
-            self._distance_to_obstacle_index * 2,
-            self._distance_to_obstacle_index * 2,
-        )
-        view_shape = tuple(np.subtract(map.shape, window_shape) + 1) + window_shape
-        strides = map.strides + map.strides
-
-        windows = np.lib.stride_tricks.as_strided(map, view_shape, strides)
-        windows = windows.reshape(windows.shape[:-2] + (-1,))
-
-        window_sums = np.sum(windows, axis=2)
-        map = (window_sums == (self._distance_to_obstacle_index * 2) ** 2).astype(
-            "int16"
-        )
-        return map
+        window_size = self._distance_to_obstacle_index * 2
+        window_sums = np.lib.stride_tricks.sliding_window_view(
+            free_space, (window_size, window_size)
+        ).sum(axis=(2, 3))
+        return (window_sums == window_size**2).astype("int16")
 
     def _create_from_world(self) -> np.ndarray:
         """
@@ -541,7 +532,7 @@ class VisibilityCostmap(Costmap):
 
         ray_tracer = RayTracer(self.world)
 
-        origin_copy = deepcopy(self.origin).to_homogeneous_matrix()
+        origin_copy = deepcopy(self.origin).homogeneous_matrix
 
         for _ in range(4):
             origin_copy = origin_copy @ HomogeneousTransformationMatrix.from_xyz_rpy(

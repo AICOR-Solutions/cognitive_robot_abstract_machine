@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from giskardpy.middleware.ros2 import rospy
 from giskardpy.middleware.ros2.server_config import ExecutionMode, GiskardServerConfig
 from giskardpy.middleware.ros2.giskard import Giskard
@@ -34,7 +36,9 @@ def main():
             plot_motion_statechart=False,
         ),
         qp_controller_config=QPControllerConfig(
-            target_frequency=80, prediction_horizon=30
+            # reproduces the braking of the former prediction_horizon=30
+            target_frequency=80,
+            braking_time=timedelta(seconds=0.36),
         ),
     )
     giskard.live()

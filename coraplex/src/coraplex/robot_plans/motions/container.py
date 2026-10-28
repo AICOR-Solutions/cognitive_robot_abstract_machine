@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.open_close import Open, Close
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 from semantic_digital_twin.world_description.world_entity import Body
@@ -37,6 +38,7 @@ class OpeningMotion(BaseMotion):
             tip_link=tip,
             environment_link=self.object_part,
             goal_joint_state=upper_limit,
+            mechanism_weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
         )
 
 
@@ -63,5 +65,8 @@ class ClosingMotion(BaseMotion):
     def _motion_chart(self):
         tip = self.arm.end_effector.tool_frame
         return Close(
-            tip_link=tip, environment_link=self.object_part, goal_joint_state=0.01
+            tip_link=tip,
+            environment_link=self.object_part,
+            goal_joint_state=0.01,
+            mechanism_weight=DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE,
         )
