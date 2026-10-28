@@ -120,10 +120,9 @@ def test_boarding_times_out_when_the_module_keeps_the_base(
 
 @pytest.fixture
 def office_with_tiago(arise_office) -> World:
-    demonstration = boarding_from(starting_in_front_of_the_doors(arise_office))
-    world = demonstration.build_simulated_world()
-    demonstration.populate_scene(world)
-    return world
+    return boarding_from(
+        starting_in_front_of_the_doors(arise_office)
+    ).build_simulated_world()
 
 
 def person_standing_at(

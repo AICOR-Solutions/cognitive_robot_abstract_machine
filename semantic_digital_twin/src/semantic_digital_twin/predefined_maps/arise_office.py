@@ -127,7 +127,7 @@ class AriseOfficeBuilding:
         """
         self._spawn_slab(
             world,
-            f"{name}_ground_floor",
+            self._ground_floor_slab_name(name),
             Point3(0, 0, self.ground_floor_height),
             self.storey_scale.x,
             self.storey_scale.y,
@@ -142,6 +142,22 @@ class AriseOfficeBuilding:
                 world, f"{name}_{level_type.__name__}_level", level_type, height
             )
         return self._spawn_elevator(world, f"{name}_elevator")
+
+    def ground_floor_slab(self, world: World, name: str = "arise_office") -> Floor:
+        """
+        :param world: The world the office was spawned into.
+        :param name: The prefix the office was spawned with.
+        :return: The slab of the ground floor, whose frame lies on its top.
+        """
+        return world.get_semantic_annotation_by_name(self._ground_floor_slab_name(name))
+
+    @staticmethod
+    def _ground_floor_slab_name(name: str) -> str:
+        """
+        :param name: The prefix the office is spawned with.
+        :return: The name of the ground floor's slab.
+        """
+        return f"{name}_ground_floor"
 
     # %% storeys
 

@@ -169,12 +169,9 @@ class TopicRecorder:
 
 @pytest.fixture
 def office_with_tiago() -> World:
-    demonstration = TiagoElevatorRideDemonstration(
+    return TiagoElevatorRideDemonstration(
         used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    )
-    world = demonstration.build_simulated_world()
-    demonstration.populate_scene(world)
-    return world
+    ).build_simulated_world()
 
 
 @pytest.fixture

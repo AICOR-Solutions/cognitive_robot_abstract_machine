@@ -34,7 +34,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.specifications.robots import RobotSpecification
-from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
 
 # %% operating the elevator in a kinematic simulation
@@ -123,17 +122,22 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     def build_simulated_world(self) -> World:
         """
-        Put the Tiago on its drive in a world holding nothing but a map body.
+        Populate a world holding nothing but a map body and put the Tiago on its drive
+        on the office's ground floor.
         """
-        return WorldSpecification(
-            world_parser=None,
-            robots=[
-                RobotSpecification(
-                    semantic_annotation_type=self.used_robot,
-                    odom_T_robot_start=self.odom_T_robot_start,
-                )
-            ],
-        ).to_domain_object()
+        world = World.create_with_root_body()
+        self.populate_scene(world)
+        RobotSpecification(
+            semantic_annotation_type=self.used_robot,
+            world_T_odom=world.transform(
+                HomogeneousTransformationMatrix(
+                    reference_frame=self.office.ground_floor_slab(world).root
+                ),
+                world.root,
+            ),
+            odom_T_robot_start=self.odom_T_robot_start,
+        ).spawn(world)
+        return world
 
     def is_scene_populated(self, world: World) -> bool:
         return bool(world.get_semantic_annotations_by_type(Elevator))
