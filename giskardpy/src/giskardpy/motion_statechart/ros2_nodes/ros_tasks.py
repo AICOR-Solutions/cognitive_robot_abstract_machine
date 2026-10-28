@@ -77,7 +77,8 @@ class ActionServerTask(
     @abstractmethod
     def build_msg(self, context: MotionStatechartContext):
         """
-        Build the action server message and returns it.
+        Build the goal for the action server into :attr:`_msg`, from the world as it is
+        when this task starts.
         """
         ...
 
@@ -89,7 +90,6 @@ class ActionServerTask(
         self._action_client = ros_context_extension.get_or_create_action_client(
             self.message_type, self.action_topic
         )
-        self.build_msg(context)
         logger.info(f"Waiting for action server {self.action_topic}")
         self._action_client.wait_for_server()
         return super().build(context)
@@ -98,6 +98,7 @@ class ActionServerTask(
         """
         Creates a goal and sends it to the action server asynchronously.
         """
+        self.build_msg(context)
         future = self._action_client.send_goal_async(self._msg)
         future.add_done_callback(self.goal_response_callback)
 
