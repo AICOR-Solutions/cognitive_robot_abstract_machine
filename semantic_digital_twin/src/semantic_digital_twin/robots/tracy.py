@@ -342,6 +342,16 @@ class TracyRightArm(UR10eArm[TracyRightGripper]):
 
 @dataclass(eq=False)
 class TracyCamera(Camera):
+    """
+    The camera on the pole above Tracy's table.
+    """
+
+    @property
+    def forward_facing_axis(self) -> Vector3:
+        """
+        ``camera_link`` is a body frame, so the camera looks along its x axis.
+        """
+        return Vector3.X(reference_frame=self.root)
 
     def setup_hardware_interfaces(self):
         pass
@@ -357,7 +367,6 @@ class TracyCamera(Camera):
             root=robot_root._world.get_body_in_branch_by_name(
                 robot_root, "camera_link"
             ),
-            forward_facing_axis=Vector3.Z(),
             field_of_view=FieldOfView(horizontal_angle=1.047, vertical_angle=0.785),
             minimal_height=0.8,
             maximal_height=1.7,
