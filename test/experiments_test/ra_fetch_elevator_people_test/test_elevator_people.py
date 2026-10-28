@@ -1,25 +1,30 @@
+from dataclasses import dataclass, field
+from time import sleep
+from typing import Any
+
 import pytest
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import PolygonStamped, TransformStamped
 from hri_msgs.msg import IdsList
+from rclpy.node import Node
 
+from coraplex.datastructures.enums import ExecutionType
 from experiments.ra_fetch_elevator_people.elevator_people import (
+    ElevatorPeoplePublisher,
+    ElevatorPeopleTopic,
     TrackedPersons,
 )
+from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
+from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
-    FirstFloor,
-    GroundFloor,
     Human,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 
 # %% fixtures
-
-
-@pytest.fixture
-def elevator(arise_office_world):
-    return arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
 
 
 @pytest.fixture
@@ -127,27 +132,153 @@ def test_closing_removes_every_human(tracked_persons, arise_office_world, arise_
     assert arise_office_world.get_semantic_annotations_by_type(Human) == []
 
 
-def test_persons_are_sorted_into_the_elevator_areas(
-    tracked_persons, arise_office_world, elevator, arise_office
+# %% publishing who is where
+
+
+@dataclass
+class TopicRecorder:
+    """
+    Keeps the last message received on each topic it subscribes to.
+    """
+
+    last_messages: dict[str, Any] = field(default_factory=dict)
+    """
+    The last message received on each topic.
+    """
+
+    def subscribe(self, node: Node, message_type: type, topic: str) -> None:
+        """
+        Record the messages ``node`` receives on ``topic``.
+        """
+        node.create_subscription(
+            message_type,
+            topic,
+            lambda message: self.last_messages.__setitem__(topic, message),
+            1,
+        )
+
+    def wait_for(self, *topics: str) -> None:
+        """
+        Wait up to three seconds until a message arrived on each of ``topics``.
+        """
+        for _ in range(30):
+            if all(topic in self.last_messages for topic in topics):
+                return
+            sleep(0.1)
+
+
+@pytest.fixture
+def office_with_tiago() -> World:
+    demonstration = TiagoElevatorRideDemonstration(
+        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
+    )
+    world = demonstration.build_simulated_world()
+    demonstration.populate_scene(world)
+    return world
+
+
+@pytest.fixture
+def elevator_people_publisher(rclpy_node, office_with_tiago) -> ElevatorPeoplePublisher:
+    return ElevatorPeoplePublisher(
+        node=rclpy_node,
+        elevator=office_with_tiago.get_semantic_annotations_by_type(Elevator)[0],
+        robot=office_with_tiago.get_semantic_annotations_by_type(Tiago)[0],
+    )
+
+
+@pytest.fixture
+def recorder(rclpy_node) -> TopicRecorder:
+    recorder = TopicRecorder()
+    recorder.subscribe(rclpy_node, IdsList, ElevatorPeopleTopic.CABIN_PERSONS)
+    recorder.subscribe(rclpy_node, PolygonStamped, ElevatorPeopleTopic.CABIN_FOOTPRINT)
+    recorder.subscribe(rclpy_node, IdsList, ElevatorPeopleTopic.WAITING_AREA_PERSONS)
+    recorder.subscribe(
+        rclpy_node, PolygonStamped, ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT
+    )
+    return recorder
+
+
+def person_standing_at(
+    world: World, name: str, x: float, y: float, floor_height: float
+) -> Human:
+    scale = Scale(0.4, 0.4, 1.7)
+    return Human.create_with_new_body_in_world(
+        name=name,
+        world=world,
+        world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x, y, floor_height + scale.z / 2
+        ),
+        scale=scale,
+    )
+
+
+def corners(footprint: PolygonStamped) -> set[tuple[float, float, float]]:
+    return {
+        (round(point.x, 5), round(point.y, 5), round(point.z, 5))
+        for point in footprint.polygon.points
+    }
+
+
+def test_publishes_the_persons_inside_the_cabin_and_its_outline(
+    elevator_people_publisher, recorder, office_with_tiago, arise_office
 ):
-    place_person(
-        tracked_persons,
+    person_standing_at(
+        office_with_tiago,
         "rider",
         arise_office.cabin_centre.x,
         arise_office.cabin_centre.y,
         arise_office.ground_floor_height,
     )
-    place_person(
-        tracked_persons, "waiting", 0.45, 1.2, arise_office.ground_floor_height
+    person_standing_at(
+        office_with_tiago, "walker", -5.0, -2.5, arise_office.ground_floor_height
     )
-    place_person(
-        tracked_persons, "walker", -5.0, -2.5, arise_office.ground_floor_height
+
+    elevator_people_publisher.publish()
+    recorder.wait_for(
+        ElevatorPeopleTopic.CABIN_PERSONS, ElevatorPeopleTopic.CABIN_FOOTPRINT
     )
-    track(tracked_persons, "rider", "waiting", "walker")
-    ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
-    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
-    assert tracked_persons.persons_in(elevator.cabin_area) == ["rider"]
-    assert tracked_persons.persons_in(elevator.waiting_area_on(ground_floor)) == [
+
+    elevator = elevator_people_publisher.elevator
+    assert recorder.last_messages[ElevatorPeopleTopic.CABIN_PERSONS].ids == ["rider"]
+    assert corners(recorder.last_messages[ElevatorPeopleTopic.CABIN_FOOTPRINT]) == {
+        (round(x, 5), round(y, 5), round(arise_office.ground_floor_height, 5))
+        for x in (
+            float(arise_office.cabin_centre.x) - elevator.scale.y / 2,
+            float(arise_office.cabin_centre.x) + elevator.scale.y / 2,
+        )
+        for y in (
+            float(arise_office.cabin_centre.y) - elevator.scale.x / 2,
+            float(arise_office.cabin_centre.y) + elevator.scale.x / 2,
+        )
+    }
+
+
+def test_publishes_the_persons_waiting_on_the_robots_level_and_their_area(
+    elevator_people_publisher, recorder, office_with_tiago, arise_office
+):
+    person_standing_at(
+        office_with_tiago, "waiting", 0.45, 1.2, arise_office.ground_floor_height
+    )
+    person_standing_at(
+        office_with_tiago, "upstairs", 0.45, 1.2, arise_office.first_floor_height
+    )
+
+    elevator_people_publisher.publish()
+    recorder.wait_for(
+        ElevatorPeopleTopic.WAITING_AREA_PERSONS,
+        ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT,
+    )
+
+    elevator = elevator_people_publisher.elevator
+    door_y = float(arise_office.cabin_centre.y) - elevator.scale.x / 2
+    half_width = elevator.scale.y / 2 + elevator.waiting_area_side_margin
+    assert recorder.last_messages[ElevatorPeopleTopic.WAITING_AREA_PERSONS].ids == [
         "waiting"
     ]
-    assert tracked_persons.persons_in(elevator.waiting_area_on(first_floor)) == []
+    assert corners(
+        recorder.last_messages[ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT]
+    ) == {
+        (round(x, 5), round(y, 5), round(arise_office.ground_floor_height, 5))
+        for x in (-half_width, half_width)
+        for y in (door_y - elevator.waiting_area_depth, door_y)
+    }

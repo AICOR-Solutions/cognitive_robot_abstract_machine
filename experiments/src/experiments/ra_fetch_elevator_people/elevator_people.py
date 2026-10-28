@@ -3,9 +3,9 @@ Who is inside the elevator and who waits in front of it, from the people a ROS4H
 (REP-155) pipeline tracks.
 
 Tracked persons are mirrored into the semantic digital twin as :class:`Human` bodies at
-their ``person_<personID>`` TF frame. Each update publishes, as ``hri_msgs/IdsList`` of
-person IDs, who is inside the cabin and who is in the waiting area in front of its doors
-on the level the robot is on, along with both areas' outlines.
+their ``person_<personID>`` TF frame. Who of them is inside the cabin and who is in the
+waiting area in front of its doors on the level the robot is on is published as
+``hri_msgs/IdsList`` of person IDs, along with both areas' outlines.
 
 Running :func:`main` next to a controller of the TIAGo ARISE Gazebo simulator with its
 ``tiago_arise_humans`` launch gives the real data flow.
@@ -20,10 +20,8 @@ import rclpy
 from geometry_msgs.msg import Point32, PolygonStamped
 from hri_msgs.msg import IdsList
 from rclpy.duration import Duration
-from rclpy.node import Node
 from rclpy.publisher import Publisher
 from rclpy.time import Time
-from typing_extensions import Self
 
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.adapters.ros.input_synchronization import (
@@ -36,20 +34,17 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchroni
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
-from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
-    ElevatorArea,
     Human,
     Level,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.world import World
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Cylinder
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, Region
 
 # %% topics
 
@@ -81,16 +76,6 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
     """
     Keeps one :class:`Human` in the world per person a ROS4HRI person manager tracks, at
     the person's TF frame, for as long as TF knows that frame.
-    """
-
-    body_radius: float = field(default=0.3, kw_only=True)
-    """
-    Radius of the cylinder standing in for a person's body.
-    """
-
-    body_height: float = field(default=1.8, kw_only=True)
-    """
-    Height of that cylinder, which hangs down from the person's frame at head height.
     """
 
     humans: dict[str, Human] = field(default_factory=dict, init=False)
@@ -140,16 +125,6 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
             self._remove_human(person_id)
         super().close()
 
-    def persons_in(self, area: ElevatorArea) -> list[str]:
-        """
-        :return: The IDs of the tracked persons inside ``area``.
-        """
-        return [
-            person_id
-            for person_id, human in self.humans.items()
-            if InsideRegion(human.root, area.root)()
-        ]
-
     @staticmethod
     def frame_of(person_id: str) -> str:
         """
@@ -157,17 +132,22 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
         """
         return f"person_{person_id}"
 
-    def _add_human(self, person_id: str) -> Human:
+    def _add_human(
+        self, person_id: str, body_radius: float = 0.3, body_height: float = 1.8
+    ) -> Human:
         """
         Add a human for ``person_id`` at the world root, as a cylinder of a person's
         size on a connection that follows the person's frame.
 
+        :param body_radius: Radius of the cylinder standing in for the person's body.
+        :param body_height: Height of that cylinder, which hangs down from the person's
+            frame at head height.
         :return: The new human.
         """
         body = Body(name=PrefixedName(self.frame_of(person_id), prefix="ros4hri"))
-        cylinder = Cylinder(width=2 * self.body_radius, height=self.body_height)
+        cylinder = Cylinder(width=2 * body_radius, height=body_height)
         cylinder.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-            z=-self.body_height / 2, reference_frame=body
+            z=-body_height / 2, reference_frame=body
         )
         body.collision = ShapeCollection([cylinder], reference_frame=body)
         body.visual = body.collision
@@ -199,20 +179,15 @@ class TrackedPersons(TopicInputSynchronizer[IdsList]):
 
 
 @dataclass
-class ElevatorPeople(HasROS2Node):
+class ElevatorPeoplePublisher(HasROS2Node):
     """
-    Publishes who of the tracked persons is inside an elevator and who waits in front of
-    it on the robot's level.
-    """
-
-    elevator: Elevator
-    """
-    The elevator whose areas are watched.
+    Publishes which humans are inside an elevator's cabin and which wait in front of it
+    on the robot's level, with the outlines of both areas.
     """
 
-    tracked_persons: TrackedPersons = field(kw_only=True)
+    elevator: Elevator = field(kw_only=True)
     """
-    The persons to watch.
+    The elevator whose areas are published.
     """
 
     robot: AbstractRobot = field(kw_only=True)
@@ -243,31 +218,12 @@ class ElevatorPeople(HasROS2Node):
             for topic, message_type in message_types.items()
         }
 
-    @classmethod
-    def for_world(
-        cls,
-        node: Node,
-        world: World,
-        robot: AbstractRobot,
-    ) -> Self:
+    def publish(self) -> None:
         """
-        Watch the only elevator of ``world`` for ``robot``.
+        Publish the cabin with the humans inside it and, unless the robot stands below
+        every level, the waiting area on the robot's level with the humans inside it.
         """
-        return cls(
-            node=node,
-            elevator=world.get_semantic_annotations_by_type(Elevator)[0],
-            tracked_persons=TrackedPersons(
-                world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS
-            ),
-            robot=robot,
-        )
-
-    def update(self) -> None:
-        """
-        Update the tracked persons and publish both areas with the persons inside them.
-        """
-        self.tracked_persons.apply()
-        self._publish(
+        self._publish_area(
             self.elevator.cabin_area,
             ElevatorPeopleTopic.CABIN_PERSONS,
             ElevatorPeopleTopic.CABIN_FOOTPRINT,
@@ -275,33 +231,53 @@ class ElevatorPeople(HasROS2Node):
         robot_level = Level.under(self.robot.root, self.floor_tolerance)
         if robot_level is None:
             return
-        self._publish(
-            self.elevator.waiting_area_on(robot_level),
+        self._publish_area(
+            self.elevator.waiting_areas[robot_level],
             ElevatorPeopleTopic.WAITING_AREA_PERSONS,
             ElevatorPeopleTopic.WAITING_AREA_FOOTPRINT,
         )
 
-    def _publish(
+    def _publish_area(
         self,
-        area: ElevatorArea,
+        area: Region,
         persons_topic: ElevatorPeopleTopic,
         footprint_topic: ElevatorPeopleTopic,
     ) -> None:
         """
-        Publish the persons inside ``area`` and the area's footprint.
+        Publish the IDs of the persons whose humans stand inside ``area`` and the area's
+        footprint.
         """
         stamp = self.node.get_clock().now().to_msg()
-        frame_id = self.elevator._world.root.name.name
-        persons = IdsList(ids=self.tracked_persons.persons_in(area))
+        frame_id = area._world.root.name.name
+        persons = IdsList(ids=[human.name.name for human in Human.inside(area)])
         persons.header.stamp, persons.header.frame_id = stamp, frame_id
         self.publishers[persons_topic].publish(persons)
         footprint = PolygonStamped()
         footprint.header.stamp, footprint.header.frame_id = stamp, frame_id
         footprint.polygon.points = [
             Point32(x=float(corner.x), y=float(corner.y), z=float(corner.z))
-            for corner in area.footprint()
+            for corner in self._footprint_of(area)
         ]
         self.publishers[footprint_topic].publish(footprint)
+
+    @staticmethod
+    def _footprint_of(area: Region) -> list[Point3]:
+        """
+        :return: The corners of ``area``'s outline on its floor, counter-clockwise, in
+            the world root frame.
+        """
+        min_point, max_point = area.area.min_point, area.area.max_point
+        return [
+            area._world.transform(
+                Point3(x, y, min_point.z, reference_frame=area), area._world.root
+            )
+            for x, y in (
+                (min_point.x, min_point.y),
+                (max_point.x, min_point.y),
+                (max_point.x, max_point.y),
+                (min_point.x, max_point.y),
+            )
+        ]
 
 
 # %% running against the Gazebo simulator
@@ -309,8 +285,8 @@ class ElevatorPeople(HasROS2Node):
 
 def main(rate: float = 5.0) -> None:
     """
-    Watch the elevator of the ARISE Gazebo office in the world a running controller
-    serves, spawning the office into it if it is not there yet.
+    Publish who is where around the elevator of the ARISE Gazebo office in the world a
+    running controller serves, spawning the office into it if it is not there yet.
 
     :param rate: Updates per second.
     """
@@ -322,21 +298,27 @@ def main(rate: float = 5.0) -> None:
     office = AriseOfficeBuilding()
     if not world.get_semantic_annotations_by_type(Elevator):
         office.spawn(world)
-    elevator_people = ElevatorPeople.for_world(
-        node, world, world.get_semantic_annotations_by_type(AbstractRobot)[0]
-    )
-    elevator_inputs = WorldStateInputs(world=world)
-    elevator_inputs.add_input(
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    world_inputs = WorldStateInputs(world=world)
+    world_inputs.add_input(
         ElevatorDrive(
             world=world,
             node=node,
             topic_name=SimulatorTopic.ELEVATOR_JOINT_STATES,
-            elevator=elevator_people.elevator,
+            elevator=elevator,
             position_offset=office.ground_floor_height,
         )
     )
-    node.create_timer(1.0 / rate, elevator_inputs.synchronize)
-    node.create_timer(1.0 / rate, elevator_people.update)
+    world_inputs.add_input(
+        TrackedPersons(world=world, node=node, topic_name=Ros4HriTopic.TRACKED_PERSONS)
+    )
+    elevator_people_publisher = ElevatorPeoplePublisher(
+        node=node,
+        elevator=elevator,
+        robot=world.get_semantic_annotations_by_type(AbstractRobot)[0],
+    )
+    node.create_timer(1.0 / rate, world_inputs.synchronize)
+    node.create_timer(1.0 / rate, elevator_people_publisher.publish)
     rclpy.spin(node)
 
 

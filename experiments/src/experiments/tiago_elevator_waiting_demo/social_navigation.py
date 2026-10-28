@@ -38,16 +38,15 @@ from semantic_digital_twin.adapters.ros.semdt_to_ros2_converters import (
     Point3ToRos2Converter,
     PoseToRos2StampedConverter,
 )
-from semantic_digital_twin.reasoning.predicates import InsideRegion
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
-    ElevatorArea,
     Human,
     Level,
 )
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world_description.world_entity import Region
 
 # %% the action the social navigation module serves
 
@@ -126,11 +125,11 @@ class BoardElevatorActionServerTask(
             persons_waiting=(
                 []
                 if robot_level is None
-                else self._persons_in(self.elevator.waiting_area_on(robot_level))
+                else self._persons_in(self.elevator.waiting_areas[robot_level])
             ),
         )
 
-    def _persons_in(self, area: ElevatorArea) -> list[TrackedPerson]:
+    def _persons_in(self, area: Region) -> list[TrackedPerson]:
         """
         :return: The persons whose humans stand inside ``area``.
         """
@@ -142,8 +141,7 @@ class BoardElevatorActionServerTask(
                     world.transform(Point3(reference_frame=human.root), world.root)
                 ),
             )
-            for human in world.get_semantic_annotations_by_type(Human)
-            if InsideRegion(human.root, area.root)()
+            for human in Human.inside(area)
         ]
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
@@ -151,7 +149,7 @@ class BoardElevatorActionServerTask(
         Observe whether the robot's base stands inside the cabin's footprint.
         """
         cabin_T_base = context.world.compose_forward_kinematics_expression(
-            self.elevator.cabin_area.root, self.robot.root
+            self.elevator.root, self.robot.root
         )
         return NodeArtifacts(
             observation=sm.trinary_logic_and(
