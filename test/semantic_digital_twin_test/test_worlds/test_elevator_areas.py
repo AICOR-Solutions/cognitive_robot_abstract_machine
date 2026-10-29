@@ -191,6 +191,18 @@ def test_waiting_area_stays_on_its_level_while_the_cabin_rides(
     assert floor_outline(elevator.waiting_areas[ground_floor]) == pytest.approx(before)
 
 
+def test_waiting_area_has_the_elevators_waiting_area_scale(elevator, ground_floor):
+    elevator.waiting_area_scale = Scale(1.0, 3.0, 2.0)
+    assert (
+        box_scale(elevator.waiting_areas[ground_floor]) == elevator.waiting_area_scale
+    )
+
+
+def test_waiting_area_is_fixed_to_the_elevator_shaft(elevator, ground_floor):
+    waiting_area = elevator.waiting_areas[ground_floor]
+    assert waiting_area.parent_connection.parent is elevator.movable_joint.parent
+
+
 def test_elevator_has_a_waiting_area_per_level(elevator, ground_floor, first_floor):
     assert list(elevator.waiting_areas) == [ground_floor, first_floor]
 
