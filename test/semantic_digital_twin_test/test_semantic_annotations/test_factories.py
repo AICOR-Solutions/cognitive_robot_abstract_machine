@@ -1517,3 +1517,14 @@ def test_elevator_without_a_movable_joint_cannot_drive():
 
     with pytest.raises(MissingMovableJointError):
         elevator.drive_to_floor(ground_floor)
+
+
+def test_elevator_without_a_movable_joint_has_no_waiting_areas():
+    world = _world_with_root()
+    with world.modify_world():
+        elevator = Elevator.create_with_new_body_in_world(
+            name="elevator", world=world, scale=Scale(2, 2, 2)
+        )
+
+    with pytest.raises(MissingMovableJointError):
+        elevator.waiting_areas

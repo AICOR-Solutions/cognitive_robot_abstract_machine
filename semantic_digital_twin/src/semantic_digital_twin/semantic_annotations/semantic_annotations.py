@@ -614,6 +614,14 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
     the elevator to other floors.
     """
 
+    waiting_area_scale: Scale = field(
+        default_factory=lambda: Scale(1.5, 2.2, 2.5), kw_only=True
+    )
+    """
+    Depth from the doors, width and height of the area in front of this elevator's
+    doors on each level where people wait for the cabin.
+    """
+
     @classproperty
     def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
@@ -694,49 +702,34 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
     @cached_property
     def waiting_areas(self) -> dict[Level, Region]:
         """
-        The space in front of this elevator's doors on each level of its world, where
-        people wait for the cabin: 1.5 m deep, 0.3 m wider than the cabin on either side
-        and 2.5 m high from the level's floor.
+        The space of :attr:`waiting_area_scale` in front of this elevator's doors on
+        each level of its world, standing on the level's floor.
 
-        Added to the world, each fixed to its level, on first access unless the world
-        already holds them.
+        Added to the world, each fixed to the shaft the cabin rides in, on first access
+        unless the world already holds them.
+
+        :raises MissingMovableJointError: If this elevator has no drive, and with it no
+            shaft.
         """
-        scale = Scale(1.5, self.scale.y + 2 * 0.3, 2.5)
+        if self.movable_joint is None:
+            raise MissingMovableJointError(self)
+        shaft = self.movable_joint.parent
         return {
             level: self._region_from(
                 RegionSpecification.box(
-                    f"{self.name.name}_{level.name.name}_waiting_area", scale
+                    f"{self.name.name}_{level.name.name}_waiting_area",
+                    self.waiting_area_scale,
                 ),
-                parent=level.root,
-                parent_T_self=self._level_T_waiting_area(level, scale),
+                parent=shaft,
+                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-(self.scale.x + self.waiting_area_scale.x) / 2,
+                    z=self._world.transform(level.floor_plane[0], shaft).z
+                    + self.waiting_area_scale.z / 2,
+                    reference_frame=shaft,
+                ),
             )
             for level in self._world.get_semantic_annotations_by_type(Level)
         }
-
-    def _level_T_waiting_area(
-        self, level: Level, scale: Scale
-    ) -> HomogeneousTransformationMatrix:
-        """
-        :param scale: The extents of the waiting area.
-        :return: Where the waiting area of ``scale`` in front of this elevator's doors
-            lies on ``level``, in the level's frame.
-        """
-        world = self._world
-        world_P_centre = world.transform(
-            Point3(-self.scale.x / 2 - scale.x / 2, 0, 0, reference_frame=self.root),
-            world.root,
-        )
-        world_T_area = HomogeneousTransformationMatrix.from_point_rotation_matrix(
-            Point3(
-                world_P_centre.x,
-                world_P_centre.y,
-                level.floor_plane[0].z + scale.z / 2,
-                reference_frame=world.root,
-            ),
-            self.root.global_transform.rotation_matrix,
-            reference_frame=world.root,
-        )
-        return world.transform(world_T_area, level.root)
 
     def _region_from(
         self,
