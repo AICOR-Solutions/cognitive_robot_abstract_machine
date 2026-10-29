@@ -10,17 +10,23 @@ doors on the robot's level go into the boarding goal.
 
 While the social navigation module has the base, the plan sends no motions; the module
 drives the robot through ``/cmd_vel`` and gives the base back with its result.
+
+The robot says aloud that it waits in front of the elevator and, once aboard, that it is
+inside.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 from coraplex.datastructures.dataclasses import Context
 from coraplex.datastructures.enums import ExecutionType
+from coraplex.exceptions import NotOnASingleLevelException
 from coraplex.plans.factories import sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.speech import SayAction
 from experiments.ra_fetch_elevator_people.elevator_people import (
     Ros4HriTopic,
     TrackedPersons,
@@ -31,9 +37,41 @@ from experiments.tiago_elevator_waiting_demo.social_navigation import (
 )
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Elevator
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Elevator,
+    Level,
+)
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
+
+# %% what the robot says
+
+
+class ElevatorBoardingAnnouncement(StrEnum):
+    """
+    What a robot boarding an elevator says about where it believes it is, with its floor
+    left open.
+    """
+
+    WAITING_TO_BOARD = (
+        "I am in front of the elevator on the {current_floor} and waiting to board."
+    )
+    """
+    Said once the robot stands in the waiting zone in front of the elevator.
+    """
+
+    BOARDED = "I am inside the elevator."
+    """
+    Said once the social navigation module has driven the robot into the cabin.
+    """
+
+    def verbalize(self, current_floor: Level) -> str:
+        """
+        :param current_floor: The floor the robot boards from.
+        :return: This announcement with the floor filled in by its spoken name.
+        """
+        return self.format(current_floor=current_floor.spoken_name)
+
 
 # %% demonstration
 
@@ -98,13 +136,26 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
 
     def build_plan(self, context: Context) -> PlanNode:
         """
-        Drive to the waiting zone and board the elevator.
+        Drive to the waiting zone and board the elevator, saying where the robot is.
+
+        :raises NotOnASingleLevelException: If the robot stands on no level.
         """
         elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
+        current_floor = Level.under(context.robot.root)
+        if current_floor is None:
+            raise NotOnASingleLevelException("Robot is not on any recognized floor.")
         return sequential(
             [
                 NavigateAction(self.waiting_pose(elevator)),
+                SayAction(
+                    ElevatorBoardingAnnouncement.WAITING_TO_BOARD.verbalize(
+                        current_floor
+                    )
+                ),
                 BoardElevatorAction(elevator),
+                SayAction(
+                    ElevatorBoardingAnnouncement.BOARDED.verbalize(current_floor)
+                ),
             ],
             context=context,
         )

@@ -1,8 +1,11 @@
 import pytest
 
 from coraplex.datastructures.enums import ExecutionType
+from coraplex.robot_plans.actions.core.navigation import ElevatorRideAnnouncement
+from coraplex.robot_plans.actions.core.speech import SayAction
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_elevator_waiting_demo.demo import (
+    ElevatorBoardingAnnouncement,
     TiagoElevatorWaitingDemonstration,
 )
 from experiments.tiago_elevator_waiting_demo.exceptions import BoardingFailedError
@@ -10,6 +13,7 @@ from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    GroundFloor,
 )
 from semantic_digital_twin.world import World
 
@@ -33,6 +37,29 @@ def test_tiago_rides_the_elevator_to_the_first_floor(rclpy_node):
     )
     assert elevator.movable_joint.position == pytest.approx(
         elevator.drive_position_for_floor(first_floor)
+    )
+
+
+def test_tiago_says_where_it_is_and_where_it_is_headed_while_riding(tiago_speech):
+    demonstration = TiagoElevatorRideDemonstration(
+        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
+    )
+
+    world = demonstration.run()
+
+    ground_floor = world.get_semantic_annotations_by_type(GroundFloor)[0]
+    first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
+    expected_sentences = [
+        announcement.verbalize(current_floor=ground_floor, target_floor=first_floor)
+        for announcement in (
+            ElevatorRideAnnouncement.DEPARTING,
+            ElevatorRideAnnouncement.WAITING_AT_DOORS,
+            ElevatorRideAnnouncement.RIDING,
+            ElevatorRideAnnouncement.ARRIVED,
+        )
+    ]
+    assert (
+        tiago_speech.wait_for_sentences(len(expected_sentences)) == expected_sentences
     )
 
 
@@ -102,3 +129,29 @@ def test_tiago_hands_its_base_over_from_where_it_waits(
         ],
         abs=0.1,
     )
+
+
+@pytest.mark.parametrize("social_navigation", [BoardingAnswer.ABORT], indirect=True)
+def test_tiago_says_it_waits_to_board_in_front_of_the_elevator(
+    social_navigation, tiago_speech, waiting_demonstration, office_world
+):
+    with pytest.raises(BoardingFailedError):
+        waiting_demonstration.run()
+
+    ground_floor = office_world.get_semantic_annotations_by_type(GroundFloor)[0]
+    expected_sentence = ElevatorBoardingAnnouncement.WAITING_TO_BOARD.verbalize(
+        current_floor=ground_floor
+    )
+    assert tiago_speech.wait_for_sentences(1) == [expected_sentence]
+
+
+def test_tiago_says_it_is_inside_the_elevator_once_it_boarded(
+    waiting_demonstration, office_world
+):
+    context = waiting_demonstration.build_context(office_world)
+
+    plan = waiting_demonstration.build_plan(context)
+
+    last_step = plan.children[-1].designator
+    assert isinstance(last_step, SayAction)
+    assert last_step.text == ElevatorBoardingAnnouncement.BOARDED

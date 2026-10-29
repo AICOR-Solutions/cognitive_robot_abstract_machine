@@ -996,6 +996,14 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
             if contact.body_a in own_bodies or contact.body_b in own_bodies
         )
 
+    @classproperty
+    def text_to_speech_topic(cls) -> str | None:
+        """
+        The topic this robot reads the text it speaks aloud from, or None if it cannot
+        speak.
+        """
+        return None
+
     @classmethod
     @abstractmethod
     def get_ros_file_path(cls) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import numpy as np
 from typing_extensions import Optional, Any, Dict
@@ -11,6 +12,7 @@ from coraplex.plans.attachment_nodes import ReAttachNode
 from coraplex.plans.factories import execute_single, pause_until, sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.core.speech import SayAction
 from coraplex.robot_plans.motions.navigation import MoveMotion, TurnMotion
 from coraplex.robot_plans.motions.robot_body import LookingMotion
 from giskardpy.motion_statechart.monitors.joint_monitors import (
@@ -281,18 +283,25 @@ class PassDoorAction(ActionDescription):
     Distance from the doorway at which the robot stops on the other side.
     """
 
+    waiting_announcement: str | None = field(default=None, kw_only=True)
+    """
+    What the robot says once it stands in front of the doorway, before it waits for the
+    passage to clear, or None to wait silently.
+    """
+
     @property
     def _action_plan(self) -> PlanNode:
         side = self._destination_side
-        return sequential(
-            [
-                NavigateAction(self._pose_at(-side * self.approach_distance, side)),
-                pause_until(
-                    [NavigateAction(self._pose_at(side * self.exit_distance, side))],
-                    monitor=self._passage_clear(),
-                ),
-            ]
+        steps = [NavigateAction(self._pose_at(-side * self.approach_distance, side))]
+        if self.waiting_announcement is not None:
+            steps.append(SayAction(self.waiting_announcement))
+        steps.append(
+            pause_until(
+                [NavigateAction(self._pose_at(side * self.exit_distance, side))],
+                monitor=self._passage_clear(),
+            )
         )
+        return sequential(steps)
 
     @property
     def _doorway_frame(self) -> Region:
@@ -384,12 +393,55 @@ class PassDoorAction(ActionDescription):
         return passage_clear
 
 
+class ElevatorRideAnnouncement(StrEnum):
+    """
+    What a robot riding an elevator says about where it believes it is and where it is
+    headed, with the floors left open.
+    """
+
+    DEPARTING = "I am on the {current_floor} and heading to the {target_floor}."
+    """
+    Said before the robot sets off towards the elevator.
+    """
+
+    WAITING_AT_DOORS = (
+        "I am in front of the elevator and waiting for it on the {current_floor}."
+    )
+    """
+    Said once the robot stands in front of the elevator's doors.
+    """
+
+    RIDING = "I am inside the elevator and riding to the {target_floor}."
+    """
+    Said once the robot has boarded the cabin.
+    """
+
+    ARRIVED = "I have arrived on the {target_floor}."
+    """
+    Said once the robot has left the cabin on the floor it was headed to.
+    """
+
+    def verbalize(self, current_floor: Level, target_floor: Level) -> str:
+        """
+        :param current_floor: The floor the robot sets off from.
+        :param target_floor: The floor the robot is headed to.
+        :return: This announcement with the floors filled in by their spoken names.
+        """
+        return self.format(
+            current_floor=current_floor.spoken_name,
+            target_floor=target_floor.spoken_name,
+        )
+
+
 @dataclass
 class ElevatorNavigation(ActionDescription):
     """
     Navigates a robot to another level of a building using an elevator, the robot drives
     in the elevator, turns towards the doors and waits there until its lidar sees the
     doors open again and the elevator is at the right level.
+
+    Along the way the robot says where it believes it is and where it is headed, see
+    :class:`ElevatorRideAnnouncement`.
     """
 
     elevator: Elevator
@@ -416,8 +468,14 @@ class ElevatorNavigation(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         half_cabin_depth = float(self.elevator.scale.x) / 2
+        current_floor = self._current_floor
         return sequential(
             [
+                SayAction(
+                    ElevatorRideAnnouncement.DEPARTING.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
                 pause_until(
                     [
                         PassDoorAction(
@@ -425,11 +483,19 @@ class ElevatorNavigation(ActionDescription):
                             destination=Point3(reference_frame=self.elevator.root),
                             approach_distance=self.exit_clearance,
                             exit_distance=half_cabin_depth,
+                            waiting_announcement=ElevatorRideAnnouncement.WAITING_AT_DOORS.verbalize(
+                                current_floor, self.target_floor
+                            ),
                         )
                     ],
-                    monitor=self._cabin_at_floor(self._current_floor),
+                    monitor=self._cabin_at_floor(current_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.elevator.root),
+                SayAction(
+                    ElevatorRideAnnouncement.RIDING.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
                 pause_until(
                     [
                         PassDoorAction(
@@ -442,6 +508,11 @@ class ElevatorNavigation(ActionDescription):
                     monitor=self._cabin_at_floor(self.target_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.world.root),
+                SayAction(
+                    ElevatorRideAnnouncement.ARRIVED.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
             ]
         )
 

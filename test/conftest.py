@@ -1092,7 +1092,7 @@ def tiago_apartment_world(_tiago_world_setup, _apartment_world_setup):
     tiago_copy = deepcopy(_tiago_world_setup)
     apartment_copy.merge_world(tiago_copy)
 
-    return apartment_copy, Tiago.from_world(apartment_copy)
+    return apartment_copy, apartment_copy.get_semantic_annotations_by_type(Tiago)[0]
 
 
 ###############################

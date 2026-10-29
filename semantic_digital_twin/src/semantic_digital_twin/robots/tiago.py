@@ -583,6 +583,10 @@ class Tiago(AbstractRobot, HasMobileBase[TiagoMobileBase]):
     https://pal-robotics.com/blog/tiago-bi-manual-robot-research/
     """
 
+    @classproperty
+    def text_to_speech_topic(cls) -> str:
+        return TiagoTopic.TEXT_TO_SPEECH
+
     @classmethod
     def get_ros_file_path(cls) -> str:
         return "package://iai_tiago_description/urdf/tiago_from_our_robot.urdf"

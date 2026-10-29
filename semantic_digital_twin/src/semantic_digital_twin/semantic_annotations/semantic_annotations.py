@@ -9,6 +9,7 @@ from typing import Iterable, Iterator, Optional, Self, Tuple, TYPE_CHECKING, Uni
 import numpy as np
 from typing_extensions import List
 
+from krrood.entity_query_language.utils import camel_case_to_words
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from random_events.interval import closed
@@ -896,6 +897,13 @@ class Level(HasRootRegion):
     """
     A level of a building
     """
+
+    @classproperty
+    def spoken_name(cls) -> str:
+        """
+        How a person names this level when speaking, such as *ground floor*.
+        """
+        return camel_case_to_words(cls.__name__)
 
     @property
     def floor_plane(self) -> Tuple[Point3, Point3]:

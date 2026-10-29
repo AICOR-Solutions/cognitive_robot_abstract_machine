@@ -82,6 +82,13 @@ def test_level_under_an_entity_below_every_storey_is_unknown(arise_office_world)
     assert Level.under(basement.root) is None
 
 
+def test_levels_are_spoken_of_by_the_storey_they_stand_for(arise_office_world):
+    ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
+    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    assert ground_floor.spoken_name == "ground floor"
+    assert first_floor.spoken_name == "first floor"
+
+
 def test_doorway_lies_in_the_middle_of_the_doors_on_the_cabin_floor(
     arise_office_world, arise_office
 ):
