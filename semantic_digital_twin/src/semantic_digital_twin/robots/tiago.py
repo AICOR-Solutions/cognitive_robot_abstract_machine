@@ -90,6 +90,7 @@ class TiagoJoint(StrEnum):
     RIGHT_ARM_7 = "arm_right_7_joint"
     RIGHT_GRIPPER_FINGER = "gripper_right_finger_joint"
 
+
 class TiagoTopic(StrEnum):
     ODOMETRY = "direct_laser_odometry/odom"
     """
@@ -99,6 +100,11 @@ class TiagoTopic(StrEnum):
     LIDAR = "scan"
     """
     Topic name on which the lidar readings are published
+    """
+
+    TEXT_TO_SPEECH = "tts"
+    """
+    Topic the robot reads the text it speaks aloud from.
     """
 
 
