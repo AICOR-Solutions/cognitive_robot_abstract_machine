@@ -5,8 +5,9 @@ from dataclasses import dataclass, field
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import NodeArtifacts, Task
+from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart
 from giskardpy.motion_statechart.ros_context import RosContextExtension
-from typing_extensions import Optional
+from typing_extensions import Any, Optional
 
 from coraplex.datastructures.enums import ExecutionType
 from coraplex.perception import PerceptionInterface, PerceptionQuery
@@ -117,3 +118,27 @@ class DetectingMotion(BaseMotion):
             execution_type=GiskardExecutable.execution_type,
             accept_first_if_multiple=self.accept_first_if_multiple,
         )
+
+
+# %% publishing a message on a topic
+
+
+@dataclass
+class PublishMessageMotion(BaseMotion):
+    """
+    Publishes a message once on a ROS topic, such as a text the robot speaks aloud.
+    """
+
+    topic_name: str
+    """
+    The topic the message is published on.
+    """
+
+    message: Any
+    """
+    The ROS message that is published.
+    """
+
+    @property
+    def _motion_chart(self) -> PublishOnStart:
+        return PublishOnStart(topic_name=self.topic_name, msg=self.message)
