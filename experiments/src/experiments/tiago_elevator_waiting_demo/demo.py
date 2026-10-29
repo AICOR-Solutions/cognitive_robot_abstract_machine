@@ -41,7 +41,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     Level,
 )
-from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
 
 # %% what the robot says
@@ -100,18 +99,6 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
     The persons a ROS4HRI person manager tracks, kept in the world in a real run.
     """
 
-    def waiting_pose(self, elevator: Elevator) -> Pose:
-        """
-        :return: Where the robot waits: :attr:`distance_from_doors` in front of the
-            middle of the doors, facing the cabin, on the cabin's floor.
-        """
-        doorway = elevator.doorway_pose
-        return Pose.from_xyz_rpy(
-            x=float(doorway.x) - self.distance_from_doors,
-            z=float(doorway.z),
-            reference_frame=elevator.root,
-        )
-
     def build_context(self, world: World) -> Context:
         """
         Unlike :meth:`TiagoElevatorRideDemonstration.build_context`, also keeps the
@@ -146,7 +133,9 @@ class TiagoElevatorWaitingDemonstration(TiagoElevatorRideDemonstration):
             raise NotOnASingleLevelException("Robot is not on any recognized floor.")
         return sequential(
             [
-                NavigateAction(self.waiting_pose(elevator)),
+                NavigateAction(
+                    elevator.pose_in_front_of_doors(self.distance_from_doors)
+                ),
                 SayAction(
                     ElevatorBoardingAnnouncement.WAITING_TO_BOARD.verbalize(
                         current_floor

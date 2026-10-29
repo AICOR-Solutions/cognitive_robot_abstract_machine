@@ -24,12 +24,16 @@ from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.input_synchronization import WorldStateInputs
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.arise_office import (
+    AriseOfficeBuilding,
+    AriseOfficeRoom,
+)
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    GroundFloor,
     Level,
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -131,7 +135,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             semantic_annotation_type=self.used_robot,
             world_T_odom=world.transform(
                 HomogeneousTransformationMatrix(
-                    reference_frame=self.office.ground_floor_slab(world).root
+                    reference_frame=self.office.get_room(
+                        world, GroundFloor, AriseOfficeRoom.LOBBY
+                    ).floor.root
                 ),
                 world.root,
             ),

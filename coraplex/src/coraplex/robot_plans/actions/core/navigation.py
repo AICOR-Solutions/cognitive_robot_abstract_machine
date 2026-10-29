@@ -22,11 +22,12 @@ from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable_from, and_, ConditionType
 from semantic_digital_twin.exceptions import MissingMovableJointError
-from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
+from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.reasoning.robot_predicates import is_pose_free_for_robot
 from semantic_digital_twin.robots.exceptions import MissingLidarError
 from semantic_digital_twin.robots.robot_part_mixins import HasLidar
 from semantic_digital_twin.robots.robot_parts import Camera
+from semantic_digital_twin.semantic_annotations.mixins import HasPlanarFreeSpace
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Level,
@@ -138,7 +139,9 @@ class PathPlanningNavigateAction(ActionDescription):
     Navigates the robot to a pose along a path through the environment's free space.
 
     The free space is decomposed into a graph of convex sets, so the robot drives around
-    the furniture and walls between it and the target instead of straight at them.
+    the furniture and walls between it and the target instead of straight at them. It is
+    the free space of the level the robot is on, or, outside every level, of the floor
+    it stands on.
 
     This works for obstacles which are known in the environment beforehand, not for
     those added during navigation.
@@ -154,47 +157,30 @@ class PathPlanningNavigateAction(ActionDescription):
         return sequential([MoveMotion(waypoint) for waypoint in self._path()])
 
     @property
+    def _ground(self) -> HasPlanarFreeSpace:
+        """
+        Where the path is laid out: the level whose region alone holds the robot, or
+        else the floor it stands on.
+
+        :raises NoFloorBelowRobot: If the robot is on no single level and stands over no
+            annotated floor.
+        """
+        levels = Level.holding(self.robot.bodies_with_collision[0])
+        if len(levels) == 1:
+            return levels[0]
+        return self._floor
+
+    @property
     def _floor(self) -> Floor:
         """
-        The floor the robot stands on, whose free space the path is laid out in.
-
-        A world with several storeys puts more than one floor below the robot; the one
-        it stands on is the topmost of those it stands within the footprint of.
+        The floor the robot stands on.
 
         :raises NoFloorBelowRobot: If the robot stands over no annotated floor.
-        :return: The floor the robot drives on.
         """
-        floors_below = [
-            floor
-            for floor in self.world.get_semantic_annotations_by_type(Floor)
-            if self._stands_on(floor)
-        ]
-        if not floors_below:
+        floor = Floor.under(self.robot.root)
+        if floor is None:
             raise NoFloorBelowRobot(self.robot)
-        return max(floors_below, key=lambda floor: self._extent_of(floor).max_z)
-
-    def _extent_of(self, floor: Floor) -> VolumetricBoundingBox:
-        """
-        :param floor: The floor to measure.
-        :return: The floor's bounding box in the world's root frame.
-        """
-        return floor.as_bounding_box_collection_at_origin(
-            HomogeneousTransformationMatrix(reference_frame=self.world.root)
-        ).bounding_box()
-
-    def _stands_on(self, floor: Floor) -> bool:
-        """
-        :param floor: The floor to test.
-        :return: Whether the robot's base rests within this floor's footprint and no
-            lower than its top.
-        """
-        extent = self._extent_of(floor)
-        base_pose = self.robot.root.global_pose
-        return (
-            extent.min_x <= float(base_pose.x) <= extent.max_x
-            and extent.min_y <= float(base_pose.y) <= extent.max_y
-            and extent.max_z <= float(base_pose.z)
-        )
+        return floor
 
     def _path(self) -> list[Pose]:
         """
@@ -244,7 +230,7 @@ class PathPlanningNavigateAction(ActionDescription):
             target's.
         """
         base_pose = self.robot.root.global_pose
-        free_space = self._floor.planar_free_space(
+        free_space = self._ground.planar_free_space(
             max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
             .bounding_box()
             .scale.z,
@@ -525,11 +511,7 @@ class ElevatorNavigation(ActionDescription):
         multiple floors at once.
         :return: The semantic annotation for the floor
         """
-        current_floor = [
-            floor
-            for floor in self.world.get_semantic_annotations_by_type(Level)
-            if InsideOf(self.robot.bodies_with_collision[0], floor.root)() > 0.9
-        ]
+        current_floor = Level.holding(self.robot.bodies_with_collision[0])
         if len(current_floor) == 0:
             raise NotOnASingleLevelException("Robot is not on any recognized floor.")
         if len(current_floor) > 1:

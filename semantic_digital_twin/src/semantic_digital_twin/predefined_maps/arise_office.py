@@ -13,6 +13,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
     GroundFloor,
     Level,
+    Room,
     Wall,
 )
 from semantic_digital_twin.spatial_types import (
@@ -28,7 +29,11 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.geometry import (
+    Box,
+    PlanarBoundingBox,
+    Scale,
+)
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Region
 
@@ -45,6 +50,33 @@ class WallSide(StrEnum):
     SOUTH = "south"
     EAST = "east"
     WEST = "west"
+
+
+class AriseOfficeRoom(StrEnum):
+    """
+    A room of a storey of the office, named for where it lies relative to the elevator
+    shaft.
+    """
+
+    WEST_OFFICE = "west_office"
+    """
+    The room west of the shaft, spanning the storey's whole depth.
+    """
+
+    LOBBY = "lobby"
+    """
+    The room on the ground floor between the offices, holding the elevator cabin.
+    """
+
+    LANDING = "landing"
+    """
+    The room on the first floor between the offices, in front of the shaft.
+    """
+
+    EAST_OFFICE = "east_office"
+    """
+    The room east of the shaft, spanning the storey's whole depth.
+    """
 
 
 @dataclass
@@ -117,98 +149,130 @@ class AriseOfficeBuilding:
 
     def spawn(self, world: World, name: str = "arise_office") -> Elevator:
         """
-        Materialize the office in ``world``: floor slabs and outer walls of both
-        storeys, a level annotation per storey, and the elevator serving the ground
-        floor.
+        Materialize the office in ``world``: the rooms and outer walls of both storeys,
+        a level annotation per storey, and the elevator serving the ground floor.
+
+        Each storey is tiled by an office on either side of the shaft and a room between
+        them; on the first floor that room ends at the shaft.
 
         :param world: The world the office is added to.
         :param name: Prefix for the names of every entity this office creates.
         :return: The elevator.
         """
-        self._spawn_slab(
+        self._spawn_storey(
             world,
-            self._ground_floor_slab_name(name),
-            Point3(0, 0, self.ground_floor_height),
-            self.storey_scale.x,
-            self.storey_scale.y,
+            name,
+            GroundFloor,
+            self.ground_floor_height,
+            AriseOfficeRoom.LOBBY,
+            self.storey_scale.y / 2,
         )
-        self._spawn_first_floor_slabs(world, f"{name}_first_floor")
-        for level_type, height in (
-            (GroundFloor, self.ground_floor_height),
-            (FirstFloor, self.first_floor_height),
-        ):
-            self._spawn_outer_walls(world, f"{name}_{level_type.__name__}", height)
-            self._spawn_level(
-                world, f"{name}_{level_type.__name__}_level", level_type, height
-            )
+        self._spawn_storey(
+            world,
+            name,
+            FirstFloor,
+            self.first_floor_height,
+            AriseOfficeRoom.LANDING,
+            self.shaft_front,
+        )
         return self._spawn_elevator(world, f"{name}_elevator")
 
-    def ground_floor_slab(self, world: World, name: str = "arise_office") -> Floor:
+    def get_room(
+        self,
+        world: World,
+        level_type: type[Level],
+        room: AriseOfficeRoom,
+        name: str = "arise_office",
+    ) -> Room:
         """
         :param world: The world the office was spawned into.
+        :param level_type: The storey the room lies on.
+        :param room: Which room of the storey it is.
         :param name: The prefix the office was spawned with.
-        :return: The slab of the ground floor, whose frame lies on its top.
+        :return: The room annotation, whose floor's frame lies on its top.
         """
-        return world.get_semantic_annotation_by_name(self._ground_floor_slab_name(name))
+        return world.get_semantic_annotation_by_name(
+            self._room_name(name, level_type, room)
+        )
 
     @staticmethod
-    def _ground_floor_slab_name(name: str) -> str:
+    def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:
         """
         :param name: The prefix the office is spawned with.
-        :return: The name of the ground floor's slab.
+        :param level_type: The storey the room lies on.
+        :param room: Which room of the storey it is.
+        :return: The name of the room annotation.
         """
-        return f"{name}_ground_floor"
+        return f"{name}_{level_type.__name__}_{room}"
 
     # %% storeys
 
-    def _spawn_first_floor_slabs(self, world: World, name: str) -> None:
-        """
-        Three slabs around the shaft: one on either side and one in front of it.
-        """
-        side_width = (self.storey_scale.x - self.shaft_opening_width) / 2
-        side_centre = (self.shaft_opening_width + side_width) / 2
-        front_depth = self.shaft_front + self.storey_scale.y / 2
-        height = self.first_floor_height
-        self._spawn_slab(
-            world,
-            f"{name}_left",
-            Point3(-side_centre, 0, height),
-            side_width,
-            self.storey_scale.y,
-        )
-        self._spawn_slab(
-            world,
-            f"{name}_right",
-            Point3(side_centre, 0, height),
-            side_width,
-            self.storey_scale.y,
-        )
-        self._spawn_slab(
-            world,
-            f"{name}_front",
-            Point3(0, self.shaft_front - front_depth / 2, height),
-            self.shaft_opening_width,
-            front_depth,
-        )
-
-    @staticmethod
-    def _spawn_slab(
-        world: World, name: str, world_P_centre: Point3, width: float, depth: float
+    def _spawn_storey(
+        self,
+        world: World,
+        name: str,
+        level_type: type[Level],
+        height: float,
+        middle_room: AriseOfficeRoom,
+        middle_room_north_edge: float,
     ) -> None:
         """
-        A flat floor whose top is at the height of ``world_P_centre``.
+        The rooms, outer walls and level of the storey whose floor top is at ``height``.
+
+        :param name: The prefix the office is spawned with.
+        :param middle_room: The room between the two offices.
+        :param middle_room_north_edge: Y at which the room between the offices ends.
         """
-        Floor.get_annotation_specification(
-            name,
+        half_x, half_y = self.storey_scale.x / 2, self.storey_scale.y / 2
+        half_shaft = self.shaft_opening_width / 2
+        origin = HomogeneousTransformationMatrix()
+        for room, footprint in (
+            (
+                AriseOfficeRoom.WEST_OFFICE,
+                PlanarBoundingBox(-half_x, -half_y, -half_shaft, half_y, origin),
+            ),
+            (
+                middle_room,
+                PlanarBoundingBox(
+                    -half_shaft, -half_y, half_shaft, middle_room_north_edge, origin
+                ),
+            ),
+            (
+                AriseOfficeRoom.EAST_OFFICE,
+                PlanarBoundingBox(half_shaft, -half_y, half_x, half_y, origin),
+            ),
+        ):
+            self._spawn_room(
+                world, self._room_name(name, level_type, room), footprint, height
+            )
+        storey_name = f"{name}_{level_type.__name__}"
+        self._spawn_outer_walls(world, storey_name, height)
+        self._spawn_level(world, f"{storey_name}_level", level_type, height)
+
+    @staticmethod
+    def _spawn_room(
+        world: World, name: str, footprint: PlanarBoundingBox, height: float
+    ) -> Room:
+        """
+        A room standing on a flat floor of its own, whose top is at ``height``.
+
+        :param footprint: The room's extent in the world frame.
+        """
+        floor = Floor.get_annotation_specification(
+            f"{name}_floor",
             Floor.get_default_root_kinematic_structure_entity_specification(
-                scale=Scale(width, depth, 0)
+                scale=Scale(footprint.depth, footprint.width, 0)
             ),
         ).spawn(
             world,
             parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                world_P_centre.x, world_P_centre.y, world_P_centre.z
+                footprint.x_interval.center(), footprint.y_interval.center(), height
             ),
         )
+        room = Room(name=PrefixedName(name), floor=floor)
+        with world.modify_world():
+            world.add_semantic_annotation(room)
+        return room
 
     def _spawn_outer_walls(self, world: World, name: str, height: float) -> None:
         """

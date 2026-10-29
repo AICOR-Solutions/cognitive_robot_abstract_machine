@@ -1,13 +1,20 @@
 import pytest
 
+from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeRoom
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    Floor,
     GroundFloor,
     Human,
     Level,
+    Room,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point2,
+    Vector3,
+)
 
 # %% elevator
 
@@ -125,3 +132,89 @@ def test_level_under_a_person_riding_the_elevator_is_the_storey_it_arrived_at(
         arise_office_world.move_branch(rider.root, elevator.root)
     elevator.drive_to_floor(first_floor)
     assert Level.under(rider.root) is first_floor
+
+
+# %% rooms
+
+
+def rooms_on(level: Level) -> list[Room]:
+    """
+    :return: The rooms whose floor lies on ``level``.
+    """
+    return [
+        room
+        for room in level._world.get_semantic_annotations_by_type(Room)
+        if Level.under(room.floor.root) is level
+    ]
+
+
+@pytest.mark.parametrize(
+    "level_type, middle_room",
+    [(GroundFloor, AriseOfficeRoom.LOBBY), (FirstFloor, AriseOfficeRoom.LANDING)],
+)
+def test_each_storey_has_an_office_on_either_side_and_a_room_between_them(
+    arise_office_world, arise_office, level_type, middle_room
+):
+    level = arise_office_world.get_semantic_annotations_by_type(level_type)[0]
+    assert set(rooms_on(level)) == {
+        arise_office.get_room(arise_office_world, level_type, room)
+        for room in (
+            AriseOfficeRoom.WEST_OFFICE,
+            middle_room,
+            AriseOfficeRoom.EAST_OFFICE,
+        )
+    }
+
+
+@pytest.mark.parametrize("level_type", [GroundFloor, FirstFloor])
+def test_room_floors_lie_at_the_height_of_their_storey(arise_office_world, level_type):
+    level = arise_office_world.get_semantic_annotations_by_type(level_type)[0]
+    for room in rooms_on(level):
+        assert float(room.floor.root.global_transform.z) == pytest.approx(
+            float(level.floor_plane[0].z)
+        )
+
+
+def test_ground_floor_rooms_cover_the_whole_storey(arise_office_world, arise_office):
+    ground_floor = arise_office_world.get_semantic_annotations_by_type(GroundFloor)[0]
+    covered_area = sum(
+        room.floor.extent.depth * room.floor.extent.width
+        for room in rooms_on(ground_floor)
+    )
+    assert covered_area == pytest.approx(
+        arise_office.storey_scale.x * arise_office.storey_scale.y
+    )
+
+
+def test_first_floor_landing_ends_at_the_shaft(arise_office_world, arise_office):
+    landing = arise_office.get_room(
+        arise_office_world, FirstFloor, AriseOfficeRoom.LANDING
+    )
+    assert landing.floor.extent.max_y == pytest.approx(arise_office.shaft_front)
+
+
+def test_ground_floor_lobby_is_the_floor_above_the_world_origin(
+    arise_office_world, arise_office
+):
+    lobby = arise_office.get_room(
+        arise_office_world, GroundFloor, AriseOfficeRoom.LOBBY
+    )
+    assert Floor.under(arise_office_world.root) is lobby.floor
+
+
+def test_first_floor_free_space_leads_from_the_landing_into_the_east_office(
+    arise_office_world, arise_office
+):
+    first_floor = arise_office_world.get_semantic_annotations_by_type(FirstFloor)[0]
+    landing, east_office = (
+        arise_office.get_room(arise_office_world, FirstFloor, room)
+        for room in (AriseOfficeRoom.LANDING, AriseOfficeRoom.EAST_OFFICE)
+    )
+    start = Point2.from_pose(landing.floor_centre)
+    goal = Point2.from_pose(east_office.floor_centre)
+
+    path = first_floor.planar_free_space(max_height=1.0).path_from_to(start, goal)
+
+    assert [float(path[-1].x), float(path[-1].y)] == pytest.approx(
+        [float(goal.x), float(goal.y)]
+    )

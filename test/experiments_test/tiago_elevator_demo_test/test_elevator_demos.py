@@ -9,6 +9,7 @@ from experiments.tiago_elevator_waiting_demo.demo import (
     TiagoElevatorWaitingDemonstration,
 )
 from experiments.tiago_elevator_waiting_demo.exceptions import BoardingFailedError
+from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeRoom
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -71,9 +72,9 @@ def test_simulated_tiago_stands_on_the_ground_floor():
     world = demonstration.build_simulated_world()
 
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
-    ground_floor_slab = demonstration.office.ground_floor_slab(world)
+    lobby = demonstration.office.get_room(world, GroundFloor, AriseOfficeRoom.LOBBY)
     assert float(robot.root.global_transform.z) == pytest.approx(
-        float(ground_floor_slab.root.global_transform.z)
+        float(lobby.floor.root.global_transform.z)
     )
 
 
@@ -98,7 +99,8 @@ def test_tiago_waits_in_front_of_the_doors_facing_the_cabin(
     elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
 
     world_T_waiting = office_world.transform(
-        waiting_demonstration.waiting_pose(elevator), office_world.root
+        elevator.pose_in_front_of_doors(waiting_demonstration.distance_from_doors),
+        office_world.root,
     ).to_np()
 
     world_T_doorway = office_world.transform(

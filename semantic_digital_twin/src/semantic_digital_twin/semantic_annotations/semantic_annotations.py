@@ -30,6 +30,7 @@ from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
+    HasPlanarFreeSpace,
     HasSupportingSurface,
     HasRootRegion,
     HasDrawers,
@@ -686,6 +687,19 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
             x=-self.scale.x / 2, z=-self.scale.z / 2, reference_frame=self.root
         )
 
+    def pose_in_front_of_doors(self, distance: float) -> Pose:
+        """
+        :param distance: How far in front of the doors the pose lies.
+        :return: The pose ``distance`` in front of the middle of the doors, facing the
+            cabin, on the cabin's floor, in the cabin frame.
+        """
+        doorway = self.doorway_pose
+        return Pose.from_xyz_rpy(
+            x=float(doorway.x) - distance,
+            z=float(doorway.z),
+            reference_frame=self.root,
+        )
+
     @cached_property
     def cabin_area(self) -> Region:
         """
@@ -856,6 +870,39 @@ class Floor(HasSupportingSurface):
             connection_specification=connection_specification,
         )
 
+    @property
+    def extent(self) -> VolumetricBoundingBox:
+        """
+        The floor's bounding box in the frame of its world's root.
+        """
+        return self.as_bounding_box_collection_at_origin(
+            HomogeneousTransformationMatrix(reference_frame=self._world.root)
+        ).bounding_box()
+
+    @classmethod
+    def under(
+        cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
+    ) -> Self | None:
+        """
+        :param floor_tolerance: How far a floor's top may lie above ``entity``'s origin
+            for ``entity`` to count as standing on that floor.
+        :return: The topmost floor of ``entity``'s world whose footprint holds
+            ``entity``'s origin and whose top lies at most ``floor_tolerance`` above
+            it, or None if ``entity`` stands over no floor.
+        """
+        position = entity.global_transform
+        x, y, z = float(position.x), float(position.y), float(position.z)
+        tops_of_floors_below = {
+            floor: extent.max_z
+            for floor in entity._world.get_semantic_annotations_by_type(cls)
+            if (extent := floor.extent).min_x <= x <= extent.max_x
+            and extent.min_y <= y <= extent.max_y
+            and extent.max_z <= z + floor_tolerance
+        }
+        if not tops_of_floors_below:
+            return None
+        return max(tops_of_floors_below, key=tops_of_floors_below.get)
+
 
 @dataclass(eq=False)
 class Room(SemanticAnnotation):
@@ -867,6 +914,19 @@ class Room(SemanticAnnotation):
     """
     The room's floor.
     """
+
+    @property
+    def floor_centre(self) -> Pose:
+        """
+        The middle of this room's floor on top of it, in the frame of its world's root.
+        """
+        extent = self.floor.extent
+        return Pose.from_xyz_rpy(
+            x=(extent.min_x + extent.max_x) / 2,
+            y=(extent.min_y + extent.max_y) / 2,
+            z=extent.max_z,
+            reference_frame=self._world.root,
+        )
 
 
 @dataclass(eq=False)
@@ -886,10 +946,43 @@ class LivingRoom(Room): ...
 
 
 @dataclass(eq=False)
-class Level(HasRootRegion):
+class Level(HasRootRegion, HasPlanarFreeSpace):
     """
-    A level of a building
+    A level of a building, whose region spans it from its floor up.
+
+    .. note:: The free space of a level ignores holes in its floor, such as an elevator
+        shaft, since its ground is the whole footprint of its region.
     """
+
+    def _ground(self) -> VolumetricBoundingBox:
+        """
+        The bottom face of this level's region.
+        """
+        region = self.root.area.as_bounding_box_collection_at_origin(
+            HomogeneousTransformationMatrix(reference_frame=self.root)
+        ).bounding_box()
+        return VolumetricBoundingBox(
+            region.min_x,
+            region.min_y,
+            region.min_z,
+            region.max_x,
+            region.max_y,
+            region.min_z,
+            region.origin,
+        )
+
+    @classmethod
+    def holding(cls, body: Body, minimum_containment_ratio: float = 0.9) -> list[Self]:
+        """
+        :param minimum_containment_ratio: The share of ``body`` a level's region has to
+            hold.
+        :return: The levels of ``body``'s world whose region holds ``body``.
+        """
+        return [
+            level
+            for level in body._world.get_semantic_annotations_by_type(cls)
+            if InsideOf(body, level.root)() > minimum_containment_ratio
+        ]
 
     @classproperty
     def spoken_name(cls) -> str:
