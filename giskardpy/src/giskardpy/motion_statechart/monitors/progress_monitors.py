@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 import numpy as np
-from typing_extensions import List, Optional
+from typing_extensions import List, Optional, TypeVar
 
 import krrood.symbolic_math.symbolic_math as sm
 from krrood.symbolic_math.symbolic_math import (
@@ -21,6 +21,7 @@ from giskardpy.motion_statechart.data_types import (
 )
 from giskardpy.motion_statechart.exceptions import NoProgressError
 from giskardpy.motion_statechart.graph_node import (
+    AwaitingExternalResult,
     CancelMotion,
     ConvergingTask,
     Goal,
@@ -30,6 +31,11 @@ from giskardpy.motion_statechart.graph_node import (
 from giskardpy.motion_statechart.monitors.payload_monitors import (
     CountSimulationTimeSeconds,
 )
+
+TNode = TypeVar("TNode", bound=MotionStatechartNode)
+"""
+A kind of motion statechart node.
+"""
 
 # %% watching a single task
 
@@ -246,6 +252,26 @@ class AnyMonitoredTaskShortOfItsGoal(MotionStatechartNode):
         )
 
 
+@dataclass(eq=False, repr=False)
+class AnyAwaitingExternalResult(MotionStatechartNode):
+    """
+    Turns ``True`` while at least one of :attr:`awaiting_nodes` runs without its outcome
+    having arrived.
+    """
+
+    awaiting_nodes: List[AwaitingExternalResult] = field(kw_only=True)
+    """
+    The nodes whose outcomes are decided outside the controller.
+    """
+
+    def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
+        return NodeArtifacts(
+            observation=sm.max(
+                sm.Vector([node.awaits_external_result for node in self.awaiting_nodes])
+            )
+        )
+
+
 # %% watching a whole goal
 
 
@@ -334,12 +360,14 @@ class StillProgressing(Goal):
         return cancel
 
     def expand(self, context: MotionStatechartContext) -> None:
-        self._monitored_tasks = self._find_converging_tasks(self.monitored_node)
+        self._monitored_tasks = self._find_nodes(self.monitored_node, ConvergingTask)
         self._timer = CountSimulationTimeSeconds(
             name=f"{self.name}/timer", seconds=self.timeout.total_seconds()
         )
         self._add_child_to_motion_statechart(self._timer)
-        stalled_now = self._expand_stall_detection()
+        stalled_now = sm.trinary_logic_and(
+            self._expand_stall_detection(), self._expand_external_wait_detection()
+        )
         self._timer.start_condition = stalled_now
         self._timer.reset_condition = sm.trinary_logic_not(stalled_now)
 
@@ -379,6 +407,23 @@ class StillProgressing(Goal):
             ],
         )
 
+    def _expand_external_wait_detection(self) -> Scalar:
+        """
+        Adds a monitor for the nodes beneath the monitored node whose outcomes are
+        decided outside the controller.
+
+        :return: False while one of them awaits its outcome, true otherwise.
+        """
+        awaiting_nodes = self._find_nodes(self.monitored_node, AwaitingExternalResult)
+        if not awaiting_nodes:
+            return Scalar.const_true()
+        awaiting = AnyAwaitingExternalResult(
+            name=f"{self.name}/awaiting_external_result",
+            awaiting_nodes=awaiting_nodes,
+        )
+        self._add_child_to_motion_statechart(awaiting)
+        return trinary_logic_not(awaiting.observation_variable)
+
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         """
         The timer only turns true once progress has stalled for :attr:`timeout`, so
@@ -392,23 +437,24 @@ class StillProgressing(Goal):
             observation=trinary_logic_not(self._timer.observation_variable.is_true())
         )
 
-    def _find_converging_tasks(
-        self, node: MotionStatechartNode
-    ) -> List[ConvergingTask]:
+    def _find_nodes(
+        self, node: MotionStatechartNode, node_type: type[TNode]
+    ) -> List[TNode]:
         """
-        Collect every converging task at or below ``node``.
+        Collect every node of ``node_type`` at or below ``node``.
 
         :param node: The node to search.
-        :return: The converging tasks found, depth first.
+        :param node_type: The kind of node to collect.
+        :return: The nodes found, depth first.
         """
-        if isinstance(node, ConvergingTask):
+        if isinstance(node, node_type):
             return [node]
         if not isinstance(node, Goal):
             return []
-        tasks = []
+        found = []
         for child_node in node.nodes:
-            tasks.extend(self._find_converging_tasks(child_node))
-        return tasks
+            found.extend(self._find_nodes(child_node, node_type))
+        return found
 
 
 @dataclass(eq=False, repr=False)

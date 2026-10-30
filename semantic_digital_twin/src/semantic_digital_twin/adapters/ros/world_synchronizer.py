@@ -119,6 +119,11 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
     How long to wait between two looks at the subscribers of the topic while connecting.
     """
 
+    queue_depth: int = 20
+    """
+    How many messages the publisher and subscriber of this synchronizer hold.
+    """
+
     publisher: Optional[Publisher] = field(init=False, default=None)
     """
     The publisher used to publish the world state.
@@ -161,10 +166,10 @@ class Synchronizer(WorldEntityWithClassBasedID, PublicationProgress):
             std_msgs.msg.String,
             topic=self.topic_name,
             callback=self.subscription_callback,
-            qos_profile=10,
+            qos_profile=self.queue_depth,
         )
         self.publisher = self.node.create_publisher(
-            std_msgs.msg.String, topic=self.topic_name, qos_profile=10
+            std_msgs.msg.String, topic=self.topic_name, qos_profile=self.queue_depth
         )
         self.wait_until_connected()
 

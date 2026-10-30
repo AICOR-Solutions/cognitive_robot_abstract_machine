@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import numpy as np
 from typing_extensions import Optional, Any, Dict
@@ -11,6 +12,7 @@ from coraplex.plans.attachment_nodes import ReAttachNode
 from coraplex.plans.factories import execute_single, pause_until, sequential
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.core.speech import SayAction
 from coraplex.robot_plans.motions.navigation import MoveMotion, TurnMotion
 from coraplex.robot_plans.motions.robot_body import LookingMotion
 from giskardpy.motion_statechart.monitors.joint_monitors import (
@@ -20,11 +22,12 @@ from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from krrood.entity_query_language.core.variable import Variable
 from krrood.entity_query_language.factories import variable_from, and_, ConditionType
 from semantic_digital_twin.exceptions import MissingMovableJointError
-from semantic_digital_twin.reasoning.predicates import allclose, InsideOf
+from semantic_digital_twin.reasoning.predicates import allclose
 from semantic_digital_twin.reasoning.robot_predicates import is_pose_free_for_robot
 from semantic_digital_twin.robots.exceptions import MissingLidarError
 from semantic_digital_twin.robots.robot_part_mixins import HasLidar
 from semantic_digital_twin.robots.robot_parts import Camera
+from semantic_digital_twin.semantic_annotations.mixins import HasPlanarFreeSpace
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Level,
@@ -136,7 +139,9 @@ class PathPlanningNavigateAction(ActionDescription):
     Navigates the robot to a pose along a path through the environment's free space.
 
     The free space is decomposed into a graph of convex sets, so the robot drives around
-    the furniture and walls between it and the target instead of straight at them.
+    the furniture and walls between it and the target instead of straight at them. It is
+    the free space of the level the robot is on, or, outside every level, of the floor
+    it stands on.
 
     This works for obstacles which are known in the environment beforehand, not for
     those added during navigation.
@@ -152,47 +157,30 @@ class PathPlanningNavigateAction(ActionDescription):
         return sequential([MoveMotion(waypoint) for waypoint in self._path()])
 
     @property
+    def _ground(self) -> HasPlanarFreeSpace:
+        """
+        Where the path is laid out: the level whose region alone holds the robot, or
+        else the floor it stands on.
+
+        :raises NoFloorBelowRobot: If the robot is on no single level and stands over no
+            annotated floor.
+        """
+        levels = Level.holding(self.robot.bodies_with_collision[0])
+        if len(levels) == 1:
+            return levels[0]
+        return self._floor
+
+    @property
     def _floor(self) -> Floor:
         """
-        The floor the robot stands on, whose free space the path is laid out in.
-
-        A world with several storeys puts more than one floor below the robot; the one
-        it stands on is the topmost of those it stands within the footprint of.
+        The floor the robot stands on.
 
         :raises NoFloorBelowRobot: If the robot stands over no annotated floor.
-        :return: The floor the robot drives on.
         """
-        floors_below = [
-            floor
-            for floor in self.world.get_semantic_annotations_by_type(Floor)
-            if self._stands_on(floor)
-        ]
-        if not floors_below:
+        floor = Floor.under(self.robot.root)
+        if floor is None:
             raise NoFloorBelowRobot(self.robot)
-        return max(floors_below, key=lambda floor: self._extent_of(floor).max_z)
-
-    def _extent_of(self, floor: Floor) -> VolumetricBoundingBox:
-        """
-        :param floor: The floor to measure.
-        :return: The floor's bounding box in the world's root frame.
-        """
-        return floor.as_bounding_box_collection_at_origin(
-            HomogeneousTransformationMatrix(reference_frame=self.world.root)
-        ).bounding_box()
-
-    def _stands_on(self, floor: Floor) -> bool:
-        """
-        :param floor: The floor to test.
-        :return: Whether the robot's base rests within this floor's footprint and no
-            lower than its top.
-        """
-        extent = self._extent_of(floor)
-        base_pose = self.robot.root.global_pose
-        return (
-            extent.min_x <= float(base_pose.x) <= extent.max_x
-            and extent.min_y <= float(base_pose.y) <= extent.max_y
-            and extent.max_z <= float(base_pose.z)
-        )
+        return floor
 
     def _path(self) -> list[Pose]:
         """
@@ -242,7 +230,7 @@ class PathPlanningNavigateAction(ActionDescription):
             target's.
         """
         base_pose = self.robot.root.global_pose
-        free_space = self._floor.planar_free_space(
+        free_space = self._ground.planar_free_space(
             max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
             .bounding_box()
             .scale.z,
@@ -281,18 +269,25 @@ class PassDoorAction(ActionDescription):
     Distance from the doorway at which the robot stops on the other side.
     """
 
+    waiting_announcement: str | None = field(default=None, kw_only=True)
+    """
+    What the robot says once it stands in front of the doorway, before it waits for the
+    passage to clear, or None to wait silently.
+    """
+
     @property
     def _action_plan(self) -> PlanNode:
         side = self._destination_side
-        return sequential(
-            [
-                NavigateAction(self._pose_at(-side * self.approach_distance, side)),
-                pause_until(
-                    [NavigateAction(self._pose_at(side * self.exit_distance, side))],
-                    monitor=self._passage_clear(),
-                ),
-            ]
+        steps = [NavigateAction(self._pose_at(-side * self.approach_distance, side))]
+        if self.waiting_announcement is not None:
+            steps.append(SayAction(self.waiting_announcement))
+        steps.append(
+            pause_until(
+                [NavigateAction(self._pose_at(side * self.exit_distance, side))],
+                monitor=self._passage_clear(),
+            )
         )
+        return sequential(steps)
 
     @property
     def _doorway_frame(self) -> Region:
@@ -379,11 +374,49 @@ class PassDoorAction(ActionDescription):
                 reference_frame=self._doorway_frame,
             ),
             name="DoorwayClear",
+            stays_clear_once_seen=True,
         )
-        # Once the robot drives into the doorway its lidar no longer looks through it,
-        # so the doorway counts as clear from the first time it is seen clear.
-        passage_clear.end_condition = passage_clear.observation_variable
         return passage_clear
+
+
+class ElevatorRideAnnouncement(StrEnum):
+    """
+    What a robot riding an elevator says about where it believes it is and where it is
+    headed, with the floors left open.
+    """
+
+    DEPARTING = "I am on the {current_floor} and heading to the {target_floor}."
+    """
+    Said before the robot sets off towards the elevator.
+    """
+
+    WAITING_AT_DOORS = (
+        "I am in front of the elevator and waiting for it on the {current_floor}."
+    )
+    """
+    Said once the robot stands in front of the elevator's doors.
+    """
+
+    RIDING = "I am inside the elevator and riding to the {target_floor}."
+    """
+    Said once the robot has boarded the cabin.
+    """
+
+    ARRIVED = "I have arrived on the {target_floor}."
+    """
+    Said once the robot has left the cabin on the floor it was headed to.
+    """
+
+    def verbalize(self, current_floor: Level, target_floor: Level) -> str:
+        """
+        :param current_floor: The floor the robot sets off from.
+        :param target_floor: The floor the robot is headed to.
+        :return: This announcement with the floors filled in by their spoken names.
+        """
+        return self.format(
+            current_floor=current_floor.spoken_name,
+            target_floor=target_floor.spoken_name,
+        )
 
 
 @dataclass
@@ -392,6 +425,9 @@ class ElevatorNavigation(ActionDescription):
     Navigates a robot to another level of a building using an elevator, the robot drives
     in the elevator, turns towards the doors and waits there until its lidar sees the
     doors open again and the elevator is at the right level.
+
+    Along the way the robot says where it believes it is and where it is headed, see
+    :class:`ElevatorRideAnnouncement`.
     """
 
     elevator: Elevator
@@ -418,8 +454,14 @@ class ElevatorNavigation(ActionDescription):
     @property
     def _action_plan(self) -> PlanNode:
         half_cabin_depth = float(self.elevator.scale.x) / 2
+        current_floor = self._current_floor
         return sequential(
             [
+                SayAction(
+                    ElevatorRideAnnouncement.DEPARTING.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
                 pause_until(
                     [
                         PassDoorAction(
@@ -427,11 +469,19 @@ class ElevatorNavigation(ActionDescription):
                             destination=Point3(reference_frame=self.elevator.root),
                             approach_distance=self.exit_clearance,
                             exit_distance=half_cabin_depth,
+                            waiting_announcement=ElevatorRideAnnouncement.WAITING_AT_DOORS.verbalize(
+                                current_floor, self.target_floor
+                            ),
                         )
                     ],
-                    monitor=self._cabin_at_floor(self._current_floor),
+                    monitor=self._cabin_at_floor(current_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.elevator.root),
+                SayAction(
+                    ElevatorRideAnnouncement.RIDING.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
                 pause_until(
                     [
                         PassDoorAction(
@@ -444,6 +494,11 @@ class ElevatorNavigation(ActionDescription):
                     monitor=self._cabin_at_floor(self.target_floor),
                 ),
                 ReAttachNode(body=self.robot.root, new_parent=self.world.root),
+                SayAction(
+                    ElevatorRideAnnouncement.ARRIVED.verbalize(
+                        current_floor, self.target_floor
+                    )
+                ),
             ]
         )
 
@@ -456,11 +511,7 @@ class ElevatorNavigation(ActionDescription):
         multiple floors at once.
         :return: The semantic annotation for the floor
         """
-        current_floor = [
-            floor
-            for floor in self.world.get_semantic_annotations_by_type(Level)
-            if InsideOf(self.robot.bodies_with_collision[0], floor.root)() > 0.9
-        ]
+        current_floor = Level.holding(self.robot.bodies_with_collision[0])
         if len(current_floor) == 0:
             raise NotOnASingleLevelException("Robot is not on any recognized floor.")
         if len(current_floor) > 1:

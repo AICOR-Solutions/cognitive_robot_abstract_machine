@@ -55,6 +55,7 @@ from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
+    DifferentialDrive,
     FixedConnection,
 )
 from semantic_digital_twin.world_description.geometry import (
@@ -1326,6 +1327,168 @@ class TestDiffDriveBaseGoal:
             goal_pose,
             atol=1e-2,
         )
+
+    def test_turning_towards_the_goal_keeps_the_base_in_place(
+        self, cylinder_bot_diff_world
+    ):
+        """
+        The first step only turns the base. Were it allowed to drive as well, backing up
+        would swing the direction to the goal towards the base's heading as much as
+        turning does, and the base would reverse on an arc, which a robot in a narrow
+        space such as an elevator cabin cannot afford.
+        """
+        world = cylinder_bot_diff_world
+        bot = world.get_body_by_name("bot")
+        goal_pose = Pose.from_xyz_rpy(y=1, reference_frame=world.root)
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        start = world.compute_forward_kinematics_np(world.root, bot)[:3, 3].copy()
+        turn = goal.nodes[0]
+        life_cycle_state = executor.motion_statechart.life_cycle_state
+
+        largest_drift = 0.0
+        for _ in range(2000):
+            executor.tick()
+            if life_cycle_state[turn] != LifeCycleValues.RUNNING:
+                break
+            position = world.compute_forward_kinematics_np(world.root, bot)[:3, 3]
+            largest_drift = max(largest_drift, float(np.linalg.norm(position - start)))
+
+        assert life_cycle_state[turn] == LifeCycleValues.SUCCEEDED
+        assert largest_drift < goal.threshold
+
+    def test_base_standing_at_the_goal_turns_straight_to_its_orientation(
+        self, cylinder_bot_diff_world
+    ):
+        """
+        The direction to a goal a few millimetres away says nothing about where the
+        base should face, so the first step turns towards the goal's orientation.
+        """
+        world = cylinder_bot_diff_world
+        bot = world.get_body_by_name("bot")
+        goal_pose = Pose.from_xyz_rpy(
+            x=0.004, y=0.003, yaw=-np.pi / 2, reference_frame=world.root
+        )
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        turn = goal.nodes[0]
+        life_cycle_state = executor.motion_statechart.life_cycle_state
+
+        for _ in range(2000):
+            executor.tick()
+            if life_cycle_state[turn] != LifeCycleValues.RUNNING:
+                break
+
+        assert life_cycle_state[turn] == LifeCycleValues.SUCCEEDED
+        base_x_axis = world.compute_forward_kinematics_np(world.root, bot)[:3, 0]
+        goal_x_axis = goal_pose.homogeneous_matrix.to_np()[:3, 0]
+        assert np.arccos(np.clip(base_x_axis @ goal_x_axis, -1, 1)) < goal.threshold
+
+    @pytest.mark.parametrize(
+        "goal_pose",
+        [
+            Pose.from_xyz_rpy(x=2, y=1, yaw=-np.pi / 2),
+            Pose.from_xyz_rpy(x=-1.5, y=0.5, yaw=np.pi),
+            Pose.from_xyz_rpy(x=0.3, y=-1.2, yaw=np.pi / 2),
+        ],
+    )
+    def test_base_does_not_reverse_on_its_way(
+        self, cylinder_bot_diff_world, goal_pose: Pose
+    ):
+        """
+        Reversing swings the direction to the goal as much as turning does, which the
+        goal must not exploit: a base reversing blindly hits what is behind it.
+        """
+        world = cylinder_bot_diff_world
+        goal_pose.reference_frame = world.root
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose, threshold=0.1)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        drive = world.get_connections_by_type(DifferentialDrive)[0]
+        time_step = executor.context.qp_controller_config.control_time_step
+
+        distance_reversed = 0.0
+        for _ in range(4000):
+            executor.tick()
+            forward_velocity = float(world.state[drive.x_velocity.id].velocity)
+            distance_reversed += max(0.0, -forward_velocity) * time_step.total_seconds()
+            if executor.motion_statechart.is_end_motion():
+                break
+
+        assert executor.motion_statechart.is_end_motion()
+        assert distance_reversed < goal.threshold
+
+    def test_base_faces_the_goal_precisely_before_driving_there(
+        self, cylinder_bot_diff_world
+    ):
+        """
+        A coarse threshold must not let the base drive off at an angle that makes it
+        miss the goal sideways.
+        """
+        world = cylinder_bot_diff_world
+        bot = world.get_body_by_name("bot")
+        goal_pose = Pose.from_xyz_rpy(x=1, y=2, reference_frame=world.root)
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose, threshold=0.3)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        turn = goal.nodes[0]
+        life_cycle_state = executor.motion_statechart.life_cycle_state
+
+        for _ in range(2000):
+            executor.tick()
+            if life_cycle_state[turn] != LifeCycleValues.RUNNING:
+                break
+
+        world_T_bot = world.compute_forward_kinematics_np(world.root, bot)
+        to_goal = goal_pose.homogeneous_matrix.to_np()[:3, 3] - world_T_bot[:3, 3]
+        heading_error = np.arccos(
+            np.clip(world_T_bot[:3, 0] @ (to_goal / np.linalg.norm(to_goal)), -1, 1)
+        )
+        assert heading_error < goal.heading_threshold
+
+    def test_drives_to_a_goal_given_at_another_height(self, cylinder_bot_diff_world):
+        """
+        A differential drive cannot change its height, so a goal pose at another height,
+        such as one computed before the robot rode an elevator, is reached in the plane.
+        """
+        world = cylinder_bot_diff_world
+        bot = world.get_body_by_name("bot")
+        goal_pose = Pose.from_xyz_rpy(
+            x=1, y=-1, z=-4, yaw=-np.pi / 2, reference_frame=world.root
+        )
+        motion_statechart = MotionStatechart()
+        motion_statechart.add_node(
+            goal := DifferentialDriveBaseGoal(goal_pose=goal_pose)
+        )
+        motion_statechart.add_node(EndMotion.when_true(goal))
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=motion_statechart)
+        start_height = world.compute_forward_kinematics_np(world.root, bot)[2, 3]
+
+        executor.tick_until_end()
+
+        world_T_bot = world.compute_forward_kinematics_np(world.root, bot)
+        expected = goal_pose.homogeneous_matrix.to_np()
+        expected[2, 3] = start_height
+        assert np.allclose(world_T_bot, expected, atol=goal.threshold)
 
     def test_custom_threshold_applies_to_both_translation_and_orientation(
         self, cylinder_bot_diff_world

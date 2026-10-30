@@ -1508,6 +1508,24 @@ class AlreadyTrackedByTfFrameError(UsageError):
 
 
 @dataclass
+class ConnectionNotTrackedByTfFrameError(UsageError):
+    """
+    Raised when a connection is to stop following a tf frame it does not follow.
+    """
+
+    connection_name: str
+    """
+    The name of the connection that is not tracked.
+    """
+
+    def error_message(self) -> str:
+        return f"Connection '{self.connection_name}' is not tracked with a tf frame."
+
+    def suggest_correction(self) -> str:
+        return "Untrack only connections that were tracked and not untracked since."
+
+
+@dataclass
 class UnboundMessageTypeError(UsageError):
     """
     Raised when a topic subscriber does not name the type of its messages.

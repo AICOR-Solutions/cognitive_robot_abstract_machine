@@ -21,6 +21,7 @@ from giskardpy.motion_statechart.exceptions import (
 from giskardpy.motion_statechart.goals.cartesian_goals import DifferentialDriveBaseGoal
 from giskardpy.motion_statechart.goals.templates import Parallel, Sequence
 from giskardpy.motion_statechart.graph_node import (
+    AwaitingExternalResult,
     EndMotion,
     MotionStatechartNode,
     NodeArtifacts,
@@ -841,6 +842,77 @@ class TestNothingToConverge:
             )
         ):
             executor.tick()
+        assert progressing.observation_state == ObservationStateValues.FALSE
+
+
+# %% nodes awaiting a result from outside the controller
+
+
+@dataclass(eq=False, repr=False)
+class ScriptedExternalResult(AwaitingExternalResult):
+    """
+    Awaits a result from outside the controller, which arrives once :attr:`result` is
+    set to true or false.
+    """
+
+    result: ObservationStateValues = ObservationStateValues.UNKNOWN
+    """
+    What this node observes on every tick.
+    """
+
+    def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+        return self.result
+
+
+def stall_monitored(
+    world: World, node: MotionStatechartNode
+) -> tuple[Executor, StillProgressing]:
+    """
+    :return: An executor compiled for ``node`` watched by a stall monitor, and that
+        monitor.
+    """
+    progressing = StillProgressing(monitored_node=node, timeout=STALL_TIMEOUT)
+    motion_statechart = MotionStatechart()
+    motion_statechart.add_node(node)
+    motion_statechart.add_node(progressing)
+    motion_statechart.add_node(EndMotion.when_true(node))
+    executor = Executor(MotionStatechartContext(world=world))
+    executor.compile(motion_statechart=motion_statechart)
+    return executor, progressing
+
+
+def tick_past_the_stall_timeout(executor: Executor) -> None:
+    """
+    Tick for twice as long as the stall timeout lasts.
+    """
+    control_time_step = executor.context.qp_controller_config.control_time_step
+    for _ in range(
+        2 * ceil(STALL_TIMEOUT.total_seconds() / control_time_step.total_seconds())
+    ):
+        executor.tick()
+
+
+class TestAwaitingExternalResult:
+
+    def test_a_node_awaiting_an_external_result_keeps_progressing(
+        self, cylinder_bot_world: World
+    ):
+        executor, progressing = stall_monitored(
+            cylinder_bot_world, ScriptedExternalResult()
+        )
+
+        tick_past_the_stall_timeout(executor)
+
+        assert progressing.observation_state == ObservationStateValues.TRUE
+
+    def test_a_node_whose_external_result_arrived_stalls_after_the_timeout(
+        self, cylinder_bot_world: World
+    ):
+        awaiting = ScriptedExternalResult(result=ObservationStateValues.FALSE)
+        executor, progressing = stall_monitored(cylinder_bot_world, awaiting)
+
+        tick_past_the_stall_timeout(executor)
+
         assert progressing.observation_state == ObservationStateValues.FALSE
 
 

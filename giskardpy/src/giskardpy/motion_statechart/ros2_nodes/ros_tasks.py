@@ -22,7 +22,10 @@ from typing_extensions import Type, TypeVar, Generic
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode, NodeArtifacts
+from giskardpy.motion_statechart.graph_node import (
+    AwaitingExternalResult,
+    NodeArtifacts,
+)
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
@@ -38,7 +41,7 @@ ActionFeedback = TypeVar("ActionFeedback")
 
 @dataclass(eq=False, repr=False)
 class ActionServerTask(
-    MotionStatechartNode,
+    AwaitingExternalResult,
     ABC,
     Generic[Action, ActionGoal, ActionResult, ActionFeedback],
 ):
@@ -74,7 +77,8 @@ class ActionServerTask(
     @abstractmethod
     def build_msg(self, context: MotionStatechartContext):
         """
-        Build the action server message and returns it.
+        Build the goal for the action server into :attr:`_msg`, from the world as it is
+        when this task starts.
         """
         ...
 
@@ -86,7 +90,6 @@ class ActionServerTask(
         self._action_client = ros_context_extension.get_or_create_action_client(
             self.message_type, self.action_topic
         )
-        self.build_msg(context)
         logger.info(f"Waiting for action server {self.action_topic}")
         self._action_client.wait_for_server()
         return super().build(context)
@@ -95,6 +98,7 @@ class ActionServerTask(
         """
         Creates a goal and sends it to the action server asynchronously.
         """
+        self.build_msg(context)
         future = self._action_client.send_goal_async(self._msg)
         future.add_done_callback(self.goal_response_callback)
 

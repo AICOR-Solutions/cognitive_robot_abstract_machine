@@ -42,7 +42,23 @@ class PassageClear(MotionStatechartNode):
     passed through.
     """
 
+    stays_clear_once_seen: bool = field(default=False, kw_only=True)
+    """
+    Whether the passage keeps counting as clear once it was seen clear, such as for a
+    robot driving into it, whose lidar no longer looks through the passage once inside.
+    """
+
+    seen_clear: bool = field(default=False, init=False)
+    """
+    Whether the passage was seen clear since this monitor started.
+    """
+
+    def on_start(self, context: MotionStatechartContext) -> None:
+        self.seen_clear = False
+
     def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
+        if self.stays_clear_once_seen and self.seen_clear:
+            return ObservationStateValues.TRUE
         reading = self.lidar.get_lidar_reading()
         passage_distances = reading.distances_to_segment(
             self.passage_start, self.passage_end
@@ -54,5 +70,6 @@ class PassageClear(MotionStatechartNode):
             reading.ranges[crossing_beams]
             > passage_distances[crossing_beams] + self.tolerance
         ):
+            self.seen_clear = True
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE

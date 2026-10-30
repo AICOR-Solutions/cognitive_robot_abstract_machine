@@ -3,11 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import dataclasses
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Iterable, Iterator, Optional, Self, Tuple, TYPE_CHECKING, Union
 
 import numpy as np
 from typing_extensions import List
 
+from krrood.entity_query_language.utils import camel_case_to_words
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from random_events.interval import closed
@@ -28,6 +30,7 @@ from semantic_digital_twin.semantic_annotations.part_whole import (
     IsPartWholeRelationship,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
+    HasPlanarFreeSpace,
     HasSupportingSurface,
     HasRootRegion,
     HasDrawers,
@@ -70,6 +73,8 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    KinematicStructureEntity,
+    Region,
 )
 from semantic_digital_twin.specifications.connections import (
     ActiveConnection1DOFSpecification,
@@ -610,6 +615,14 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
     the elevator to other floors.
     """
 
+    waiting_area_scale: Scale = field(
+        default_factory=lambda: Scale(1.5, 2.2, 2.5), kw_only=True
+    )
+    """
+    Depth from the doors, width and height of the area in front of this elevator's
+    doors on each level where people wait for the cabin.
+    """
+
     @classproperty
     def _hole_direction_axis(cls) -> Vector3:
         return Vector3.NEGATIVE_X()
@@ -663,6 +676,95 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
         if self.movable_joint is None:
             raise MissingMovableJointError(self)
         self.movable_joint.position = self.drive_position_for_floor(floor)
+
+    @property
+    def doorway_pose(self) -> Pose:
+        """
+        :return: The middle of the doorway on the cabin's floor, its x-axis pointing into
+            the cabin, in the cabin frame.
+        """
+        return Pose.from_xyz_rpy(
+            x=-self.scale.x / 2, z=-self.scale.z / 2, reference_frame=self.root
+        )
+
+    def pose_in_front_of_doors(self, distance: float) -> Pose:
+        """
+        :param distance: How far in front of the doors the pose lies.
+        :return: The pose ``distance`` in front of the middle of the doors, facing the
+            cabin, on the cabin's floor, in the cabin frame.
+        """
+        doorway = self.doorway_pose
+        return Pose.from_xyz_rpy(
+            x=float(doorway.x) - distance,
+            z=float(doorway.z),
+            reference_frame=self.root,
+        )
+
+    @cached_property
+    def cabin_area(self) -> Region:
+        """
+        The inside of this elevator's cabin, wherever the cabin currently is.
+
+        Added to the world, fixed to the cabin, on first access unless the world
+        already holds it.
+        """
+        return self._region_from(
+            RegionSpecification.box(f"{self.name.name}_cabin_area", self.scale),
+            parent=self.root,
+        )
+
+    @cached_property
+    def waiting_areas(self) -> dict[Level, Region]:
+        """
+        The space of :attr:`waiting_area_scale` in front of this elevator's doors on
+        each level of its world, standing on the level's floor.
+
+        Added to the world, each fixed to the shaft the cabin rides in, on first access
+        unless the world already holds them.
+
+        :raises MissingMovableJointError: If this elevator has no drive, and with it no
+            shaft.
+        """
+        if self.movable_joint is None:
+            raise MissingMovableJointError(self)
+        shaft = self.movable_joint.parent
+        return {
+            level: self._region_from(
+                RegionSpecification.box(
+                    f"{self.name.name}_{level.name.name}_waiting_area",
+                    self.waiting_area_scale,
+                ),
+                parent=shaft,
+                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=-(self.scale.x + self.waiting_area_scale.x) / 2,
+                    z=self._world.transform(level.floor_plane[0], shaft).z
+                    + self.waiting_area_scale.z / 2,
+                    reference_frame=shaft,
+                ),
+            )
+            for level in self._world.get_semantic_annotations_by_type(Level)
+        }
+
+    def _region_from(
+        self,
+        specification: RegionSpecification,
+        parent: KinematicStructureEntity,
+        parent_T_self: HomogeneousTransformationMatrix | None = None,
+    ) -> Region:
+        """
+        :param parent: The entity a new region is fixed to.
+        :param parent_T_self: Where a new region lies in ``parent``'s frame.
+        :return: The region of this elevator's world named like ``specification``, or,
+            if there is none, a new one spawned from ``specification``.
+        """
+        existing_regions = self._world.get_kinematic_structure_entities_by_name(
+            specification.name
+        )
+        if existing_regions:
+            return existing_regions[0]
+        return specification.spawn(
+            self._world, parent=parent, parent_T_self=parent_T_self
+        )
 
 
 ############################### subclasses to Furniture
@@ -768,6 +870,39 @@ class Floor(HasSupportingSurface):
             connection_specification=connection_specification,
         )
 
+    @property
+    def extent(self) -> VolumetricBoundingBox:
+        """
+        The floor's bounding box in the frame of its world's root.
+        """
+        return self.as_bounding_box_collection_at_origin(
+            HomogeneousTransformationMatrix(reference_frame=self._world.root)
+        ).bounding_box()
+
+    @classmethod
+    def under(
+        cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
+    ) -> Self | None:
+        """
+        :param floor_tolerance: How far a floor's top may lie above ``entity``'s origin
+            for ``entity`` to count as standing on that floor.
+        :return: The topmost floor of ``entity``'s world whose footprint holds
+            ``entity``'s origin and whose top lies at most ``floor_tolerance`` above
+            it, or None if ``entity`` stands over no floor.
+        """
+        position = entity.global_transform
+        x, y, z = float(position.x), float(position.y), float(position.z)
+        tops_of_floors_below = {
+            floor: extent.max_z
+            for floor in entity._world.get_semantic_annotations_by_type(cls)
+            if (extent := floor.extent).min_x <= x <= extent.max_x
+            and extent.min_y <= y <= extent.max_y
+            and extent.max_z <= z + floor_tolerance
+        }
+        if not tops_of_floors_below:
+            return None
+        return max(tops_of_floors_below, key=tops_of_floors_below.get)
+
 
 @dataclass(eq=False)
 class Room(SemanticAnnotation):
@@ -779,6 +914,19 @@ class Room(SemanticAnnotation):
     """
     The room's floor.
     """
+
+    @property
+    def floor_centre(self) -> Pose:
+        """
+        The middle of this room's floor on top of it, in the frame of its world's root.
+        """
+        extent = self.floor.extent
+        return Pose.from_xyz_rpy(
+            x=(extent.min_x + extent.max_x) / 2,
+            y=(extent.min_y + extent.max_y) / 2,
+            z=extent.max_z,
+            reference_frame=self._world.root,
+        )
 
 
 @dataclass(eq=False)
@@ -798,10 +946,50 @@ class LivingRoom(Room): ...
 
 
 @dataclass(eq=False)
-class Level(HasRootRegion):
+class Level(HasRootRegion, HasPlanarFreeSpace):
     """
-    A level of a building
+    A level of a building, whose region spans it from its floor up.
+
+    .. note:: The free space of a level ignores holes in its floor, such as an elevator
+        shaft, since its ground is the whole footprint of its region.
     """
+
+    def _ground(self) -> VolumetricBoundingBox:
+        """
+        The bottom face of this level's region.
+        """
+        region = self.root.area.as_bounding_box_collection_at_origin(
+            HomogeneousTransformationMatrix(reference_frame=self.root)
+        ).bounding_box()
+        return VolumetricBoundingBox(
+            region.min_x,
+            region.min_y,
+            region.min_z,
+            region.max_x,
+            region.max_y,
+            region.min_z,
+            region.origin,
+        )
+
+    @classmethod
+    def holding(cls, body: Body, minimum_containment_ratio: float = 0.9) -> list[Self]:
+        """
+        :param minimum_containment_ratio: The share of ``body`` a level's region has to
+            hold.
+        :return: The levels of ``body``'s world whose region holds ``body``.
+        """
+        return [
+            level
+            for level in body._world.get_semantic_annotations_by_type(cls)
+            if InsideOf(body, level.root)() > minimum_containment_ratio
+        ]
+
+    @classproperty
+    def spoken_name(cls) -> str:
+        """
+        How a person names this level when speaking, such as *ground floor*.
+        """
+        return camel_case_to_words(cls.__name__)
 
     @property
     def floor_plane(self) -> Tuple[Point3, Point3]:
@@ -823,6 +1011,27 @@ class Level(HasRootRegion):
             min_z,
             reference_frame=self._world.root,
         )
+
+    @classmethod
+    def under(
+        cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
+    ) -> Self | None:
+        """
+        :param floor_tolerance: How far a level's floor may lie above ``entity``'s origin
+            for ``entity`` to count as standing on that level.
+        :return: The highest level of ``entity``'s world whose floor lies at most
+            ``floor_tolerance`` above ``entity``'s origin, or None if ``entity`` is below
+            every level.
+        """
+        height = float(entity.global_transform.z)
+        levels_below = [
+            level
+            for level in entity._world.get_semantic_annotations_by_type(cls)
+            if float(level.floor_plane[0].z) <= height + floor_tolerance
+        ]
+        if not levels_below:
+            return None
+        return max(levels_below, key=lambda level: float(level.floor_plane[0].z))
 
 
 @dataclass(eq=False)
