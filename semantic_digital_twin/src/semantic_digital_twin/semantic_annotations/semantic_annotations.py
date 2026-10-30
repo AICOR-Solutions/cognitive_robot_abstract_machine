@@ -1014,6 +1014,23 @@ class Floor(HasSupportingSurface):
         """
         return self.surface_boxes.bounding_box()
 
+    def covers(self, point: Point3) -> bool:
+        """
+        :param point: The point to test, at any height.
+        :return: Whether one of the floor's own shapes lies straight above or below
+            ``point``.
+        """
+        point_in_floor = self._world.transform(point, self.root)
+        for shape in self.root.collision.shapes:
+            footprint = shape.local_frame_bounding_box
+            point_in_shape = shape.origin.inverse() @ point_in_floor
+            if (
+                footprint.min_x <= float(point_in_shape.x) <= footprint.max_x
+                and footprint.min_y <= float(point_in_shape.y) <= footprint.max_y
+            ):
+                return True
+        return False
+
     @classmethod
     def under(
         cls, entity: KinematicStructureEntity, floor_tolerance: float = 0.2
@@ -1021,21 +1038,17 @@ class Floor(HasSupportingSurface):
         """
         :param floor_tolerance: How far a floor's top may lie above ``entity``'s origin
             for ``entity`` to count as standing on that floor.
-        :return: The topmost floor of ``entity``'s world with a surface box around
-            ``entity``'s origin whose top lies at most ``floor_tolerance`` above it, or
-            None if ``entity`` stands over no floor.
+        :return: The topmost floor of ``entity``'s world that :meth:`covers` ``entity``'s
+            origin and whose top lies at most ``floor_tolerance`` above it, or None if
+            ``entity`` stands over no floor.
         """
-        position = entity.global_transform
-        x, y, z = float(position.x), float(position.y), float(position.z)
-        tops_of_floors_below = {}
-        for floor in entity._world.get_semantic_annotations_by_type(cls):
-            for box in floor.surface_boxes:
-                if (
-                    box.min_x <= x <= box.max_x
-                    and box.min_y <= y <= box.max_y
-                    and box.max_z <= z + floor_tolerance
-                ):
-                    tops_of_floors_below[floor] = box.max_z
+        position = entity.global_transform.position
+        highest_top = float(position.z) + floor_tolerance
+        tops_of_floors_below = {
+            floor: top
+            for floor in entity._world.get_semantic_annotations_by_type(cls)
+            if floor.covers(position) and (top := floor.extent.max_z) <= highest_top
+        }
         if not tops_of_floors_below:
             return None
         return max(tops_of_floors_below, key=tops_of_floors_below.get)
