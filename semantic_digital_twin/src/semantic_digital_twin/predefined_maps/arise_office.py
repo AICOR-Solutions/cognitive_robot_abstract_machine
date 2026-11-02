@@ -78,6 +78,13 @@ class AriseOfficeRoom(StrEnum):
     The room east of the shaft, spanning the storey's whole depth.
     """
 
+    @property
+    def spoken_name(self) -> str:
+        """
+        How a person names this kind of room when speaking, such as *east office*.
+        """
+        return self.value.replace("_", " ")
+
 
 @dataclass
 class AriseOfficeBuilding:
@@ -194,6 +201,37 @@ class AriseOfficeBuilding:
         return world.get_semantic_annotation_by_name(
             self._room_name(name, level_type, room)
         )
+
+    @staticmethod
+    def spoken_name_of(level_type: type[Level], room: AriseOfficeRoom) -> str:
+        """
+        :param level_type: The storey the room lies on.
+        :param room: Which room of the storey it is.
+        :return: How a person names the room when speaking, such as *east office on
+            the first floor*.
+        """
+        return f"{room.spoken_name} on the {level_type.spoken_name}"
+
+    def find_room_by_spoken_name(
+        self, world: World, spoken_name: str, name: str = "arise_office"
+    ) -> Room | None:
+        """
+        :param world: The world the office was spawned into.
+        :param spoken_name: How a person named the room, in any letter case.
+        :param name: The prefix the office was spawned with.
+        :return: The room annotation named so by :meth:`spoken_name_of`, or None if no
+            room of the office is named so.
+        """
+        requested = spoken_name.strip().casefold()
+        for level in world.get_semantic_annotations_by_type(Level):
+            for room in AriseOfficeRoom:
+                if self.spoken_name_of(type(level), room).casefold() != requested:
+                    continue
+                rooms = world.get_semantic_annotations_by_name(
+                    self._room_name(name, type(level), room)
+                )
+                return rooms[0] if rooms else None
+        return None
 
     @staticmethod
     def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:

@@ -218,3 +218,60 @@ def test_first_floor_free_space_leads_from_the_landing_into_the_east_office(
     assert [float(path[-1].x), float(path[-1].y)] == pytest.approx(
         [float(goal.x), float(goal.y)]
     )
+
+
+# %% rooms spoken of
+
+
+def test_rooms_are_spoken_of_by_their_kind_and_their_storey(arise_office):
+    assert (
+        arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+        == "east office on the first floor"
+    )
+
+
+@pytest.mark.parametrize(
+    "level_type, room",
+    [
+        (GroundFloor, AriseOfficeRoom.WEST_OFFICE),
+        (GroundFloor, AriseOfficeRoom.LOBBY),
+        (GroundFloor, AriseOfficeRoom.EAST_OFFICE),
+        (FirstFloor, AriseOfficeRoom.WEST_OFFICE),
+        (FirstFloor, AriseOfficeRoom.LANDING),
+        (FirstFloor, AriseOfficeRoom.EAST_OFFICE),
+    ],
+)
+def test_each_room_is_found_by_how_it_is_spoken_of(
+    arise_office_world, arise_office, level_type, room
+):
+    spoken_name = arise_office.spoken_name_of(level_type, room)
+
+    assert arise_office.find_room_by_spoken_name(
+        arise_office_world, spoken_name
+    ) is arise_office.get_room(arise_office_world, level_type, room)
+
+
+def test_finding_a_room_ignores_case_and_surrounding_spaces(
+    arise_office_world, arise_office
+):
+    spoken_name = arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+
+    assert arise_office.find_room_by_spoken_name(
+        arise_office_world, f"  {spoken_name.upper()} "
+    ) is arise_office.get_room(
+        arise_office_world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
+    )
+
+
+def test_a_room_the_storey_does_not_have_is_not_found(arise_office_world, arise_office):
+    spoken_name = arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.LOBBY)
+
+    assert (
+        arise_office.find_room_by_spoken_name(arise_office_world, spoken_name) is None
+    )
+
+
+def test_a_room_spoken_of_by_another_name_is_not_found(
+    arise_office_world, arise_office
+):
+    assert arise_office.find_room_by_spoken_name(arise_office_world, "kitchen") is None

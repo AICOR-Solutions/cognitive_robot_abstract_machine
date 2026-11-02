@@ -77,11 +77,24 @@ class NavigateToRoomAction(ActionDescription):
                 PathPlanningNavigateAction(
                     elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
                 ),
-                ElevatorNavigation(
-                    elevator,
-                    target_level,
-                    arrival_threshold=self.elevator_arrival_threshold,
-                ),
+                *self._ride_elevator(elevator, target_level),
                 drive_to_room,
             ]
         )
+
+    def _ride_elevator(
+        self, elevator: Elevator, target_level: Level
+    ) -> list[ActionDescription]:
+        """
+        :param elevator: The elevator the robot waits in front of.
+        :param target_level: The level the robot rides to.
+        :return: The steps that take the robot from in front of the elevator's doors
+            out of the cabin on ``target_level``.
+        """
+        return [
+            ElevatorNavigation(
+                elevator,
+                target_level,
+                arrival_threshold=self.elevator_arrival_threshold,
+            )
+        ]

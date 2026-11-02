@@ -1,0 +1,6 @@
+{
+  "may_board": {
+    "type": "boolean",
+    "description": "Whether the person agrees that the robot takes the elevator with them."
+  }
+}
