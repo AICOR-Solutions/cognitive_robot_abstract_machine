@@ -81,7 +81,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Tool,
     Whisk,
 )
-from coraplex.robot_plans.actions.core.speech import SayAction, SpeakOnStart
+from coraplex.robot_plans.actions.core.speech import SayAction, Speak
 from krrood_spatial_math.spatial_types import Point3, Pose, Pose2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.specifications.connections import (
@@ -340,7 +340,7 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
         ActionRoundTripCase(ElevatorNavigation, _elevator_navigation),
         ActionRoundTripCase(PassDoorAction, _pass_door),
         ActionRoundTripCase(SayAction, lambda world: [SayAction(text="Hello")]),
-        ActionRoundTripCase(SpeakOnStart, lambda world: [SpeakOnStart(text="Hello")]),
+        ActionRoundTripCase(Speak, lambda world: [Speak(text="Hello")]),
         ActionRoundTripCase(
             DetectAction,
             lambda world: [

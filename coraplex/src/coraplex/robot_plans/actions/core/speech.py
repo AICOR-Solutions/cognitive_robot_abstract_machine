@@ -1,72 +1,71 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass
+from enum import StrEnum
+from importlib.util import find_spec
 
-from rclpy.publisher import Publisher
-from std_msgs.msg import String
+from rosidl_runtime_py.utilities import get_action
+from typing_extensions import Any
 
 from coraplex.robot_plans.actions.base import SequentialAction
-from cramph.node import EndedByOwner, NodeArtifacts, StatechartNode
-from giskardpy.motion_statechart.ros_context import RosContextExtension
-from krrood.symbolic_math.symbolic_math import Scalar
+from cramph.node import StatechartNode
+from giskardpy.motion_statechart.ros2_nodes.await_action_result import (
+    AwaitActionResult,
+)
+
+logger = logging.getLogger(__name__)
+
+# %% the say skill
+
+
+class SaySkillInterface(StrEnum):
+    """
+    Where the type of the ROS4HRI ``say`` skill is found.
+    """
+
+    PACKAGE = "communication_skills"
+    ACTION_TYPE = "communication_skills/action/Say"
+
 
 # %% speaking aloud
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class SpeakOnStart(EndedByOwner, StatechartNode):
+class Speak(AwaitActionResult):
     """
-    Publishes a sentence once when it starts, and stays silent if it runs where there is
-    no ROS node or if there is no topic to speak on.
+    Says a sentence through the ROS4HRI ``say`` skill and waits until it ended.
+
+    Stays silent with a warning where the skill's package is not installed.
     """
 
     text: str
     """
-    The sentence to publish.
+    The sentence to say.
     """
 
-    topic_name: str | None = None
-    """
-    The topic the sentence is published on, None to stay silent.
-    """
+    def find_action_type(self) -> type | None:
+        if find_spec(SaySkillInterface.PACKAGE) is None:
+            logger.warning(
+                f"{SaySkillInterface.PACKAGE} is not installed, not saying: {self.text}"
+            )
+            return None
+        return get_action(SaySkillInterface.ACTION_TYPE)
 
-    message_queue_depth: int = 10
-    """
-    How many sentences the publisher keeps for a receiver that has not taken them yet.
-    """
-
-    _publisher: Publisher | None = field(init=False, default=None)
-    """
-    Publishes the sentence, None when this node stays silent.
-    """
-
-    def set_up(self) -> None:
-        super().set_up()
-        if self.topic_name is None:
-            return
-        ros_context_extension = self.context.get_extension(RosContextExtension)
-        if ros_context_extension is None or ros_context_extension.ros_node is None:
-            return
-        self._publisher = ros_context_extension.ros_node.create_publisher(
-            String, self.topic_name, self.message_queue_depth
-        )
-
-    def build_artifacts(self) -> NodeArtifacts:
-        return NodeArtifacts(observation=Scalar.const_true())
-
-    def on_start(self) -> None:
-        if self._publisher is not None:
-            self._publisher.publish(String(data=self.text))
+    def build_action_goal(self) -> Any:
+        return get_action(SaySkillInterface.ACTION_TYPE).Goal(input=self.text)
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
 class SayAction(SequentialAction):
     """
-    Says a sentence aloud on the robot's text to speech topic.
+    Says a sentence aloud through the robot's text to speech action and waits until the
+    sentence ended.
 
     The robot stays silent if it cannot speak, because it declares no
-    :attr:`~semantic_digital_twin.robots.robot_parts.AbstractRobot.text_to_speech_topic`,
-    or if the plan runs where there is no ROS node to publish the sentence with.
+    :attr:`~semantic_digital_twin.robots.robot_parts.AbstractRobot.text_to_speech_action`,
+    or if the plan runs where there is no ROS node or no ``communication_skills`` package
+    to send the sentence with.
     """
 
     text: str
@@ -75,6 +74,4 @@ class SayAction(SequentialAction):
     """
 
     def create_steps(self) -> list[StatechartNode]:
-        return [
-            SpeakOnStart(text=self.text, topic_name=self.robot.text_to_speech_topic)
-        ]
+        return [Speak(text=self.text, action_name=self.robot.text_to_speech_action)]

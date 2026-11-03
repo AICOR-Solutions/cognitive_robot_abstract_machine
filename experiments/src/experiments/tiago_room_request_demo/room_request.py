@@ -13,11 +13,11 @@ import threading
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from communication_skills.action import Say
 from hri_actions_msgs.msg import Intent
+from rclpy.action import ActionClient
 from rclpy.node import Node
-from rclpy.publisher import Publisher
 from rclpy.subscription import Subscription
-from std_msgs.msg import String
 
 from experiments.tiago_room_request_demo.exceptions import NoRoomRequestedError
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
@@ -119,7 +119,7 @@ class RoomRequests:
     names a room the office has.
 
     Says aloud when an intent names a room the office does not have, unless
-    :attr:`text_to_speech_topic` is None.
+    :attr:`text_to_speech_action` is None.
     """
 
     node: Node
@@ -137,9 +137,9 @@ class RoomRequests:
     The office whose rooms can be requested.
     """
 
-    text_to_speech_topic: str | None
+    text_to_speech_action: str | None
     """
-    The topic the robot speaks from, or None if it cannot speak.
+    The name of the action that makes the robot speak, or None if it cannot speak.
     """
 
     _requested_room: RequestedRoom | None = field(init=False, default=None)
@@ -157,19 +157,17 @@ class RoomRequests:
     The subscription to the intents.
     """
 
-    _speech: Publisher | None = field(init=False, default=None)
+    _speech: ActionClient | None = field(init=False, default=None)
     """
-    Publishes what the robot says, None if it cannot speak.
+    Sends what the robot says, None if it cannot speak.
     """
 
     def __post_init__(self) -> None:
         self._subscription = self.node.create_subscription(
             Intent, Ros4HriInteractionTopic.INTENTS, self._hear, 10
         )
-        if self.text_to_speech_topic is not None:
-            self._speech = self.node.create_publisher(
-                String, self.text_to_speech_topic, 10
-            )
+        if self.text_to_speech_action is not None:
+            self._speech = ActionClient(self.node, Say, self.text_to_speech_action)
 
     def _hear(self, intent: Intent) -> None:
         """
@@ -195,7 +193,7 @@ class RoomRequests:
         """
         if self._speech is None:
             return
-        self._speech.publish(String(data=sentence))
+        self._speech.send_goal_async(Say.Goal(input=sentence))
 
     def wait_for_room(self, timeout: float) -> RequestedRoom:
         """
@@ -216,4 +214,4 @@ class RoomRequests:
         """
         self.node.destroy_subscription(self._subscription)
         if self._speech is not None:
-            self.node.destroy_publisher(self._speech)
+            self._speech.destroy()

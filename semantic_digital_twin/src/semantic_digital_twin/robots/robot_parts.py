@@ -1229,10 +1229,10 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         )
 
     @classproperty
-    def text_to_speech_topic(cls) -> str | None:
+    def text_to_speech_action(cls) -> str | None:
         """
-        The topic this robot reads the text it speaks aloud from, or None if it cannot
-        speak.
+        The name of the action that makes this robot speak a text aloud, or None if it
+        cannot speak.
         """
         return None
 

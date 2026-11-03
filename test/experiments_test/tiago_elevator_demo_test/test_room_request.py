@@ -42,7 +42,7 @@ def room_requests(rclpy_node, arise_office, arise_office_world):
         node=rclpy_node,
         world=arise_office_world,
         office=arise_office,
-        text_to_speech_topic=Tiago.text_to_speech_topic,
+        text_to_speech_action=Tiago.text_to_speech_action,
     )
     yield listener
     listener.close()

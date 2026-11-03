@@ -112,9 +112,11 @@ class TiagoTopic(StrEnum):
     Topic name on which the lidar readings are published
     """
 
-    TEXT_TO_SPEECH = "tts"
+
+class TiagoAction(StrEnum):
+    TEXT_TO_SPEECH = "/skill/say"
     """
-    Topic the robot reads the text it speaks aloud from.
+    Action that makes the robot speak a text aloud.
     """
 
 
@@ -583,8 +585,8 @@ class Tiago(AbstractRobot, HasMobileBase[TiagoMobileBase]):
     """
 
     @classproperty
-    def text_to_speech_topic(cls) -> str:
-        return TiagoTopic.TEXT_TO_SPEECH
+    def text_to_speech_action(cls) -> str:
+        return TiagoAction.TEXT_TO_SPEECH
 
     @classmethod
     def get_ros_file_path(cls) -> str:

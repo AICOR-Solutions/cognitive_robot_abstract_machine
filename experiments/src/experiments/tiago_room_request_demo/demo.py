@@ -102,7 +102,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
             node=self.ros_node,
             world=context.world,
             office=self.office,
-            text_to_speech_topic=robot.text_to_speech_topic,
+            text_to_speech_action=robot.text_to_speech_action,
         )
         self.requested_room = self.room_requests.wait_for_room(
             self.room_request_timeout
