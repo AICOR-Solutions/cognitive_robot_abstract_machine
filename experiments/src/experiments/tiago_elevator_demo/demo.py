@@ -36,7 +36,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     GroundFloor,
     Level,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
 

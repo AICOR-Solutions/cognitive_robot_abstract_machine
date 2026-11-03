@@ -8,7 +8,7 @@ from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
 from semantic_digital_twin.adapters.sensors.lidar import Lidar
-from semantic_digital_twin.spatial_types.spatial_types import Point3
+from krrood_spatial_math.spatial_types import Point3
 
 # %% lidar monitors
 

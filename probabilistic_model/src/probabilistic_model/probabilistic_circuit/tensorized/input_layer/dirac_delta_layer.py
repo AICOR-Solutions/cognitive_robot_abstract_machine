@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 import numpy as np
@@ -7,7 +8,7 @@ from random_events.interval import Bound, Interval
 from random_events.product_algebra import SimpleEvent
 from random_events.variable import Variable
 from sortedcontainers import SortedSet
-from typing_extensions import List, Optional, Self, Type
+from typing_extensions import Any, Self
 
 from probabilistic_model.distributions.distributions import DiracDeltaDistribution
 from probabilistic_model.exceptions import ShapeMismatchError
@@ -77,7 +78,7 @@ class DiracDeltaLayer(AbstractContinuousLayer):
 
     @classmethod
     def from_distributions(
-        cls, variable_index: int, distributions: List[DiracDeltaDistribution]
+        cls, variable_index: int, distributions: list[DiracDeltaDistribution]
     ) -> Self:
         return cls(
             variable_index,
@@ -92,7 +93,7 @@ class DiracDeltaLayer(AbstractContinuousLayer):
         )
 
     @classmethod
-    def concatenate(cls, layers: List[Self]) -> Self:
+    def concatenate(cls, layers: list[Self]) -> Self:
         return cls(
             layers[0].variable,
             np.concatenate([layer.location for layer in layers]),
@@ -133,25 +134,28 @@ class DiracDeltaLayer(AbstractContinuousLayer):
 
     def type_of_truncated_layer(
         self, assignment: Interval, singleton_allowed: bool
-    ) -> Type[Layer]:
+    ) -> type[Layer]:
         return self.__class__
 
     def contains(self, assignment: Interval) -> NodeMask:
         """
         :param assignment: The assignment of the variable of this layer.
-        :return: Whether the assignment contains the location of every node.
+        :return: Whether the assignment reaches the mass of every node, up to
+            :attr:`tolerance`.
         """
+        lower_of_window = self.location - self.tolerance
+        upper_of_window = self.location + self.tolerance
         inside = np.zeros(self.number_of_nodes, dtype=bool)
-        for interval in assignment.simple_sets:
+        for simple_interval in assignment.simple_sets:
             left = (
-                interval.lower <= self.location
-                if interval.left == Bound.CLOSED
-                else interval.lower < self.location
+                simple_interval.lower <= upper_of_window
+                if simple_interval.left == Bound.CLOSED
+                else simple_interval.lower < upper_of_window
             )
             right = (
-                self.location <= interval.upper
-                if interval.right == Bound.CLOSED
-                else self.location < interval.upper
+                lower_of_window <= simple_interval.upper
+                if simple_interval.right == Bound.CLOSED
+                else lower_of_window < simple_interval.upper
             )
             inside |= left & right
         return inside
@@ -167,7 +171,7 @@ class DiracDeltaLayer(AbstractContinuousLayer):
         for the parameters and the result.
         """
         return LayerWithLogProbabilities(
-            self.__deepcopy__(), np.where(self.contains(assignment), 0.0, -np.inf)
+            copy.deepcopy(self), np.where(self.contains(assignment), 0.0, -np.inf)
         )
 
     @memoized
@@ -175,10 +179,8 @@ class DiracDeltaLayer(AbstractContinuousLayer):
         self,
         event: SimpleEvent,
         variables: SortedSet,
-        cache: Optional[QueryCache] = None,
+        cache: QueryCache | None = None,
     ) -> NodeValues:
-        # all of the mass sits on one point, so whether a bound is open or closed
-        # decides whether it is counted
         return self.contains(event[variables[self.variable]]).astype(float)
 
     def log_conditional_of_value(self, value: float) -> LayerWithLogProbabilities:
@@ -196,17 +198,3 @@ class DiracDeltaLayer(AbstractContinuousLayer):
 
     def apply_scaling_own(self, scaling: VariableValues):
         self.location = self.location * scaling[self.variable]
-
-    def __deepcopy__(self, memo=None) -> DiracDeltaLayer:
-        if memo is None:
-            memo = {}
-        if id(self) in memo:
-            return memo[id(self)]
-        result = self.__class__(
-            self.variable,
-            self.location.copy(),
-            self.density_cap.copy(),
-            self.tolerance,
-        )
-        memo[id(self)] = result
-        return result

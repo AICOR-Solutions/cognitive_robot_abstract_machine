@@ -23,7 +23,7 @@ from semantic_digital_twin.robots.exceptions import (
 from semantic_digital_twin.robots.input_source import SimulatedJointPositionSource
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.robot_parts import Sensor
-from semantic_digital_twin.spatial_types.spatial_types import (
+from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
 )

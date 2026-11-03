@@ -5,7 +5,7 @@ from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
-from semantic_digital_twin.spatial_types.spatial_types import Point3
+from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 

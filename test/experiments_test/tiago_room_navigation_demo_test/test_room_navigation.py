@@ -38,7 +38,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     GroundFloor,
     Room,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 
 # %% Tiago standing in the lobby

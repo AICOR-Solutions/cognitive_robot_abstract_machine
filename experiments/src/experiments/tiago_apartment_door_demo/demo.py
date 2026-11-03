@@ -28,7 +28,7 @@ from semantic_digital_twin.predefined_maps.apartment_environment import (
 )
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Door
-from semantic_digital_twin.spatial_types import (
+from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
     Vector3,
