@@ -20,26 +20,28 @@ if TYPE_CHECKING:
 
 @dataclass
 class RecompileCallback(ABC):
-    """Something told whenever a statechart that already compiled compiles
-    again, because nodes joined it or the kinematic structure of its world
-    changed."""
+    """
+    Something told whenever a statechart that already compiled compiles again, because
+    nodes joined it or the kinematic structure of its world changed.
+    """
 
     @abstractmethod
     def before_recompile(self) -> bool:
-        """Start holding still, because the statechart is about to compile
-        again or a node is about to choose its child, either of which blocks
-        its tick until it is done.
+        """
+        Start holding still, because the statechart is about to compile again or a node
+        is about to choose its child, either of which blocks its tick until it is done.
 
-        The statechart keeps ticking, asking again every tick, until
-        every callback answers that it is at rest; only then does it
-        block its tick.
+        The statechart keeps ticking, asking again every tick, until every callback
+        answers that it is at rest; only then does it block its tick.
 
         :return: Whether what this callback drives is at rest.
         """
 
     @abstractmethod
     def after_recompile(self) -> None:
-        """React to the statechart having compiled again."""
+        """
+        React to the statechart having compiled again.
+        """
 
 
 # %% compiling a statechart
@@ -47,50 +49,66 @@ class RecompileCallback(ABC):
 
 @dataclass(eq=False)
 class StatechartCompiler:
-    """Compiles a statechart: completes and builds its nodes, derives the edges
-    of its graph from their conditions and compiles its tick, and keeps track
-    of what changed since the latest compile."""
+    """
+    Compiles a statechart: completes and builds its nodes, derives the edges of its
+    graph from their conditions and compiles its tick, and keeps track of what changed
+    since the latest compile.
+    """
 
     statechart: Statechart = field(repr=False)
-    """The statechart this compiler compiles."""
+    """
+    The statechart this compiler compiles.
+    """
 
     compiled_tick: CompiledTick | None = field(default=None, init=False, repr=False)
-    """Updates every node of :attr:`statechart` once per tick, created by
-    :meth:`compile`."""
+    """
+    Updates every node of :attr:`statechart` once per tick, created by :meth:`compile`.
+    """
 
     changed_since_compile: bool = field(default=False, init=False)
-    """Whether nodes joined or were dropped since the latest compile."""
+    """
+    Whether nodes joined or were dropped since the latest compile.
+    """
 
     nodes_to_rebuild: list[StatechartNode] = field(
         default_factory=list, init=False, repr=False
     )
-    """Nodes the latest compile covered whose expressions changed since, so the
-    next compile builds them again."""
+    """
+    Nodes the latest compile covered whose expressions changed since, so the next
+    compile builds them again.
+    """
 
     _steps_waiting_for_rest: list[Callable[[], None]] = field(
         default_factory=list, init=False
     )
-    """What :meth:`run_once_held_still` was handed and did not run yet."""
+    """
+    What :meth:`run_once_held_still` was handed and did not run yet.
+    """
 
     _recompile_callbacks: list[RecompileCallback] = field(
         default_factory=list, init=False, repr=False
     )
-    """Told whenever :attr:`statechart` compiles again after it had
-    compiled."""
+    """
+    Told whenever :attr:`statechart` compiles again after it had compiled.
+    """
 
     _held_still: bool = field(default=False, init=False, repr=False)
-    """Whether every :class:`RecompileCallback` answered that it is at rest,
-    for the step blocking the tick that runs right now."""
+    """
+    Whether every :class:`RecompileCallback` answered that it is at rest, for the step
+    blocking the tick that runs right now.
+    """
 
     _compiled_node_count: int = field(default=0, init=False, repr=False)
-    """How many of the nodes, counted in index order, the latest compile
-    covered."""
+    """
+    How many of the nodes, counted in index order, the latest compile covered.
+    """
 
     _compiled_world_revision: ModelRevision | None = field(
         default=None, init=False, repr=False
     )
-    """The kinematic structure of the world the nodes were last built
-    against."""
+    """
+    The kinematic structure of the world the nodes were last built against.
+    """
 
     @property
     def is_compiled(self) -> bool:
@@ -116,7 +134,8 @@ class StatechartCompiler:
         return node.index < self._compiled_node_count
 
     def compile(self) -> None:
-        """Compiles all components of :attr:`statechart` in its context.
+        """
+        Compiles all components of :attr:`statechart` in its context.
 
         This method must be called before the statechart ticks.
 
@@ -146,16 +165,16 @@ class StatechartCompiler:
         )
 
     def compile_if_changed(self) -> None:
-        """Compiles again once every :class:`RecompileCallback` is at rest, if
-        :attr:`statechart` changed since it compiled last, which a compile left
-        waiting for them does, or if the kinematic structure of the world
-        changed since the nodes were built, because expressions reading the
-        structure, such as forward kinematics, describe the old one; the latter
-        builds every node again.
+        """
+        Compiles again once every :class:`RecompileCallback` is at rest, if
+        :attr:`statechart` changed since it compiled last, which a compile left waiting
+        for them does, or if the kinematic structure of the world changed since the
+        nodes were built, because expressions reading the structure, such as forward
+        kinematics, describe the old one; the latter builds every node again.
 
         The state, the history and what each node registered in
-        :meth:`~cramph.node.StatechartNode.set_up` are kept, so the
-        statechart goes on from where it was.
+        :meth:`~cramph.node.StatechartNode.set_up` are kept, so the statechart goes on
+        from where it was.
         """
         if (
             self._steps_waiting_for_rest
@@ -165,8 +184,10 @@ class StatechartCompiler:
             self.when_held_still(self._run_waiting_steps_and_compile)
 
     def _run_waiting_steps_and_compile(self) -> None:
-        """Run what :meth:`run_once_held_still` was handed, and compile if the
-        statechart or the kinematic structure of the world changed by then."""
+        """
+        Run what :meth:`run_once_held_still` was handed, and compile if the statechart
+        or the kinematic structure of the world changed by then.
+        """
         steps, self._steps_waiting_for_rest = self._steps_waiting_for_rest, []
         for step in steps:
             step()
@@ -174,21 +195,21 @@ class StatechartCompiler:
             self.compile()
 
     def run_once_held_still(self, step: Callable[[], None]) -> None:
-        """Run `step` once, on a later tick, as soon as every
-        :class:`RecompileCallback` is at rest. If it changes the kinematic
-        structure of the world, the statechart compiles again on that same
-        tick.
+        """
+        Run `step` once, on a later tick, as soon as every :class:`RecompileCallback` is
+        at rest. If it changes the kinematic structure of the world, the statechart
+        compiles again on that same tick.
 
-        :param step: What has to wait until everything is at rest.
-            Handing over a step that is still waiting changes nothing.
+        :param step: What has to wait until everything is at rest. Handing over a step
+            that is still waiting changes nothing.
         """
         if step not in self._steps_waiting_for_rest:
             self._steps_waiting_for_rest.append(step)
 
     def when_held_still(self, step: Callable[[], None]) -> None:
-        """Run `step`, which blocks the tick, once every
-        :class:`RecompileCallback` is at rest; until then the statechart goes
-        on ticking and asks again next tick.
+        """
+        Run `step`, which blocks the tick, once every :class:`RecompileCallback` is at
+        rest; until then the statechart goes on ticking and asks again next tick.
 
         :param step: What blocks the tick.
         """
@@ -201,8 +222,9 @@ class StatechartCompiler:
             self._held_still = False
 
     def add_transitions(self) -> None:
-        """Rebuilds the edges of the graph of :attr:`statechart` from the
-        current transition conditions of every node.
+        """
+        Rebuilds the edges of the graph of :attr:`statechart` from the current
+        transition conditions of every node.
 
         .. note:: Must run after goal expansion, because parent relationships are only
             known then.
@@ -222,9 +244,10 @@ class StatechartCompiler:
             self._create_edge_for_condition(owner, condition)
 
     def _compile_nodes(self, nodes: list[StatechartNode]) -> None:
-        """Completes `nodes`, builds them, or every node if the kinematic
-        structure of the world changed since the nodes were built, then
-        compiles the tick over every node.
+        """
+        Completes `nodes`, builds them, or every node if the kinematic structure of the
+        world changed since the nodes were built, then compiles the tick over every
+        node.
 
         :param nodes: The nodes no compile covered yet.
         """
@@ -247,8 +270,10 @@ class StatechartCompiler:
         self.nodes_to_rebuild = []
 
     def _compile_tick(self) -> None:
-        """Compiles the tick over every node as currently built, against the
-        current kinematic structure of the world."""
+        """
+        Compiles the tick over every node as currently built, against the current
+        kinematic structure of the world.
+        """
         self.add_transitions()
         self.compiled_tick = CompiledTick(statechart=self.statechart)
         self.compiled_tick.compile()
@@ -269,8 +294,9 @@ class StatechartCompiler:
         return self._world_revision() != self._compiled_world_revision
 
     def _hold_still(self) -> bool:
-        """Ask every :class:`RecompileCallback` to hold still, unless they
-        already answered that they are at rest for the step running now.
+        """
+        Ask every :class:`RecompileCallback` to hold still, unless they already answered
+        that they are at rest for the step running now.
 
         :return: Whether all of them are at rest.
         """
@@ -284,13 +310,14 @@ class StatechartCompiler:
     def _validate_condition_scope(
         self, owner: StatechartNode, condition: TransitionCondition
     ) -> None:
-        """Checks that `condition` only depends on `owner` itself, siblings of
-        `owner` or direct children of `owner`.
+        """
+        Checks that `condition` only depends on `owner` itself, siblings of `owner` or
+        direct children of `owner`.
 
         :param owner: The node that owns `condition`.
         :param condition: The condition to validate.
-        :raises ConditionScopeError: If `condition` depends on a node
-            from a different scope level.
+        :raises ConditionScopeError: If `condition` depends on a node from a different
+            scope level.
         """
         for variable in condition.variables:
             dependency = variable.statechart_node
@@ -309,18 +336,19 @@ class StatechartCompiler:
     def _create_edge_for_condition(
         self, owner: StatechartNode, condition: TransitionCondition
     ) -> None:
-        """Adds an edge from `owner` to every node `condition` depends on.
+        """
+        Adds an edge from `owner` to every node `condition` depends on.
 
         :param owner: The node the edges originate from.
-        :param condition: The condition whose node dependencies become
-            edge targets.
+        :param condition: The condition whose node dependencies become edge targets.
         """
         for parent_node in condition.node_dependencies:
             self.statechart.rx_graph.add_edge(owner.index, parent_node.index, condition)
 
     def _build_nodes(self, nodes: list[StatechartNode]) -> None:
-        """Builds `nodes` and applies their resulting artifacts, leaving every
-        other node of :attr:`statechart` as it was built already.
+        """
+        Builds `nodes` and applies their resulting artifacts, leaving every other node
+        of :attr:`statechart` as it was built already.
 
         :param nodes: The nodes to build.
         """
@@ -336,18 +364,16 @@ class StatechartCompiler:
         built_node_indices: set[int],
         dependency_chain: list[StatechartNode],
     ) -> None:
-        """Builds `node`, recursively building the nodes it depends on and, if
-        it is a :class:`~cramph.node.CompositeNode`, its children first, then
-        stores the resulting :class:`~cramph.node.NodeArtifacts` on the node.
+        """
+        Builds `node`, recursively building the nodes it depends on and, if it is a
+        :class:`~cramph.node.CompositeNode`, its children first, then stores the
+        resulting :class:`~cramph.node.NodeArtifacts` on the node.
 
-        Already-built nodes (tracked via `built_node_indices`) are
-        skipped.
+        Already-built nodes (tracked via `built_node_indices`) are skipped.
 
         :param node: The node to build.
-        :param built_node_indices: The indices of nodes already built,
-            updated in place.
-        :param dependency_chain: The nodes currently being built, used
-            to detect cycles.
+        :param built_node_indices: The indices of nodes already built, updated in place.
+        :param dependency_chain: The nodes currently being built, used to detect cycles.
         """
         if node.index in built_node_indices:
             return
@@ -366,12 +392,12 @@ class StatechartCompiler:
         node: StatechartNode,
         dependency_chain: list[StatechartNode],
     ) -> None:
-        """Raises if `node` already appears in the chain of nodes currently
-        being expanded or built, which would otherwise recurse forever.
+        """
+        Raises if `node` already appears in the chain of nodes currently being expanded
+        or built, which would otherwise recurse forever.
 
         :param node: The node to check.
-        :param dependency_chain: The nodes currently being expanded or
-            built.
+        :param dependency_chain: The nodes currently being expanded or built.
         """
         if node not in dependency_chain:
             return

@@ -1,6 +1,8 @@
-"""Tests for holding still before a statechart blocks its tick: a node choosing
-its child or a compile only happens once everything the executor drives is at
-rest, and the statechart keeps ticking until then."""
+"""
+Tests for holding still before a statechart blocks its tick: a node choosing its child
+or a compile only happens once everything the executor drives is at rest, and the
+statechart keeps ticking until then.
+"""
 
 from __future__ import annotations
 
@@ -32,8 +34,10 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 @dataclass
 class ExtensionComingToRest(TickingExecutorExtension):
-    """An executor extension that reports rest only after it was asked to hold
-    still a few times, the way a decelerating robot does."""
+    """
+    An executor extension that reports rest only after it was asked to hold still a few
+    times, the way a decelerating robot does.
+    """
 
     questions_until_at_rest: int
     """
@@ -41,7 +45,9 @@ class ExtensionComingToRest(TickingExecutorExtension):
     """
 
     questions: int = 0
-    """How often it was asked to hold still."""
+    """
+    How often it was asked to hold still.
+    """
 
     def before_recompile(self, executor: StatechartExecutor) -> bool:
         self.questions += 1
@@ -53,16 +59,24 @@ class ExtensionComingToRest(TickingExecutorExtension):
 
 @dataclass
 class ChooserNotingTheTick(ChildChooser[CompositeNodeChoosingItsChild]):
-    """Chooses one prepared child, noting the tick it was asked on."""
+    """
+    Chooses one prepared child, noting the tick it was asked on.
+    """
 
     executor: StatechartExecutor
-    """The executor whose ticks are counted."""
+    """
+    The executor whose ticks are counted.
+    """
 
     child: StatechartNode
-    """The child to choose."""
+    """
+    The child to choose.
+    """
 
     asked_on_ticks: list[int] = field(default_factory=list)
-    """The tick of every question."""
+    """
+    The tick of every question.
+    """
 
     def choose_child(
         self, node: CompositeNodeChoosingItsChild
@@ -73,11 +87,14 @@ class ChooserNotingTheTick(ChildChooser[CompositeNodeChoosingItsChild]):
 
 @dataclass
 class ExtensionRecordingCompiles(TickingExecutorExtension):
-    """An executor extension that records in which order it was told about
-    compiling."""
+    """
+    An executor extension that records in which order it was told about compiling.
+    """
 
     events: list[str] = field(default_factory=list)
-    """The hooks that ran, in order, each by its method name."""
+    """
+    The hooks that ran, in order, each by its method name.
+    """
 
     def before_recompile(self, executor: StatechartExecutor) -> bool:
         self.events.append(self.before_recompile.__name__)
@@ -141,8 +158,9 @@ def test_the_statechart_keeps_ticking_while_the_extensions_come_to_rest(
 def test_the_extensions_are_asked_to_hold_still_once_per_choice(
     statechart_context,
 ) -> None:
-    """Choosing the child compiles the statechart again, which must not ask a
-    second time."""
+    """
+    Choosing the child compiles the statechart again, which must not ask a second time.
+    """
     extension = ExtensionRecordingCompiles()
 
     _choosing_statechart(statechart_context, extension)
@@ -159,11 +177,14 @@ def test_the_extensions_are_asked_to_hold_still_once_per_choice(
 
 @dataclass
 class StepCountingItsRuns:
-    """A step that has to wait until everything an executor drives is at
-    rest."""
+    """
+    A step that has to wait until everything an executor drives is at rest.
+    """
 
     runs: int = 0
-    """How often it ran."""
+    """
+    How often it ran.
+    """
 
     def __call__(self) -> None:
         self.runs += 1
@@ -215,9 +236,10 @@ def test_a_step_runs_once_however_often_it_was_handed_over(statechart_context) -
 def test_the_extensions_are_asked_once_for_a_step_and_the_compile_it_causes(
     statechart_context,
 ) -> None:
-    """A step changing the kinematic structure compiles the statechart on the
-    same tick, so nothing ticks on the structure the statechart was compiled
-    against before."""
+    """
+    A step changing the kinematic structure compiles the statechart on the same tick,
+    so nothing ticks on the structure the statechart was compiled against before.
+    """
     extension = ExtensionRecordingCompiles()
     executor = _counting_statechart(statechart_context, extension)
     world = executor.context.world
@@ -241,26 +263,33 @@ def test_the_extensions_are_asked_once_for_a_step_and_the_compile_it_causes(
 
 @dataclass
 class ExtensionBrakingOnceAskedToHoldStill(TickingExecutorExtension):
-    """An executor extension that starts moving after the first tick and comes
-    to rest on the tick after it was first asked to hold still while moving,
-    the way a robot braking does.
+    """
+    An executor extension that starts moving after the first tick and comes to rest on
+    the tick after it was first asked to hold still while moving, the way a robot
+    braking does.
 
     It counts every compile it is told about while not at rest.
     """
 
     is_at_rest: bool = True
-    """Whether what this extension drives is at rest."""
+    """
+    Whether what this extension drives is at rest.
+    """
 
     has_started_moving: bool = False
-    """Whether what this extension drives started moving."""
+    """
+    Whether what this extension drives started moving.
+    """
 
     is_braking: bool = False
-    """Whether it was asked to hold still while moving, and comes to rest after
-    this tick."""
+    """
+    Whether it was asked to hold still while moving, and comes to rest after this tick.
+    """
 
     compiles_while_not_at_rest: int = 0
-    """How often the statechart compiled again while this extension was not at
-    rest."""
+    """
+    How often the statechart compiled again while this extension was not at rest.
+    """
 
     def before_recompile(self, executor: StatechartExecutor) -> bool:
         if not self.is_at_rest:
@@ -282,7 +311,9 @@ class ExtensionBrakingOnceAskedToHoldStill(TickingExecutorExtension):
 
 @dataclass
 class ChooserWithoutChildren(ChildChooser[CompositeNodeChoosingItsChild]):
-    """Says that no child is left whenever it is asked."""
+    """
+    Says that no child is left whenever it is asked.
+    """
 
     def choose_child(
         self, node: CompositeNodeChoosingItsChild
@@ -293,8 +324,10 @@ class ChooserWithoutChildren(ChildChooser[CompositeNodeChoosingItsChild]):
 def test_resetting_a_node_choosing_its_child_compiles_nothing_while_moving(
     statechart_context,
 ) -> None:
-    """A node that ran out of children is reset to choose again, which must not
-    compile the statechart while what the executor drives is not at rest."""
+    """
+    A node that ran out of children is reset to choose again, which must not compile the
+    statechart while what the executor drives is not at rest.
+    """
     extension = ExtensionBrakingOnceAskedToHoldStill()
     executor = StatechartExecutor(context=statechart_context, extensions=[extension])
     executor.context.add_extension(

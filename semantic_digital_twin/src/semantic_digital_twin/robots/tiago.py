@@ -68,7 +68,8 @@ from semantic_digital_twin.world_description.world_entity import (
 
 
 class TiagoJoint(JointName):
-    """Names of the Tiago's commandable connections, as spelled in its URDF.
+    """
+    Names of the Tiago's commandable connections, as spelled in its URDF.
 
     Members are usable wherever a connection name is expected, so a configuration keyed by
     them stays a plain mapping of names to positions.
@@ -102,14 +103,20 @@ class TiagoJoint(JointName):
 
 class TiagoTopic(StrEnum):
     ODOMETRY = "direct_laser_odometry/odom"
-    """Odom topic the robot publishes, this is the odom topic which is already
-    integrated with the laser scan."""
+    """
+    Odom topic the robot publishes, this is the odom topic which is already integrated with the laser scan
+    """
 
     LIDAR = "scan"
-    """Topic name on which the lidar readings are published."""
+    """
+    Topic name on which the lidar readings are published
+    """
 
     TEXT_TO_SPEECH = "tts"
-    """Topic the robot reads the text it speaks aloud from."""
+    """
+    Topic the robot reads the text it speaks aloud from.
+    """
+
 
 @dataclass(eq=False)
 class TiagoLeftThumb(Finger):
@@ -201,14 +208,17 @@ class TiagoRightIndexFinger(Finger):
 
 @dataclass(eq=False)
 class TiagoGripper(EndEffector, ABC):
-    """A gripper of a Tiago, whose joints all follow the one joint its
-    controller commands."""
+    """
+    A gripper of a Tiago, whose joints all follow the one joint its controller commands.
+    """
 
     @classproperty
     @abstractmethod
     def finger_joint(cls) -> TiagoJoint:
-        """The joint the controller commands, which every other joint of the
-        gripper mimics."""
+        """
+        The joint the controller commands, which every other joint of the gripper
+        mimics.
+        """
 
     def setup_hardware_interfaces(self):
         connection: ActiveConnection = self._world.get_connection_by_name(
@@ -217,8 +227,10 @@ class TiagoGripper(EndEffector, ABC):
         connection.has_hardware_interface = True
 
     def setup_joint_states(self) -> list[JointState]:
-        """The gripper stands open with :attr:`finger_joint` at its lower limit
-        and closed with it at its upper limit."""
+        """
+        The gripper stands open with :attr:`finger_joint` at its lower limit and closed
+        with it at its upper limit.
+        """
         finger_joint: ActiveConnection1DOF = self._world.get_connection_by_name(
             self.finger_joint
         )
@@ -383,17 +395,18 @@ class TiagoRightArm(Arm[TiagoRightGripper]):
 
 @dataclass(eq=False)
 class TiagoCamera(RobotCamera[FieldOfViewCameraModel]):
-    """Camera attached to its robot model's optical frame."""
+    """
+    Camera attached to its robot model's optical frame.
+    """
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(
         cls, robot_root: KinematicStructureEntity
     ) -> Self:
-        """Attach the camera to the optical frame below the supplied robot
-        root.
+        """
+        Attach the camera to the optical frame below the supplied robot root.
 
-        :param robot_root: Root of the robot branch containing the
-            optical frame.
+        :param robot_root: Root of the robot branch containing the optical frame.
         :return: Camera configured for the model's optical frame.
         """
         return cls(
@@ -497,7 +510,8 @@ class TiagoTorso(
 
 @dataclass(eq=False)
 class TiagoBaseLidar(Lidar):
-    """The SICK TIM551 scanner sweeping the floor in front of the Tiago's base.
+    """
+    The SICK TIM551 scanner sweeping the floor in front of the Tiago's base.
 
     ..note:: The description's own beam count is not a whole number, so the scanner's
         angular resolution of a third of a degree gives the angle between two beams.
@@ -534,7 +548,9 @@ class TiagoMobileBase(
 ):
     @classproperty
     def topic_name(cls) -> str:
-        """The topic the Tiago publishes the pose of its base on."""
+        """
+        The topic the Tiago publishes the pose of its base on.
+        """
         return TiagoTopic.ODOMETRY
 
     @classproperty
@@ -560,7 +576,8 @@ class TiagoMobileBase(
 
 @dataclass(eq=False)
 class Tiago(AbstractRobot, HasMobileBase[TiagoMobileBase]):
-    """The Tiago++ robot by PAL Robotics with updated Robotiq grippers.
+    """
+    The Tiago++ robot by PAL Robotics with updated Robotiq grippers.
 
     https://pal-robotics.com/blog/tiago-bi-manual-robot-research/
     """
@@ -609,9 +626,11 @@ class Tiago(AbstractRobot, HasMobileBase[TiagoMobileBase]):
 
 
 class TiagoMujocoFingerJoint(JointName):
-    """Names of the sliding finger joints of MuJoCo's own model of the Tiago,
-    which has them in place of the URDF's linkage; its other joints are named
-    as in :class:`TiagoJoint`."""
+    """
+    Names of the sliding finger joints of MuJoCo's own model of the Tiago, which has
+    them in place of the URDF's linkage; its other joints are named as in
+    :class:`TiagoJoint`.
+    """
 
     LEFT_GRIPPER_LEFT_FINGER = "gripper_left_left_finger_joint"
     LEFT_GRIPPER_RIGHT_FINGER = "gripper_left_right_finger_joint"
@@ -620,8 +639,10 @@ class TiagoMujocoFingerJoint(JointName):
 
 
 class TiagoMujocoBody(StrEnum):
-    """Names of the bodies of MuJoCo's own model of the Tiago that its parts
-    are rooted in or end at."""
+    """
+    Names of the bodies of MuJoCo's own model of the Tiago that its parts are rooted in
+    or end at.
+    """
 
     BASE = "base_link"
     TORSO_LIFT = "torso_lift_link"
@@ -643,8 +664,10 @@ class TiagoMujocoBody(StrEnum):
 
 @dataclass(eq=False)
 class ServoedByItsMujocoModel(ServoedRobotPart, ABC):
-    """A part of the MuJoCo Tiago whose joints are driven in a physical
-    simulation by the drives of :attr:`drive_of_each_model_joint`."""
+    """
+    A part of the MuJoCo Tiago whose joints are driven in a physical simulation by the
+    drives of :attr:`drive_of_each_model_joint`.
+    """
 
     @classproperty
     def drive_of_each_model_joint(cls) -> dict[str, JointDrive]:
@@ -831,7 +854,9 @@ class TiagoMujocoLeftGripper(
         pass
 
     def setup_joint_states(self) -> list[JointState]:
-        """The hand opens and closes to the ends of its fingers' travel."""
+        """
+        The hand opens and closes to the ends of its fingers' travel.
+        """
         gripper_joints = self.active_connections
         gripper_open = JointState.from_mapping(
             name=PrefixedName(f"{self.name.name}_open", prefix=self.name.name),
@@ -883,7 +908,9 @@ class TiagoMujocoRightGripper(
         pass
 
     def setup_joint_states(self) -> list[JointState]:
-        """The hand opens and closes to the ends of its fingers' travel."""
+        """
+        The hand opens and closes to the ends of its fingers' travel.
+        """
         gripper_joints = self.active_connections
         gripper_open = JointState.from_mapping(
             name=PrefixedName(f"{self.name.name}_open", prefix=self.name.name),
@@ -994,14 +1021,16 @@ class TiagoMujocoRightArm(Arm[TiagoMujocoRightGripper], ServoedByItsMujocoModel)
 
 @dataclass(eq=False)
 class TiagoMujocoCamera(RobotCamera[FieldOfViewCameraModel]):
-    """Head-mounted camera with optical forward aligned to the head's positive
-    X axis."""
+    """
+    Head-mounted camera with optical forward aligned to the head's positive X axis.
+    """
 
     @classmethod
     def setup_default_configuration_in_world_below_robot_root(
         cls, robot_root: KinematicStructureEntity
     ) -> Self:
-        """Attach an optical frame to the head below the supplied robot root.
+        """
+        Attach an optical frame to the head below the supplied robot root.
 
         :param robot_root: Root of the robot branch containing the head.
         :return: Camera configured for the head's mounting frame.
@@ -1111,17 +1140,20 @@ class TiagoMujocoMobileBase(MobileBase[DifferentialDrive], HasTorso[TiagoMujocoT
 
     @property
     def drive_servos(self) -> DriveServos:
-        """Servos tuned for the base, which carries the whole robot, to follow
-        its commanded velocity; they are not taken from the real robot."""
+        """
+        Servos tuned for the base, which carries the whole robot, to follow its
+        commanded velocity; they are not taken from the real robot.
+        """
         return DriveServos(
             translation_gains=VelocityServoGains(damping=20000.0, torque_limit=10000.0),
             rotation_gains=VelocityServoGains(damping=5000.0, torque_limit=5000.0),
         )
 
     def _setup_servos(self) -> None:
-        """Declare the drive's servos, see :meth:`MobileBase._setup_servos`,
-        and let a physical simulation carry the weight of every body standing
-        on the base."""
+        """
+        Declare the drive's servos, see :meth:`MobileBase._setup_servos`, and let a
+        physical simulation carry the weight of every body standing on the base.
+        """
         super()._setup_servos()
         self._compensate_gravity()
 
@@ -1139,12 +1171,12 @@ class TiagoMujocoMobileBase(MobileBase[DifferentialDrive], HasTorso[TiagoMujocoT
 
 @dataclass(eq=False)
 class TiagoMujoco(AbstractRobot, HasMobileBase[TiagoMujocoMobileBase]):
-    """Class that describes the Take It And Go Robot (TIAGo).
+    """
+    Class that describes the Take It And Go Robot (TIAGo).
 
-    Described by MuJoCo's own model of the robot, whose gripper is two
-    sliding fingers, rather than by the URDF, whose gripper is a
-    linkage. The model carries fewer bodies than the URDF, the camera's
-    optical frame among those it leaves out.
+    Described by MuJoCo's own model of the robot, whose gripper is two sliding fingers,
+    rather than by the URDF, whose gripper is a linkage. The model carries fewer bodies
+    than the URDF, the camera's optical frame among those it leaves out.
     """
 
     @classmethod
@@ -1167,8 +1199,10 @@ class TiagoMujoco(AbstractRobot, HasMobileBase[TiagoMujocoMobileBase]):
         return TiagoMujocoBody.BASE
 
     def _setup_collision_rules(self):
-        """Avoid collisions with everything but the robot itself, whose
-        description states which of its own bodies may touch."""
+        """
+        Avoid collisions with everything but the robot itself, whose description states
+        which of its own bodies may touch.
+        """
         self._world.collision_manager.extend_default_rules(
             [
                 AvoidExternalCollisions(

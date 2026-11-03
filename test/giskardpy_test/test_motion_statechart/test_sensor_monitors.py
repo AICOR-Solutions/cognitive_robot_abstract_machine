@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from giskardpy.executor import Executor
-from giskardpy.motion_statechart.context import MotionStatechartContext
-from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from cramph.context import StatechartContext
+from cramph.data_types import ObservationStateValues
+from cramph.executor import StatechartExecutor
+from cramph.statechart import Statechart
 from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world import World
@@ -36,14 +36,14 @@ def passage_monitor(mount: Body, passage_x: float) -> PassageClear:
     )
 
 
-def ticked_executor(world: World, monitor: PassageClear) -> Executor:
+def ticked_executor(world: World, monitor: PassageClear) -> StatechartExecutor:
     """
     :return: An executor that compiled a statechart holding only the monitor, ticked once.
     """
-    motion_statechart = MotionStatechart()
-    motion_statechart.add_node(monitor)
-    executor = Executor(MotionStatechartContext(world=world))
-    executor.compile(motion_statechart=motion_statechart)
+    executor = StatechartExecutor(context=StatechartContext(world=world))
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(monitor)
+    executor.compile(statechart)
     executor.tick()
     return executor
 
@@ -111,7 +111,7 @@ def test_a_restarted_passage_monitor_judges_the_passage_anew():
     monitor.passage_start.x = 2 * PASSAGE_DISTANCE
     monitor.passage_end.x = 2 * PASSAGE_DISTANCE
 
-    monitor.on_start(executor.context)
+    monitor.on_start()
     executor.tick()
 
     assert monitor.observation_state == ObservationStateValues.FALSE

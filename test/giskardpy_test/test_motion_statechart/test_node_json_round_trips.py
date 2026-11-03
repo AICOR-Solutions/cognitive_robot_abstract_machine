@@ -63,6 +63,7 @@ from giskardpy.motion_statechart.monitors.feature_monitors import (
     PerpendicularMonitor,
 )
 from giskardpy.motion_statechart.monitors.joint_monitors import JointPositionReached
+from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetOdometry,
@@ -689,6 +690,17 @@ def _monitor_cases() -> list[NodeRoundTripCase]:
                     center_point=_point(world),
                     line_axis=_root_axis(world),
                     line_length=0.4,
+                )
+            ],
+            WorldFixture.PR2_WORLD,
+        ),
+        NodeRoundTripCase(
+            PassageClear,
+            lambda world: [
+                PassageClear(
+                    lidar=_robot(world).mobile_base.lidar,
+                    passage_start=_point(world),
+                    passage_end=_tip_point(world),
                 )
             ],
             WorldFixture.PR2_WORLD,

@@ -4,7 +4,10 @@ from giskardpy.model.world_config import WorldWithDiffDriveRobot
 from giskardpy.middleware.ros2.robot_interface_config import RobotInterfaceConfig
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago, TiagoJoint
-from semantic_digital_twin.world_description.connections import DifferentialDrive, Connection6DoF
+from semantic_digital_twin.world_description.connections import (
+    Connection6DoF,
+    DifferentialDrive,
+)
 
 
 @dataclass

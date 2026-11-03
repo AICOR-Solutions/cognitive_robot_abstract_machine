@@ -5,15 +5,14 @@ elevator when the other room lies on another level.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.robot_plans.actions.base import SequentialAction
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     PathPlanningNavigateAction,
 )
+from cramph.node import StatechartNode
 from experiments.tiago_room_navigation_demo.exceptions import (
     NoElevatorError,
     RoomOnNoLevelError,
@@ -27,8 +26,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 # %% navigating to a room
 
 
-@dataclass
-class NavigateToRoomAction(ActionDescription):
+@dataclass(eq=False, repr=False, kw_only=True)
+class NavigateToRoomAction(SequentialAction):
     """
     Drives the robot to the middle of a room along paths through the free space of each
     level it crosses.
@@ -45,18 +44,17 @@ class NavigateToRoomAction(ActionDescription):
     The room the robot should end up in.
     """
 
-    elevator_waiting_distance: float = field(default=1.5, kw_only=True)
+    elevator_waiting_distance: float = 1.5
     """
     How far in front of the elevator's doors the robot drives before riding it.
     """
 
-    elevator_arrival_threshold: float = field(default=0.01, kw_only=True)
+    elevator_arrival_threshold: float = 0.01
     """
     Position error within which the elevator's drive counts as having arrived.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_steps(self) -> list[StatechartNode]:
         """
         :raises RoomOnNoLevelError: If the target room lies on no level.
         :raises NoElevatorError: If the target room lies on another level than the
@@ -65,26 +63,24 @@ class NavigateToRoomAction(ActionDescription):
         target_level = Level.under(self.target_room.floor.root)
         if target_level is None:
             raise RoomOnNoLevelError(self.target_room.name.name)
-        drive_to_room = PathPlanningNavigateAction(self.target_room.floor_centre)
+        drive_to_room = PathPlanningNavigateAction(target=self.target_room.floor_centre)
         if Level.under(self.robot.root) is target_level:
-            return sequential([drive_to_room])
+            return [drive_to_room]
         elevators = self.world.get_semantic_annotations_by_type(Elevator)
         if not elevators:
             raise NoElevatorError(self.target_room.name.name)
         elevator = elevators[0]
-        return sequential(
-            [
-                PathPlanningNavigateAction(
-                    elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
-                ),
-                *self._ride_elevator(elevator, target_level),
-                drive_to_room,
-            ]
-        )
+        return [
+            PathPlanningNavigateAction(
+                target=elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
+            ),
+            *self._ride_elevator(elevator, target_level),
+            drive_to_room,
+        ]
 
     def _ride_elevator(
         self, elevator: Elevator, target_level: Level
-    ) -> list[ActionDescription]:
+    ) -> list[StatechartNode]:
         """
         :param elevator: The elevator the robot waits in front of.
         :param target_level: The level the robot rides to.
@@ -93,8 +89,8 @@ class NavigateToRoomAction(ActionDescription):
         """
         return [
             ElevatorNavigation(
-                elevator,
-                target_level,
+                elevator=elevator,
+                target_floor=target_level,
                 arrival_threshold=self.elevator_arrival_threshold,
             )
         ]

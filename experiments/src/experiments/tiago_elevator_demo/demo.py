@@ -1,8 +1,8 @@
 """
 Tiago rides the elevator of the ARISE office from the ground floor to the first floor.
 
-Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the robot
-of the TIAGo ARISE Gazebo simulator, or the real TIAGo: the world comes from the running
+Running with :class:`~coraplex.plans.executors.RealRobotPlanExecutor` drives the robot of
+the TIAGo ARISE Gazebo simulator, or the real TIAGo: the world comes from the running
 controller, the base lidar from ``/scan``, and the cabin's height from the elevator's joint
 states. The elevator itself is operated outside the plan, by a person on the real robot and
 by the simulator's elevator operator in Gazebo.
@@ -15,29 +15,40 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
-from coraplex.robot_plans.actions.core.navigation import ElevatorNavigation
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import (
+    KinematicallySimulatedPlanExecutor,
+    PlanExecutor,
+    RealRobotPlanExecutor,
+    SimulatedPlanExecutor,
+)
+from coraplex.plans.plan_transformation import (
+    ConfigurationTransformation,
+    PlanRewriting,
+)
+from coraplex.robot_plans.actions.core.navigation import (
+    DrivesBase,
+    ElevatorNavigation,
+)
+from cramph.context import ContextExtension, StatechartContext
+from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
-    AriseOfficeRoom,
 )
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
-    GroundFloor,
     Level,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
 
 # %% operating the elevator in a kinematic simulation
@@ -71,6 +82,28 @@ class ElevatorOperator(ModelChangeCallback):
         self.elevator.close()
         self.elevator.drive_to_floor(self.floor)
         self.elevator.open()
+
+
+# %% driving the real base
+
+
+@dataclass
+class ArriveWithinTheAccuracyOfTheRealBase(ConfigurationTransformation[DrivesBase]):
+    """
+    Lets a real base count as arrived at a distance it can actually hold, which is wider
+    than the one a simulated base reaches.
+    """
+
+    base_pose_threshold: float = 0.1
+    """
+    How far the base may be from a pose, in meters and in radians, to count as arrived.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        return True
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_pose_threshold = self.base_pose_threshold
 
 
 # %% demonstration
@@ -124,26 +157,31 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
     Writes the cabin's height from the elevator's joint states in a real run.
     """
 
-    def build_simulated_world(self) -> World:
+    @property
+    def runs_on_a_real_robot(self) -> bool:
         """
-        Populate a world holding nothing but a map body and put the Tiago on its drive
-        on the office's ground floor.
+        :return: Whether the plan drives the real (or Gazebo) robot.
         """
-        world = World.create_with_root_body()
-        self.populate_scene(world)
-        RobotSpecification(
+        return not issubclass(self.executor_type, SimulatedPlanExecutor)
+
+    def scene_specification(self) -> WorldSpecification:
+        """
+        :return: A world holding nothing but a map body, which :meth:`populate_scene`
+            spawns the office into.
+        """
+        return WorldSpecification()
+
+    def robot_specification(self) -> RobotSpecification:
+        """
+        :return: The Tiago on its drive on the office's ground floor.
+        """
+        return RobotSpecification(
             semantic_annotation_type=self.used_robot,
-            world_T_odom=world.transform(
-                HomogeneousTransformationMatrix(
-                    reference_frame=self.office.get_room(
-                        world, GroundFloor, AriseOfficeRoom.LOBBY
-                    ).floor.root
-                ),
-                world.root,
+            world_T_odom=HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=self.office.ground_floor_height
             ),
             odom_T_robot_start=self.odom_T_robot_start,
-        ).spawn(world)
-        return world
+        )
 
     def is_scene_populated(self, world: World) -> bool:
         return bool(world.get_semantic_annotations_by_type(Elevator))
@@ -155,7 +193,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         In a kinematic simulation the elevator waits with open doors.
         """
         elevator = self.office.spawn(world)
-        if self.execution_type is not ExecutionType.REAL:
+        if not self.runs_on_a_real_robot:
             elevator.open()
 
     def acquire_world(self) -> World:
@@ -163,40 +201,35 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         On a real run, the base lidar is read from the robot instead of the world.
         """
         world = super().acquire_world()
-        if self.execution_type is ExecutionType.REAL:
+        if self.runs_on_a_real_robot:
             lidar = world.get_semantic_annotations_by_type(self.used_robot)[
                 0
             ].mobile_base.lidar
             lidar.use_source(lidar.real_source(self.ros_node))
         return world
 
-    def build_context(self, world: World) -> Context:
+    def build_context_extensions(self, world: World) -> list[ContextExtension]:
         """
-        Build the plan context around the Tiago in ``world`` and connect the elevator to
-        whatever moves its cabin.
-
-        .. note:: The ROS node has to be in the context for a real robot.
+        Give the plan the Tiago in ``world`` and connect the elevator to whatever moves
+        its cabin.
         """
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
-        if self.execution_type is ExecutionType.REAL:
+        if self.runs_on_a_real_robot:
             if self.elevator_inputs is None:
                 self._follow_elevator_drive(elevator)
-        elif self.elevator_operator is None:
+            return [
+                RobotAccess(robot),
+                PlanRewriting(transformations=[ArriveWithinTheAccuracyOfTheRealBase()]),
+            ]
+        if self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
                 _world=world,
                 elevator=elevator,
                 floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
                 robot=robot,
             )
-        return Context(
-            world=world,
-            robot=robot,
-            ros_node=self.ros_node,
-            evaluate_conditions=False,
-            alternative_motion_mappings=self.alternative_motion_mappings,
-            _debug=self.debug,
-        )
+        return [RobotAccess(robot)]
 
     def _follow_elevator_drive(self, elevator: Elevator) -> None:
         """
@@ -216,22 +249,21 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             self.elevator_drive_update_period, self.elevator_inputs.synchronize
         )
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Ride the elevator to the first floor.
         """
-        elevator = context.world.get_semantic_annotations_by_type(Elevator)[0]
-        first_floor = context.world.get_semantic_annotations_by_type(FirstFloor)[0]
-        return sequential(
-            [
-                ElevatorNavigation(
-                    elevator,
-                    first_floor,
-                    arrival_threshold=self.elevator_arrival_threshold,
-                )
-            ],
-            context=context,
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            ElevatorNavigation(
+                elevator=context.world.get_semantic_annotations_by_type(Elevator)[0],
+                target_floor=context.world.get_semantic_annotations_by_type(FirstFloor)[
+                    0
+                ],
+                arrival_threshold=self.elevator_arrival_threshold,
+            )
         )
+        return statechart
 
     def tear_down(self) -> None:
         if self.elevator_operator is not None:
@@ -241,17 +273,16 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
 
 def main(
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED,
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
 ) -> None:
     """
     Run the demonstration.
 
-    :param execution_type: Whether to drive the real (or Gazebo) robot or simulate it.
+    :param executor_type: The executor running the plan, which decides whether it drives
+        the real (or Gazebo) robot or simulates it.
     """
-    TiagoElevatorRideDemonstration(
-        used_robot=Tiago, execution_type=execution_type
-    ).run()
+    TiagoElevatorRideDemonstration(used_robot=Tiago, executor_type=executor_type).run()
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL)
+    main(executor_type=RealRobotPlanExecutor)

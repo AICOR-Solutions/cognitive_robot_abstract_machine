@@ -13,17 +13,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor
 from coraplex.robot_plans.actions.core.speech import SayAction
+from cramph.composites import ChildChooserAccess, Sequence
+from cramph.context import StatechartContext
+from cramph.statechart import Statechart
 from experiments.ra_fetch_elevator_people.elevator_people import Ros4HriTopic
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.exceptions import (
     TargetRoomNotReachedError,
 )
 from experiments.tiago_room_request_demo.boarding_permission import (
+    AskToBoardChooser,
+    BoardingQuestionAsker,
     NavigateToRoomAskingToBoardAction,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
@@ -76,43 +79,52 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
     Finds the people Tiago asks to board.
     """
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Wait to be told a room, then drive there, asking to board the elevator.
 
         :raises NoRoomRequestedError: If nobody told a room the office has within
             :attr:`room_request_timeout`.
         """
+        robot = context.require_extension(RobotAccess).robot
         self.persons_at_elevator = PersonsAtElevator(
-            node=context.ros_node,
+            node=self.ros_node,
             topic_name=Ros4HriTopic.TRACKED_PERSONS,
             elevator=context.world.get_semantic_annotations_by_type(Elevator)[0],
         )
+        context.require_extension(ChildChooserAccess).choosers.append(
+            AskToBoardChooser(
+                persons_at_elevator=self.persons_at_elevator,
+                asker=BoardingQuestionAsker(self.ros_node),
+            )
+        )
         self.room_requests = RoomRequests(
-            node=context.ros_node,
+            node=self.ros_node,
             world=context.world,
             office=self.office,
-            text_to_speech_topic=context.robot.text_to_speech_topic,
+            text_to_speech_topic=robot.text_to_speech_topic,
         )
         self.requested_room = self.room_requests.wait_for_room(
             self.room_request_timeout
         )
-        return sequential(
-            [
-                SayAction(
-                    RoomRequestAnnouncement.HEADING_TO.verbalize(
-                        self.requested_room.spoken_name
-                    )
-                ),
-                NavigateToRoomAskingToBoardAction(
-                    self.requested_room.room,
-                    persons_at_elevator=self.persons_at_elevator,
-                    elevator_arrival_threshold=self.elevator_arrival_threshold,
-                    maximum_boarding_attempts=self.maximum_boarding_attempts,
-                ),
-            ],
-            context=context,
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            Sequence(
+                nodes=[
+                    SayAction(
+                        text=RoomRequestAnnouncement.HEADING_TO.verbalize(
+                            self.requested_room.spoken_name
+                        )
+                    ),
+                    NavigateToRoomAskingToBoardAction(
+                        target_room=self.requested_room.room,
+                        elevator_arrival_threshold=self.elevator_arrival_threshold,
+                        maximum_boarding_attempts=self.maximum_boarding_attempts,
+                    ),
+                ]
+            )
         )
+        return statechart
 
     def conclude(self, world: World) -> None:
         """
@@ -133,13 +145,14 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         super().tear_down()
 
 
-def main(execution_type: ExecutionType = ExecutionType.REAL) -> None:
+def main(executor_type: type[PlanExecutor] = RealRobotPlanExecutor) -> None:
     """
     Run the demonstration.
 
-    :param execution_type: Whether to drive the real (or Gazebo) robot or simulate it.
+    :param executor_type: The executor running the plan, which decides whether it drives
+        the real (or Gazebo) robot or simulates it.
     """
-    TiagoRoomRequestDemonstration(used_robot=Tiago, execution_type=execution_type).run()
+    TiagoRoomRequestDemonstration(used_robot=Tiago, executor_type=executor_type).run()
 
 
 if __name__ == "__main__":

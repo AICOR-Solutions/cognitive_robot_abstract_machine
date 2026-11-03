@@ -51,28 +51,28 @@ from semantic_digital_twin.world import World
 
 @dataclass
 class GiskardClientExecutor(Executor):
-    """Executes a statechart by sending it to Giskard over ROS and waiting
-    until it ended there.
+    """
+    Executes a statechart by sending it to Giskard over ROS and waiting until it ended
+    there.
 
-    The statechart is built in :attr:`context`, whose world is kept in
-    step with the world of Giskard. The nodes of the statechart that
-    choose their child are answered with the
-    :class:`~cramph.composites.ChildChooserAccess` of :attr:`context`,
-    if it has one.
+    The statechart is built in :attr:`context`, whose world is kept in step with the
+    world of Giskard. The nodes of the statechart that choose their child are answered
+    with the :class:`~cramph.composites.ChildChooserAccess` of :attr:`context`, if it
+    has one.
 
     :param node_handle: node used to talk to Giskard
     :param giskard_node_name: node name of Giskard
-    :param world: world to keep in step with the world of Giskard,
-        fetched from Giskard when neither it nor :attr:`context` is
-        given
+    :param world: world to keep in step with the world of Giskard, fetched from Giskard
+        when neither it nor :attr:`context` is given
     """
 
     context: StatechartContext | None = field(default=None, kw_only=True)
-    """The context the statecharts sent to Giskard are built in.
+    """
+    The context the statecharts sent to Giskard are built in.
 
     When not given, it is built over :attr:`world` with what
-    :class:`~giskardpy.motion_control.MotionControl` adds to a context,
-    which the motion nodes need to expand.
+    :class:`~giskardpy.motion_control.MotionControl` adds to a context, which the motion
+    nodes need to expand.
     """
 
     node_handle: Node
@@ -84,18 +84,23 @@ class GiskardClientExecutor(Executor):
     _client: MyActionClient = None
 
     world_updates: ClientWorldUpdates = field(init=False, default=None)
-    """Keeps this world in step with the world Giskard controls around a
-    goal."""
+    """
+    Keeps this world in step with the world Giskard controls around a goal.
+    """
 
     announces_presence: bool = field(default=False, kw_only=True)
-    """Whether this client announces itself to Giskard from the start, see
-    :meth:`announce_presence`."""
+    """
+    Whether this client announces itself to Giskard from the start, see
+    :meth:`announce_presence`.
+    """
 
     heartbeat_publisher: ClientHeartbeatPublisher | None = field(
         init=False, default=None
     )
-    """Announces to Giskard that this client is still waiting for its goal, or
-    ``None`` while this client does not announce itself."""
+    """
+    Announces to Giskard that this client is still waiting for its goal, or ``None``
+    while this client does not announce itself.
+    """
 
     def __post_init__(self):
         super().__post_init__()
@@ -128,18 +133,19 @@ class GiskardClientExecutor(Executor):
 
     @property
     def client(self) -> MetaData:
-        """Who this client is, as it names itself in its goals and its
-        heartbeats."""
+        """
+        Who this client is, as it names itself in its goals and its heartbeats.
+        """
         return self.world_updates.world_synchronizer.meta_data
 
     def announce_presence(self) -> None:
-        """Start announcing to Giskard that this client is still there.
+        """
+        Start announcing to Giskard that this client is still there.
 
-        Giskard only watches clients that announce themselves. It stops
-        the goal of one whose announcements stop arriving, so that a
-        robot does not finish a motion nobody is waiting for any more.
-        This is off unless asked for, because a client on a machine too
-        busy to announce itself in time looks just like one that died.
+        Giskard only watches clients that announce themselves. It stops the goal of one
+        whose announcements stop arriving, so that a robot does not finish a motion
+        nobody is waiting for any more. This is off unless asked for, because a client
+        on a machine too busy to announce itself in time looks just like one that died.
 
         Does nothing if this client already announces itself.
         """
@@ -160,31 +166,32 @@ class GiskardClientExecutor(Executor):
         return self.world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
     def compile(self, statechart: Statechart) -> None:
-        """Does what :meth:`Executor.compile` does, then tells every extension
-        that the statechart is compiled."""
+        """
+        Does what :meth:`Executor.compile` does, then tells every extension that the
+        statechart is compiled.
+        """
         super().compile(statechart)
         self._notify_compiled()
 
     def execute_async(self) -> Future:
-        """Sends the compiled statechart to Giskard without waiting for it to
-        end, see :meth:`get_result`.
+        """
+        Sends the compiled statechart to Giskard without waiting for it to end, see
+        :meth:`get_result`.
 
-        :return: future that completes once Giskard accepted or rejected
-            the goal
+        :return: future that completes once Giskard accepted or rejected the goal
         """
         self.statechart.sanity_check()
         return self._client.send_goal_async(self._create_goal_message())
 
     def execute(self) -> None:
-        """Sends the compiled statechart to Giskard, keeps its states in step
-        with the ones Giskard reports while it runs, waits until it ended
-        there, takes over its final states and tells every extension that the
-        run stopped.
+        """
+        Sends the compiled statechart to Giskard, keeps its states in step with the ones
+        Giskard reports while it runs, waits until it ended there, takes over its final
+        states and tells every extension that the run stopped.
 
-        A goal that fails raises the exception that made Giskard abort
-        it, for example :class:`WorldModelModifiedDuringMotionError`
-        when another process reloaded the world model while the motion
-        was running.
+        A goal that fails raises the exception that made Giskard abort it, for example
+        :class:`WorldModelModifiedDuringMotionError` when another process reloaded the
+        world model while the motion was running.
         """
         self.statechart.sanity_check()
         child_chooser_access = self.context.get_extension(ChildChooserAccess)
@@ -203,8 +210,8 @@ class GiskardClientExecutor(Executor):
             self.finish_run()
 
     def _follow_states(self, feedback: dict[str, Any]) -> None:
-        """Write the states Giskard reports in `feedback` into the compiled
-        statechart.
+        """
+        Write the states Giskard reports in `feedback` into the compiled statechart.
 
         :param feedback: The feedback of the running goal.
         """
@@ -213,9 +220,9 @@ class GiskardClientExecutor(Executor):
     def _send_action_goal_choosing_children(
         self, child_chooser_access: ChildChooserAccess
     ) -> JsonAction_Result:
-        """Send the goal, follow the states Giskard reports, see
-        :meth:`_follow_states`, and answer every node Giskard reports as
-        waiting for a child.
+        """
+        Send the goal, follow the states Giskard reports, see :meth:`_follow_states`,
+        and answer every node Giskard reports as waiting for a child.
 
         .. note:: The states are followed and the children are chosen in the thread that
             receives the feedback.
@@ -247,17 +254,16 @@ class GiskardClientExecutor(Executor):
             self.node_handle.destroy_publisher(publisher)
 
     def _take_over_result(self, result: JsonAction_Result) -> None:
-        """Copy the final states of a finished goal into the compiled
-        statechart.
+        """
+        Copy the final states of a finished goal into the compiled statechart.
 
-        An aborted goal whose statechart never compiled reports no
-        states.
+        An aborted goal whose statechart never compiled reports no states.
 
         :param result: result of a goal that succeeded or was aborted
-        :raises Exception: The exception that made Giskard abort the
-            goal, see :meth:`MyActionClient.create_abort_exception`.
-        :raises StatechartNotEndedByResultError: If a goal that
-            succeeded leaves the statechart not ended.
+        :raises Exception: The exception that made Giskard abort the goal, see
+            :meth:`MyActionClient.create_abort_exception`.
+        :raises StatechartNotEndedByResultError: If a goal that succeeded leaves the
+            statechart not ended.
         """
         result_json = json.loads(result.result.result)
         if result.status == GoalStatus.STATUS_ABORTED:
@@ -275,8 +281,9 @@ class GiskardClientExecutor(Executor):
             raise StatechartNotEndedByResultError()
 
     def _create_goal_message(self) -> JsonAction.Goal:
-        """Wrap the compiled statechart into a goal that names the change of
-        this world it was built on.
+        """
+        Wrap the compiled statechart into a goal that names the change of this world it
+        was built on.
 
         :return: action goal message holding the serialized motion goal
         """
@@ -290,10 +297,10 @@ class GiskardClientExecutor(Executor):
         return goal_msg
 
     def cancel_goal_async(self) -> Future:
-        """Stops the goal that was last sent to Giskard.
+        """
+        Stops the goal that was last sent to Giskard.
 
-        :return: future that completes once the cancel request was
-            answered
+        :return: future that completes once the cancel request was answered
         """
         try:
             future = self._client._goal_handle.cancel_goal_async()
@@ -302,13 +309,13 @@ class GiskardClientExecutor(Executor):
         return future
 
     async def get_result(self):
-        """Wait for the goal sent with :func:`execute_async`, sync its final
-        states and tell every extension that the run stopped.
+        """
+        Wait for the goal sent with :func:`execute_async`, sync its final states and
+        tell every extension that the run stopped.
 
-        A goal that fails raises the exception that made Giskard abort
-        it, for example :class:`WorldModelModifiedDuringMotionError`
-        when another process reloaded the world model while the motion
-        was running.
+        A goal that fails raises the exception that made Giskard abort it, for example
+        :class:`WorldModelModifiedDuringMotionError` when another process reloaded the
+        world model while the motion was running.
         """
         try:
             result = await self._client.get_result()
@@ -317,11 +324,11 @@ class GiskardClientExecutor(Executor):
             self.finish_run()
 
     def close(self) -> None:
-        """Stop announcing this client's heartbeat to Giskard, if it announces
-        one.
+        """
+        Stop announcing this client's heartbeat to Giskard, if it announces one.
 
-        Does not touch :attr:`node_handle`: it was given to this
-        executor by its caller, who owns its lifecycle.
+        Does not touch :attr:`node_handle`: it was given to this executor by its caller,
+        who owns its lifecycle.
         """
         if self.heartbeat_publisher is None:
             return
@@ -335,51 +342,76 @@ class GiskardClientExecutorNode(GiskardClientExecutor):
     """
 
     is_spinning: bool = False
-    """Whether the background spinner currently spins the node."""
+    """
+    Whether the background spinner currently spins the node.
+    """
 
     node_name: str = "giskard_client"
-    """The name of the ros node this executor creates."""
+    """
+    The name of the ros node this executor creates.
+    """
 
     giskard_node_name: str = "giskard"
-    """The name of the ros node of the Giskard this executor talks to."""
+    """
+    The name of the ros node of the Giskard this executor talks to.
+    """
 
     ros_context: Context | None = field(kw_only=True, default=None)
-    """The ros context the node is created in, or None for the default
-    context."""
+    """
+    The ros context the node is created in, or None for the default context.
+    """
 
     cli_args: list[str] | None = field(kw_only=True, default=None)
-    """Command line arguments of the node."""
+    """
+    Command line arguments of the node.
+    """
 
     namespace: str | None = field(kw_only=True, default=None)
-    """The namespace of the node."""
+    """
+    The namespace of the node.
+    """
 
     use_global_arguments: bool = field(kw_only=True, default=True)
-    """Whether the node uses the global command line arguments."""
+    """
+    Whether the node uses the global command line arguments.
+    """
 
     enable_rosout: bool = field(kw_only=True, default=True)
-    """Whether the node logs to rosout."""
+    """
+    Whether the node logs to rosout.
+    """
 
     start_parameter_services: bool = field(kw_only=True, default=True)
-    """Whether the node offers its parameter services."""
+    """
+    Whether the node offers its parameter services.
+    """
 
     parameter_overrides: list[Parameter] | None = field(kw_only=True, default=None)
-    """Parameters that override the declared defaults of the node."""
+    """
+    Parameters that override the declared defaults of the node.
+    """
 
     allow_undeclared_parameters: bool = field(kw_only=True, default=False)
-    """Whether the node accepts parameters it did not declare."""
+    """
+    Whether the node accepts parameters it did not declare.
+    """
 
     automatically_declare_parameters_from_overrides: bool = field(
         kw_only=True, default=False
     )
-    """Whether the node declares every parameter of
-    :attr:`parameter_overrides`."""
+    """
+    Whether the node declares every parameter of :attr:`parameter_overrides`.
+    """
 
     enable_logger_service: bool = field(kw_only=True, default=False)
-    """Whether the node offers the services to get and set its logger
-    levels."""
+    """
+    Whether the node offers the services to get and set its logger levels.
+    """
 
     node_handle: Node = field(init=False)
-    """The ros node this executor created."""
+    """
+    The ros node this executor created.
+    """
 
     def __post_init__(self):
         self.node_handle = Node(
@@ -414,12 +446,11 @@ class GiskardClientExecutorNode(GiskardClientExecutor):
         self.spinner.start()
 
     def close(self) -> None:
-        """Stop the heartbeat and destroy the node this executor created for
-        itself.
+        """
+        Stop the heartbeat and destroy the node this executor created for itself.
 
-        Removes the node from Giskard's shared executor before
-        destroying it, since a destroyed node left registered there
-        would break the next spin.
+        Removes the node from Giskard's shared executor before destroying it, since a
+        destroyed node left registered there would break the next spin.
         """
         super().close()
         rospy.executor.remove_node(self.node_handle)

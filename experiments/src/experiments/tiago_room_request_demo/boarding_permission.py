@@ -6,27 +6,27 @@ ROS4HRI ``ask`` skill, and waiting for the next cabin while they say no.
 from __future__ import annotations
 
 import json
-import threading
 import time
-from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
+from enum import Enum, StrEnum, auto
 from pathlib import Path
 
 from action_msgs.msg import GoalStatus
 from communication_skills.action import Ask
 from rclpy.action import ActionClient
+from rclpy.action.client import ClientGoalHandle
 from rclpy.node import Node
 from rclpy.task import Future
 from std_skills.msg import Result as SkillResult
 
-from coraplex.datastructures.enums import ExecutionType
 from coraplex.exceptions import NotOnASingleLevelException
-from coraplex.plans.executables import Executable, GiskardExecutable
-from coraplex.plans.factories import execute_single
-from coraplex.plans.plan_node import ExecutionBoundaryNode, PlanNode
-from coraplex.robot_plans.actions.base import ActionDescription
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.robot_plans.actions.base import GoalAction
+from cramph.composites import ChildChooser, CompositeNodeChoosingItsChild
+from cramph.monitors import CountTicks
+from cramph.node import EndedByOwner, NodeArtifacts, StatechartNode
+from krrood.exceptions import DataclassException
+from krrood.symbolic_math.symbolic_math import Scalar
 from experiments.tiago_room_navigation_demo.room_navigation import (
     NavigateToRoomAction,
 )
@@ -40,9 +40,6 @@ from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     Level,
-)
-from semantic_digital_twin.world_description.world_entity import (
-    KinematicStructureEntity,
 )
 
 # %% the question
@@ -114,9 +111,78 @@ class BoardingAnswers:
 
 
 @dataclass
+class BoardingAnswerInProgress:
+    """
+    A question to a person that the ``ask`` skill is working on.
+    """
+
+    answer_timeout: float
+    """
+    Seconds the person may take to answer.
+    """
+
+    asked_at: float = field(default_factory=time.monotonic)
+    """
+    When the question was asked, on the monotonic clock.
+    """
+
+    may_board: bool | None = field(default=None, init=False)
+    """
+    Whether the person agreed, None until that is known.
+    """
+
+    _goal_handle: ClientGoalHandle | None = field(default=None, init=False)
+    """
+    The accepted goal, None until the skill accepted it.
+    """
+
+    def on_goal_response(self, future: Future) -> None:
+        """
+        Wait for the result of an accepted goal; a rejected goal counts as not agreeing.
+        """
+        goal_handle = future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            self.may_board = False
+            return
+        self._goal_handle = goal_handle
+        goal_handle.get_result_async().add_done_callback(self.on_result)
+
+    def on_result(self, future: Future) -> None:
+        """
+        Read what the person answered; a failed skill and an answer that could not be
+        retrieved count as not agreeing.
+        """
+        response = future.result()
+        if (
+            response is None
+            or response.status != GoalStatus.STATUS_SUCCEEDED
+            or response.result.result.error_code != SkillResult.ROS_ENOERR
+        ):
+            self.may_board = False
+            return
+        self.may_board = (
+            BoardingAnswers.from_json(response.result.answers).may_board is True
+        )
+
+    def poll(self) -> bool | None:
+        """
+        :return: Whether the person agreed, None while that is not known yet. No answer
+            within :attr:`answer_timeout` counts as not agreeing.
+        """
+        if self.may_board is None and (
+            time.monotonic() - self.asked_at > self.answer_timeout
+        ):
+            if self._goal_handle is not None:
+                self._goal_handle.cancel_goal_async()
+            self.may_board = False
+        return self.may_board
+
+
+@dataclass
 class BoardingQuestionAsker:
     """
-    Asks a person through the ``ask`` skill whether the robot may board.
+    Asks a person through the ``ask`` skill whether the robot may board, without waiting
+    for the answer.
     """
 
     node: Node
@@ -142,49 +208,27 @@ class BoardingQuestionAsker:
     def __post_init__(self) -> None:
         self._client = ActionClient(self.node, Ask, CommunicationSkill.ASK)
 
-    def may_board(self, person_id: str) -> bool:
+    @property
+    def is_served(self) -> bool:
+        """
+        :return: Whether the skill can be called right now.
+        """
+        return self._client.server_is_ready()
+
+    def ask(self, person_id: str) -> BoardingAnswerInProgress:
         """
         :param person_id: The ROS4HRI ID of the person to ask.
-        :return: Whether the person agreed. A rejected goal, a failed skill, no answer
-            within :attr:`answer_timeout` and an answer that could not be retrieved
-            count as not agreeing.
-        :raises AskSkillNotServedError: If the skill is not served within
-            :attr:`server_timeout`.
+        :return: The question, which tells the answer once it is known.
         """
-        if not self._client.wait_for_server(timeout_sec=self.server_timeout):
-            raise AskSkillNotServedError(CommunicationSkill.ASK, self.server_timeout)
-        goal_handle = self._wait_for(
-            self._client.send_goal_async(
-                Ask.Goal(
-                    person_id=person_id,
-                    question=BoardingQuestion.ASKING_TO_BOARD,
-                    answers_schema=BoardingPermissionFile.ANSWERS_SCHEMA.value.read_text(),
-                )
+        answer = BoardingAnswerInProgress(answer_timeout=self.answer_timeout)
+        self._client.send_goal_async(
+            Ask.Goal(
+                person_id=person_id,
+                question=BoardingQuestion.ASKING_TO_BOARD,
+                answers_schema=BoardingPermissionFile.ANSWERS_SCHEMA.value.read_text(),
             )
-        )
-        if goal_handle is None or not goal_handle.accepted:
-            return False
-        response = self._wait_for(goal_handle.get_result_async())
-        if response is None:
-            goal_handle.cancel_goal_async()
-            return False
-        if (
-            response.status != GoalStatus.STATUS_SUCCEEDED
-            or response.result.result.error_code != SkillResult.ROS_ENOERR
-        ):
-            return False
-        return BoardingAnswers.from_json(response.result.answers).may_board is True
-
-    def _wait_for(self, future: Future) -> object | None:
-        """
-        :return: What ``future`` resolved to, None if it did not within
-            :attr:`answer_timeout`.
-        """
-        resolved = threading.Event()
-        future.add_done_callback(lambda _: resolved.set())
-        if not resolved.wait(self.answer_timeout):
-            return None
-        return future.result()
+        ).add_done_callback(answer.on_goal_response)
+        return answer
 
     def close(self) -> None:
         """
@@ -196,180 +240,14 @@ class BoardingQuestionAsker:
 # %% asking until allowed
 
 
-@dataclass
-class AskToBoardExecutable(Executable):
+@dataclass(eq=False, repr=False, kw_only=True)
+class AskToBoardNode(CompositeNodeChoosingItsChild):
     """
-    Asks to board whenever the cabin serves the robot's level, and after every refusal
-    waits for the cabin to leave before waiting for the next one.
+    Holds the plan until the people at an elevator let the robot board: it succeeds once
+    :class:`AskToBoardChooser` chose a child for it, which only happens then.
 
-    Ends once nobody is at the elevator or a person agreed.
-    """
-
-    elevator: Elevator = field(kw_only=True)
-    """
-    The elevator the robot wants to board.
-    """
-
-    level: Level = field(kw_only=True)
-    """
-    The level the robot boards from.
-    """
-
-    robot_root: KinematicStructureEntity = field(kw_only=True)
-    """
-    The robot's root, from which the distance to the people is measured.
-    """
-
-    persons_at_elevator: PersonsAtElevator = field(kw_only=True)
-    """
-    Finds the people to ask.
-    """
-
-    maximum_attempts: int = field(kw_only=True)
-    """
-    How many times the robot asks before it gives up.
-    """
-
-    arrival_threshold: float = field(kw_only=True)
-    """
-    Position error of the elevator's drive within which the cabin serves :attr:`level`.
-    """
-
-    cabin_timeout: float = field(kw_only=True)
-    """
-    Seconds to wait for the cabin to arrive or to leave.
-    """
-
-    cabin_check_period: float = field(default=0.05, kw_only=True)
-    """
-    Seconds between two looks at where the cabin is.
-    """
-
-    execution_scope: Callable[[], AbstractContextManager[None]] = field(
-        default=nullcontext, kw_only=True, repr=False, compare=False
-    )
-    """
-    Tracks the execution of the plan node this executable belongs to.
-    """
-
-    def execute(self) -> None:
-        """
-        :raises BoardingPermissionNotGrantedError: If the cabin left after the last of
-            :attr:`maximum_attempts` refusals.
-        :raises ElevatorCabinTimedOutError: If the cabin did not arrive or leave within
-            :attr:`cabin_timeout`.
-        :raises AskSkillNotServedError: If somebody is to be asked and the ``ask`` skill
-            is not served.
-        """
-        if GiskardExecutable.execution_type == ExecutionType.NO_EXECUTION:
-            return
-        with self.execution_scope():
-            asker = BoardingQuestionAsker(self.context.ros_node)
-            try:
-                self._ask_until_allowed(asker)
-            finally:
-                asker.close()
-
-    def _ask_until_allowed(self, asker: BoardingQuestionAsker) -> None:
-        """
-        Return once nobody is at the elevator or a person agreed.
-
-        :param asker: Asks the people.
-        """
-        for _ in range(self.maximum_attempts):
-            self._wait_until_cabin_serves_level(True)
-            person_id = self.persons_at_elevator.nearest_to(self.robot_root, self.level)
-            if person_id is None or asker.may_board(person_id):
-                return
-            self._wait_until_cabin_serves_level(False)
-        raise BoardingPermissionNotGrantedError(self.maximum_attempts)
-
-    def _wait_until_cabin_serves_level(self, serving: bool) -> None:
-        """
-        :param serving: Whether to wait for the cabin to serve :attr:`level` or for it
-            not to.
-        :raises ElevatorCabinTimedOutError: If that did not happen within
-            :attr:`cabin_timeout`.
-        """
-        target_position = self.elevator.drive_position_for_floor(self.level)
-        deadline = time.monotonic() + self.cabin_timeout
-        while (
-            bool(
-                abs(self.elevator.movable_joint.position - target_position)
-                < self.arrival_threshold
-            )
-            != serving
-        ):
-            if time.monotonic() > deadline:
-                raise ElevatorCabinTimedOutError(self.cabin_timeout)
-            time.sleep(self.cabin_check_period)
-
-
-# Between two motions, because a motion waiting this long on the controller would be ended
-# by any other process changing the world model.
-@dataclass(eq=False)
-class AskToBoardNode(ExecutionBoundaryNode):
-    """
-    Node between two motions in which the robot asks to board an elevator.
-    """
-
-    elevator: Elevator = field(kw_only=True)
-    """
-    The elevator the robot wants to board.
-    """
-
-    level: Level = field(kw_only=True)
-    """
-    The level the robot boards from.
-    """
-
-    robot_root: KinematicStructureEntity = field(kw_only=True)
-    """
-    The robot's root, from which the distance to the people is measured.
-    """
-
-    persons_at_elevator: PersonsAtElevator = field(kw_only=True)
-    """
-    Finds the people to ask.
-    """
-
-    maximum_attempts: int = field(kw_only=True)
-    """
-    How many times the robot asks before it gives up.
-    """
-
-    arrival_threshold: float = field(kw_only=True)
-    """
-    Position error of the elevator's drive within which the cabin serves :attr:`level`.
-    """
-
-    cabin_timeout: float = field(kw_only=True)
-    """
-    Seconds to wait for the cabin to arrive or to leave.
-    """
-
-    def parse(self) -> AskToBoardExecutable:
-        return AskToBoardExecutable(
-            context=self.context,
-            elevator=self.elevator,
-            level=self.level,
-            robot_root=self.robot_root,
-            persons_at_elevator=self.persons_at_elevator,
-            maximum_attempts=self.maximum_attempts,
-            arrival_threshold=self.arrival_threshold,
-            cabin_timeout=self.cabin_timeout,
-            execution_scope=self.execution_scope,
-        )
-
-
-# %% actions
-
-
-@dataclass
-class AskToBoardAction(ActionDescription):
-    """
-    Waits in front of an elevator until the people at it let the robot board, asking
-    them whenever the cabin serves the robot's level.
+    .. note:: The question is asked where the plan was built, so no process running this
+        node has to know who stands at the elevator.
     """
 
     elevator: Elevator
@@ -377,29 +255,332 @@ class AskToBoardAction(ActionDescription):
     The elevator the robot wants to board.
     """
 
-    persons_at_elevator: PersonsAtElevator = field(kw_only=True)
+    level: Level
     """
-    Finds the people to ask.
+    The level the robot boards from.
     """
 
-    maximum_attempts: int = field(default=3, kw_only=True)
+    maximum_attempts: int
     """
     How many times the robot asks before it gives up.
     """
 
-    arrival_threshold: float = field(default=0.01, kw_only=True)
+    arrival_threshold: float
+    """
+    Position error of the elevator's drive within which the cabin serves :attr:`level`.
+    """
+
+    cabin_timeout: float
+    """
+    Seconds to wait for the cabin to arrive or to leave.
+    """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class AbortOnStart(EndedByOwner, StatechartNode):
+    """
+    Ends the plan with an exception as soon as it starts, wherever the plan runs, which
+    reports the exception to whoever started the plan.
+    """
+
+    failure: DataclassException
+    """
+    What the plan ends with.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        return NodeArtifacts(observation=Scalar.const_trinary_unknown())
+
+    def on_start(self) -> None:
+        raise self.failure
+
+
+class BoardingStage(Enum):
+    """
+    What the robot is waiting for while it asks to board.
+    """
+
+    CABIN_ARRIVING = auto()
+    """
+    The cabin has to serve the robot's level before anybody is asked.
+    """
+
+    SKILL_SERVED = auto()
+    """
+    There is somebody to ask, and the ``ask`` skill has to be served.
+    """
+
+    ANSWER = auto()
+    """
+    A person was asked and has not answered yet.
+    """
+
+    CABIN_LEAVING = auto()
+    """
+    The people refused, and their cabin has to leave before the next one can come.
+    """
+
+
+@dataclass
+class BoardingConversation:
+    """
+    Asks to board whenever the cabin serves the robot's level, and after every refusal
+    waits for the cabin to leave before waiting for the next one.
+    """
+
+    node: AskToBoardNode
+    """
+    The node this conversation chooses the child of.
+    """
+
+    persons_at_elevator: PersonsAtElevator
+    """
+    Finds the people to ask.
+    """
+
+    asker: BoardingQuestionAsker
+    """
+    Asks the people.
+    """
+
+    stage: BoardingStage = BoardingStage.CABIN_ARRIVING
+    """
+    What the robot is waiting for.
+    """
+
+    stage_started_at: float = field(default_factory=time.monotonic)
+    """
+    When the robot started waiting for that, on the monotonic clock.
+    """
+
+    refusals: int = 0
+    """
+    How many times the people refused so far.
+    """
+
+    person_id: str | None = None
+    """
+    The person to ask, None until somebody was found.
+    """
+
+    answer: BoardingAnswerInProgress | None = None
+    """
+    The question being answered, None while nobody is being asked.
+    """
+
+    def advance(self) -> StatechartNode | None:
+        """
+        Go as far as what happened so far allows, without waiting for anything.
+
+        :return: The child that ends the node's waiting, once there is one: one that
+            succeeds right away once the robot may board, or one ending the plan with
+            what went wrong. None while the conversation goes on.
+        """
+        match self.stage:
+            case BoardingStage.CABIN_ARRIVING:
+                return self._advance_while_cabin_arrives()
+            case BoardingStage.SKILL_SERVED:
+                return self._advance_while_skill_is_not_served()
+            case BoardingStage.ANSWER:
+                return self._advance_while_person_answers()
+            case BoardingStage.CABIN_LEAVING:
+                return self._advance_while_cabin_leaves()
+
+    def _advance_while_cabin_arrives(self) -> StatechartNode | None:
+        """
+        Once the cabin serves the robot's level, find the person to ask, and let the robot
+        board if nobody is there.
+        """
+        if not self._cabin_serves_level():
+            return self._abort_if_cabin_timed_out()
+        self.person_id = self.persons_at_elevator.nearest_to(
+            self.node.context.require_extension(RobotAccess).robot.root,
+            self.node.level,
+        )
+        if self.person_id is None:
+            return self._allowed()
+        self._enter(BoardingStage.SKILL_SERVED)
+        return self._advance_while_skill_is_not_served()
+
+    def _advance_while_skill_is_not_served(self) -> StatechartNode | None:
+        """
+        Ask the person once the skill is served, and give up if it does not get served.
+        """
+        if not self.asker.is_served:
+            if self._seconds_in_stage() > self.asker.server_timeout:
+                return self._aborting(
+                    AskSkillNotServedError(
+                        CommunicationSkill.ASK, self.asker.server_timeout
+                    )
+                )
+            return None
+        self.answer = self.asker.ask(self.person_id)
+        self._enter(BoardingStage.ANSWER)
+        return None
+
+    def _advance_while_person_answers(self) -> StatechartNode | None:
+        """
+        Let the robot board if the person agreed, and otherwise wait for their cabin to
+        leave.
+        """
+        may_board = self.answer.poll()
+        if may_board is None:
+            return None
+        if may_board:
+            return self._allowed()
+        self.refusals += 1
+        self._enter(BoardingStage.CABIN_LEAVING)
+        return None
+
+    def _advance_while_cabin_leaves(self) -> StatechartNode | None:
+        """
+        Once the refused cabin left, wait for the next one, or give up if the robot asked
+        as often as it may.
+        """
+        if self._cabin_serves_level():
+            return self._abort_if_cabin_timed_out()
+        if self.refusals >= self.node.maximum_attempts:
+            return self._aborting(
+                BoardingPermissionNotGrantedError(self.node.maximum_attempts)
+            )
+        self._enter(BoardingStage.CABIN_ARRIVING)
+        return None
+
+    def _enter(self, stage: BoardingStage) -> None:
+        """
+        :param stage: What the robot is waiting for from now on.
+        """
+        self.stage = stage
+        self.stage_started_at = time.monotonic()
+
+    def _seconds_in_stage(self) -> float:
+        """
+        :return: For how long the robot has been waiting for what it waits for now.
+        """
+        return time.monotonic() - self.stage_started_at
+
+    def _cabin_serves_level(self) -> bool:
+        """
+        :return: Whether the cabin stands at the robot's level.
+        """
+        elevator = self.node.elevator
+        return bool(
+            abs(
+                elevator.movable_joint.position
+                - elevator.drive_position_for_floor(self.node.level)
+            )
+            < self.node.arrival_threshold
+        )
+
+    def _abort_if_cabin_timed_out(self) -> StatechartNode | None:
+        """
+        :return: A child ending the plan if the cabin took too long, None otherwise.
+        """
+        if self._seconds_in_stage() <= self.node.cabin_timeout:
+            return None
+        return self._aborting(ElevatorCabinTimedOutError(self.node.cabin_timeout))
+
+    def _allowed(self) -> StatechartNode:
+        """
+        :return: A child that succeeds right away, which ends the node's waiting.
+        """
+        return CountTicks(name=f"{self.node.name}/allowed", ticks=0)
+
+    def _aborting(self, failure: DataclassException) -> StatechartNode:
+        """
+        :param failure: What went wrong.
+        :return: A child ending the plan with `failure`.
+        """
+        return AbortOnStart(name=f"{self.node.name}/gave_up", failure=failure)
+
+
+@dataclass
+class AskToBoardChooser(ChildChooser[AskToBoardNode]):
+    """
+    Answers every :class:`AskToBoardNode` once its :class:`BoardingConversation` came to
+    an end.
+    """
+
+    persons_at_elevator: PersonsAtElevator
+    """
+    Finds the people to ask.
+    """
+
+    asker: BoardingQuestionAsker
+    """
+    Asks the people.
+    """
+
+    _conversations: dict[int, BoardingConversation] = field(
+        default_factory=dict, init=False
+    )
+    """
+    The conversation of each node, by the node's index.
+    """
+
+    _outcomes: dict[int, StatechartNode] = field(default_factory=dict, init=False)
+    """
+    The child each node whose conversation ended runs, by the node's index.
+    """
+
+    def has_choice_for(self, node: AskToBoardNode) -> bool:
+        if node.index not in self._outcomes:
+            conversation = self._conversations.setdefault(
+                node.index,
+                BoardingConversation(
+                    node=node,
+                    persons_at_elevator=self.persons_at_elevator,
+                    asker=self.asker,
+                ),
+            )
+            outcome = conversation.advance()
+            if outcome is None:
+                return False
+            self._outcomes[node.index] = outcome
+        return True
+
+    def choose_child(self, node: AskToBoardNode) -> StatechartNode | None:
+        return self._outcomes.pop(node.index)
+
+    def cleanup(self) -> None:
+        self.asker.close()
+
+
+# %% actions
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class AskToBoardAction(GoalAction):
+    """
+    Waits in front of an elevator until the people at it let the robot board, asking
+    them whenever the cabin serves the robot's level.
+
+    .. warning:: The plan needs an :class:`AskToBoardChooser` among the choosers of its
+        context.
+    """
+
+    elevator: Elevator
+    """
+    The elevator the robot wants to board.
+    """
+
+    maximum_attempts: int = 3
+    """
+    How many times the robot asks before it gives up.
+    """
+
+    arrival_threshold: float = 0.01
     """
     Position error of the elevator's drive within which the cabin serves the robot's
     level.
     """
 
-    cabin_timeout: float = field(default=600.0, kw_only=True)
+    cabin_timeout: float = 600.0
     """
     Seconds to wait for the cabin to arrive or to leave.
     """
 
-    @property
-    def _action_plan(self) -> PlanNode:
+    def create_goal(self) -> AskToBoardNode:
         """
         :raises NotOnASingleLevelException: If the robot stands on no level.
         :raises MissingMovableJointError: If the elevator has no drive.
@@ -409,47 +590,37 @@ class AskToBoardAction(ActionDescription):
             raise NotOnASingleLevelException("Robot is not on any recognized floor.")
         if self.elevator.movable_joint is None:
             raise MissingMovableJointError(self.elevator)
-        # The areas join the world on first access, which must not happen while a
-        # motion runs.
+        # The areas join the world on first access, which is cheapest before the plan
+        # runs.
         self.elevator.cabin_area
         self.elevator.waiting_areas
-        return execute_single(
-            AskToBoardNode(
-                elevator=self.elevator,
-                level=level,
-                robot_root=self.robot.root,
-                persons_at_elevator=self.persons_at_elevator,
-                maximum_attempts=self.maximum_attempts,
-                arrival_threshold=self.arrival_threshold,
-                cabin_timeout=self.cabin_timeout,
-            )
+        return AskToBoardNode(
+            elevator=self.elevator,
+            level=level,
+            maximum_attempts=self.maximum_attempts,
+            arrival_threshold=self.arrival_threshold,
+            cabin_timeout=self.cabin_timeout,
         )
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
 class NavigateToRoomAskingToBoardAction(NavigateToRoomAction):
     """
     Unlike :class:`NavigateToRoomAction`, asks the people at the elevator whether the
     robot may board before riding it, see :class:`AskToBoardAction`.
     """
 
-    persons_at_elevator: PersonsAtElevator = field(kw_only=True)
-    """
-    Finds the people to ask.
-    """
-
-    maximum_boarding_attempts: int = field(default=3, kw_only=True)
+    maximum_boarding_attempts: int = 3
     """
     How many times the robot asks to board before it gives up.
     """
 
     def _ride_elevator(
         self, elevator: Elevator, target_level: Level
-    ) -> list[ActionDescription]:
+    ) -> list[StatechartNode]:
         return [
             AskToBoardAction(
-                elevator,
-                persons_at_elevator=self.persons_at_elevator,
+                elevator=elevator,
                 maximum_attempts=self.maximum_boarding_attempts,
                 arrival_threshold=self.elevator_arrival_threshold,
             ),

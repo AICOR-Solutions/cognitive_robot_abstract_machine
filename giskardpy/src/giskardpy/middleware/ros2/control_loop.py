@@ -21,10 +21,11 @@ from semantic_digital_twin.world import World
 
 @dataclass
 class ControlLoop:
-    """Runs a compiled motion statechart until it ends.
+    """
+    Runs a compiled motion statechart until it ends.
 
-    Every cycle reads the inputs of the robot, ticks the controller and
-    sends the resulting velocities back to the robot.
+    Every cycle reads the inputs of the robot, ticks the controller and sends the
+    resulting velocities back to the robot.
     """
 
     executor: StatechartExecutor
@@ -33,8 +34,9 @@ class ControlLoop:
     """
 
     action_server: ActionServerHandler
-    """The action server the running goal belongs to; polled for cancel
-    requests."""
+    """
+    The action server the running goal belongs to; polled for cancel requests.
+    """
 
     feedback_publisher: ActionFeedbackPublisher
     """
@@ -42,8 +44,9 @@ class ControlLoop:
     """
 
     inputs: WorldStateInputs
-    """Writes the state of the robot into the world at the start of every
-    cycle."""
+    """
+    Writes the state of the robot into the world at the start of every cycle.
+    """
 
     cycle_counter: CycleCounter
     """
@@ -51,7 +54,9 @@ class ControlLoop:
     """
 
     client_watchdog: ClientWatchdog
-    """Watches the client of the running goal; polled for its disconnect."""
+    """
+    Watches the client of the running goal; polled for its disconnect.
+    """
 
     world_updates: IncomingWorldUpdates
     """
@@ -63,18 +68,20 @@ class ControlLoop:
     """
 
     command_publishers: list[CommandPublisher] = field(default_factory=list)
-    """Sends the computed velocities to the robot at the end of every cycle."""
+    """
+    Sends the computed velocities to the robot at the end of every cycle.
+    """
 
     @property
     def world(self) -> World:
         return self.executor.context.world
 
     def run(self) -> None:
-        """Run cycles until the motion statechart reaches an end motion.
+        """
+        Run cycles until the motion statechart reaches an end motion.
 
         :raises ExecutionCanceledException: If the goal was canceled.
-        :raises ClientDisconnectedError: If the client of the goal
-            disconnected.
+        :raises ClientDisconnectedError: If the client of the goal disconnected.
         """
         while True:
             self.run_cycle()
@@ -83,13 +90,13 @@ class ControlLoop:
             self.executor.pacer.sleep()
 
     def run_cycle(self) -> None:
-        """Synchronize the inputs, compute the next command and publish it.
+        """
+        Synchronize the inputs, compute the next command and publish it.
 
         :raises ExecutionCanceledException: If the goal was canceled.
-        :raises ClientDisconnectedError: If the client of the goal
-            disconnected.
-        :raises WorldModelModifiedDuringMotionError: If another process
-            is modifying this world or reloads the world model.
+        :raises ClientDisconnectedError: If the client of the goal disconnected.
+        :raises WorldModelModifiedDuringMotionError: If another process is modifying
+            this world or reloads the world model.
         """
         self.apply_world_updates()
         self.inputs.synchronize()
@@ -101,12 +108,12 @@ class ControlLoop:
         self.cycle_counter.tick()
 
     def apply_world_updates(self) -> None:
-        """Take over the state of other processes, and hand over their model
-        modifications to be applied once the robot is at rest.
+        """
+        Take over the state of other processes, and hand over their model modifications
+        to be applied once the robot is at rest.
 
-        :raises WorldModelModifiedDuringMotionError: If another process
-            is in the middle of modifying this world, or wants to
-            replace the whole world model.
+        :raises WorldModelModifiedDuringMotionError: If another process is in the middle
+            of modifying this world, or wants to replace the whole world model.
         """
         if self.world.world_is_being_modified or self.world_updates.has_pending_reload:
             raise WorldModelModifiedDuringMotionError()
@@ -139,12 +146,16 @@ class ControlLoop:
         raise ClientDisconnectedError(client=self.client_watchdog.client)
 
     def publish_commands(self) -> None:
-        """Send the velocities of the current cycle to the robot."""
+        """
+        Send the velocities of the current cycle to the robot.
+        """
         for command_publisher in self.command_publishers:
             command_publisher.publish()
 
     def stop(self) -> None:
-        """Bring the robot to a halt and clear the commanded velocities."""
+        """
+        Bring the robot to a halt and clear the commanded velocities.
+        """
         for command_publisher in self.command_publishers:
             command_publisher.stop()
         MotionControl.set_velocity_acceleration_jerk_to_zero(self.world)

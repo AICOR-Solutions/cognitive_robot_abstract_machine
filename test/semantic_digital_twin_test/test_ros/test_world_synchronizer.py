@@ -153,17 +153,17 @@ def create_dummy_world(w: World | None = None) -> World:
 def wait_for_sync_kse_and_return_ids(
     w1: World, w2: World, timeout: float = 5.0, interval: float = 0.05
 ) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
-    """Waits until the sets of kinematic structure entity IDs in both worlds
-    are identical, or until the timeout is reached.
+    """
+    Waits until the sets of kinematic structure entity IDs in both worlds are identical,
+    or until the timeout is reached.
 
     :param w1: The first world.
     :param w2: The second world.
-    :param timeout: The maximum time to wait for synchronization, in
-        seconds. Defaults to 5.0.
-    :param interval: The time interval between checks, in seconds.
-        Defaults to 0.05.
-    :return: A tuple containing the sets of kinematic structure entity
-        IDs in both worlds.
+    :param timeout: The maximum time to wait for synchronization, in seconds. Defaults
+        to 5.0.
+    :param interval: The time interval between checks, in seconds. Defaults to 0.05.
+    :return: A tuple containing the sets of kinematic structure entity IDs in both
+        worlds.
     """
     start = time.time()
     while time.time() - start < timeout:
@@ -179,15 +179,13 @@ def wait_for_sync_kse_and_return_ids(
 
 
 def wait_for_condition(condition, timeout: float = 5.0, interval: float = 0.05) -> bool:
-    """Waits until the condition callable returns True, or until the timeout is
-    reached.
+    """
+    Waits until the condition callable returns True, or until the timeout is reached.
 
-    :param condition: A callable returning a truthy value once the
-        awaited state is reached.
-    :param timeout: The maximum time to wait, in seconds. Defaults to
-        5.0.
-    :param interval: The time interval between checks, in seconds.
-        Defaults to 0.05.
+    :param condition: A callable returning a truthy value once the awaited state is
+        reached.
+    :param timeout: The maximum time to wait, in seconds. Defaults to 5.0.
+    :param interval: The time interval between checks, in seconds. Defaults to 0.05.
     :return: The final result of the condition.
     """
     start = time.time()
@@ -199,8 +197,8 @@ def wait_for_condition(condition, timeout: float = 5.0, interval: float = 0.05) 
 
 
 def probe_lock_is_free(lock: RLock, timeout: float = 0.3) -> bool:
-    """Determine, from a *separate* thread, whether ``lock`` can currently be
-    acquired.
+    """
+    Determine, from a *separate* thread, whether ``lock`` can currently be acquired.
 
     The probe runs in another thread on purpose: ``World._world_lock`` is a reentrant
     lock, so the thread that already owns it would always re-acquire it successfully.
@@ -224,11 +222,11 @@ def probe_lock_is_free(lock: RLock, timeout: float = 0.3) -> bool:
 
 
 def unique_topic(name: str) -> str:
-    """A topic that no other test and no other process publishes on.
+    """
+    A topic that no other test and no other process publishes on.
 
-    Synchronizers of different processes do not filter each other out,
-    so a receiver on a shared topic picks up whatever else runs on the
-    same ros domain.
+    Synchronizers of different processes do not filter each other out, so a receiver on
+    a shared topic picks up whatever else runs on the same ros domain.
 
     :param name: Says which scenario the topic belongs to.
     """
@@ -333,8 +331,10 @@ def test_model_reload(rclpy_node, in_memory_session_maker):
 def test_a_reloaded_world_keeps_the_ones_listening_to_it(
     rclpy_node, in_memory_session_maker
 ):
-    """A reload replaces what a world holds, not the world itself, so whoever
-    listened to that world still listens to it afterwards."""
+    """
+    A reload replaces what a world holds, not the world itself, so whoever listened to
+    that world still listens to it afterwards.
+    """
     topic_name = unique_topic("reload_keeps_listeners")
     publisher_world = create_dummy_world()
     receiver_world = create_dummy_world()
@@ -386,18 +386,23 @@ def test_a_reloaded_world_keeps_the_ones_listening_to_it(
 
 @dataclass
 class PublisherWithAppearingSubscribers:
-    """Stands in for a publisher whose subscribers turn up one after the other.
+    """
+    Stands in for a publisher whose subscribers turn up one after the other.
 
-    Whether a synchronizer may publish depends on subscribers that ros
-    discovers over time, and a test can only exercise the waiting for
-    them by deciding when they appear.
+    Whether a synchronizer may publish depends on subscribers that ros discovers over
+    time, and a test can only exercise the waiting for them by deciding when they
+    appear.
     """
 
     subscriber_counts: list[int]
-    """What each look at the topic reports, the last entry from then on."""
+    """
+    What each look at the topic reports, the last entry from then on.
+    """
 
     looks: int = field(default=0, init=False)
-    """How often the subscribers were counted."""
+    """
+    How often the subscribers were counted.
+    """
 
     def get_subscription_count(self) -> int:
         count = self.subscriber_counts[min(self.looks, len(self.subscriber_counts) - 1)]
@@ -408,7 +413,8 @@ class PublisherWithAppearingSubscribers:
 def connect_with_appearing_subscribers(
     synchronizer: WorldSynchronizer, subscriber_counts: list[int]
 ) -> timedelta:
-    """Let a synchronizer connect against subscribers that appear as given.
+    """
+    Let a synchronizer connect against subscribers that appear as given.
 
     :param synchronizer: The synchronizer whose connecting is exercised.
     :param subscriber_counts: What each look at the topic reports.
@@ -427,9 +433,11 @@ def connect_with_appearing_subscribers(
 
 
 def test_a_synchronizer_waits_until_no_further_subscriber_appears(rclpy_node):
-    """Subscribers of a topic are discovered one after the other, so a
-    synchronizer that stopped waiting at the first one would still publish
-    where the others cannot hear it."""
+    """
+    Subscribers of a topic are discovered one after the other, so a synchronizer that
+    stopped waiting at the first one would still publish where the others cannot hear
+    it.
+    """
     world = World(name="waits_for_subscribers")
     synchronizer = WorldSynchronizer(
         node=rclpy_node,
@@ -451,8 +459,10 @@ def test_a_synchronizer_waits_until_no_further_subscriber_appears(rclpy_node):
 
 
 def test_a_synchronizer_that_reaches_no_subscriber_at_all_says_so(rclpy_node):
-    """A topic that not even the subscriber of this synchronizer reaches
-    carries nothing, and silently publishing into it would hide that."""
+    """
+    A topic that not even the subscriber of this synchronizer reaches carries nothing,
+    and silently publishing into it would hide that.
+    """
     world = World(name="reaches_no_subscriber")
     synchronizer = WorldSynchronizer(
         node=rclpy_node,
@@ -474,11 +484,11 @@ def test_a_synchronizer_that_reaches_no_subscriber_at_all_says_so(rclpy_node):
 def test_a_world_modified_right_after_its_synchronizer_was_created_is_published(
     rclpy_node,
 ):
-    """The order a process writes: create the synchronizer of a world, then
-    build that world.
+    """
+    The order a process writes: create the synchronizer of a world, then build that
+    world.
 
-    Nothing of it may be lost because the topic was still finding its
-    peers.
+    Nothing of it may be lost because the topic was still finding its peers.
     """
     topic_name = unique_topic("modified_right_after_creation")
     receiver_world = World(name="modified_right_after_creation_receiver")
@@ -680,9 +690,9 @@ def test_callback_pausing(rclpy_node):
 
 
 def test_synchronizer_keeps_receiving_while_its_world_is_modified(rclpy_node):
-    """A pause makes the synchronizer buffer inbound updates into
-    ``missed_messages`` instead of applying them, and nothing drains that
-    buffer on its own.
+    """
+    A pause makes the synchronizer buffer inbound updates into ``missed_messages``
+    instead of applying them, and nothing drains that buffer on its own.
 
     Modifying the
     world must therefore not pause it: outgoing publications are already deferred by
@@ -1288,7 +1298,9 @@ def test_dont_publish_changes(rclpy_node):
 
 
 def test_world_state_update_serialization_round_trip():
-    """Verify that WorldStateUpdate survives a to_json/from_json round trip."""
+    """
+    Verify that WorldStateUpdate survives a to_json/from_json round trip.
+    """
     meta = MetaData(node_name="test_node", process_id=42)
     original = WorldStateUpdate(
         meta_data=meta,
@@ -1309,7 +1321,9 @@ def test_world_state_update_serialization_round_trip():
 
 
 def test_load_model_serialization_round_trip():
-    """Verify that LoadModel survives a to_json/from_json round trip."""
+    """
+    Verify that LoadModel survives a to_json/from_json round trip.
+    """
     meta = MetaData(node_name="loader", process_id=99)
     original = LoadModel(meta_data=meta, primary_key=7, sequence_number=5)
 
@@ -1356,8 +1370,9 @@ def test_simultaneous_state_and_model_updates(rclpy_node):
 
 
 def test_two_parallel_modify_world_on_same_instance_are_serialized():
-    """Two threads enter modify_world concurrently; operations must not
-    interleave."""
+    """
+    Two threads enter modify_world concurrently; operations must not interleave.
+    """
     w = World(name="solo")
 
     # Seed a single root so the world remains a tree.
@@ -1397,8 +1412,10 @@ def test_two_parallel_modify_world_on_same_instance_are_serialized():
 
 
 def test_state_changed_inside_a_model_change_arrives_with_the_model(rclpy_node):
-    """A state change made inside a modification reaches the other world
-    together with the model it belongs to."""
+    """
+    A state change made inside a modification reaches the other world together with the
+    model it belongs to.
+    """
     receiver_node = rclpy.create_node("lock_order_receiver")
     receiver_executor = SingleThreadedExecutor()
     receiver_executor.add_node(receiver_node)
@@ -1433,8 +1450,9 @@ def test_state_changed_inside_a_model_change_arrives_with_the_model(rclpy_node):
 
 
 def test_model_change_arrives_while_state_updates_are_published(rclpy_node):
-    """A model change reaches the other world even while state updates are
-    streaming."""
+    """
+    A model change reaches the other world even while state updates are streaming.
+    """
     receiver_node = rclpy.create_node("recv_node")
     from rclpy.executors import SingleThreadedExecutor
 
@@ -1496,7 +1514,9 @@ def test_model_change_arrives_while_state_updates_are_published(rclpy_node):
 
 
 def test_read_operations_inside_modify_world_do_not_deadlock():
-    """Read operations inside a write block must not deadlock."""
+    """
+    Read operations inside a write block must not deadlock.
+    """
     w = World(name="w")
     with w.modify_world():
         b1 = Body(name=PrefixedName("b1"))
@@ -1511,8 +1531,9 @@ def test_read_operations_inside_modify_world_do_not_deadlock():
 
 
 def test_state_diff_during_concurrent_dof_add_remove_is_consistent(rclpy_node):
-    """When DOFs change concurrently, state diff must not observe torn
-    shapes."""
+    """
+    When DOFs change concurrently, state diff must not observe torn shapes.
+    """
     w = World(name="w")
     ss = WorldSynchronizer(node=rclpy_node, _world=w)
 
@@ -1563,7 +1584,9 @@ def test_state_diff_during_concurrent_dof_add_remove_is_consistent(rclpy_node):
     "If we decide that we want to support this, remove this skip mark"
 )
 def test_bidirectional_nested_modify_worlds_no_deadlock(rclpy_node):
-    """Nested modify_world across two Worlds must not deadlock."""
+    """
+    Nested modify_world across two Worlds must not deadlock.
+    """
     w1 = World(name="w1")
     w2 = World(name="w2")
 
@@ -1610,7 +1633,9 @@ def test_bidirectional_nested_modify_worlds_no_deadlock(rclpy_node):
 
 
 def test_reentrant_modify_world_same_thread():
-    """Nested modify_world on the same thread must be allowed and safe."""
+    """
+    Nested modify_world on the same thread must be allowed and safe.
+    """
     w = World(name="w")
     with w.modify_world():
         outer = Body(name=PrefixedName("outer"))
@@ -1626,7 +1651,9 @@ def test_reentrant_modify_world_same_thread():
 
 
 def test_world_update_serialization_round_trip():
-    """WorldUpdate round-trips through to_json / from_json correctly."""
+    """
+    WorldUpdate round-trips through to_json / from_json correctly.
+    """
     from krrood.adapters.json_serializer import to_json, from_json
     import json
 
@@ -1649,8 +1676,9 @@ def test_world_update_serialization_round_trip():
 
 
 def test_world_synchronizer_basic_state_sync(rclpy_node):
-    """State changes on w1 are reflected on w2 via the single combined
-    topic."""
+    """
+    State changes on w1 are reflected on w2 via the single combined topic.
+    """
     w1 = create_dummy_world()
     w2 = create_dummy_world()
 
@@ -1668,7 +1696,9 @@ def test_world_synchronizer_basic_state_sync(rclpy_node):
 
 
 def test_world_synchronizer_basic_model_sync(rclpy_node):
-    """Model changes on w1 (new bodies + connection) are applied on w2."""
+    """
+    Model changes on w1 (new bodies + connection) are applied on w2.
+    """
     w1 = World(name="ws_model_w1")
     w2 = World(name="ws_model_w2")
 
@@ -1693,9 +1723,10 @@ def test_world_synchronizer_basic_model_sync(rclpy_node):
 
 
 def test_world_synchronizer_ordering_no_key_error_after_model_change(rclpy_node):
-    """Single-topic ordering guarantee: state update is never applied before
-    the model update that introduced the DOF UUIDs, so no KeyError or silent
-    data loss occurs."""
+    """
+    Single-topic ordering guarantee: state update is never applied before the model
+    update that introduced the DOF UUIDs, so no KeyError or silent data loss occurs.
+    """
     w1 = World(name="ws_order_w1")
     w2 = World(name="ws_order_w2")
 
@@ -1737,8 +1768,9 @@ def test_world_synchronizer_ordering_no_key_error_after_model_change(rclpy_node)
 
 
 def test_world_synchronizer_missed_messages_applied_in_order(rclpy_node):
-    """Messages buffered while paused are applied (in order) after
-    apply_missed_messages()."""
+    """
+    Messages buffered while paused are applied (in order) after apply_missed_messages().
+    """
     w1 = create_dummy_world()
     w2 = create_dummy_world()
 
@@ -1765,7 +1797,9 @@ def test_world_synchronizer_missed_messages_applied_in_order(rclpy_node):
 
 
 def test_stop_is_idempotent(rclpy_node):
-    """Calling stop() twice must not raise ValueError."""
+    """
+    Calling stop() twice must not raise ValueError.
+    """
     world = World(name="idempotent_stop_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
@@ -1776,8 +1810,9 @@ def test_stop_is_idempotent(rclpy_node):
 
 
 def test_stop_without_close_leaves_ros_resources_alive(rclpy_node):
-    """Stop() deregisters callbacks but must not destroy the ROS subscriber or
-    publisher."""
+    """
+    Stop() deregisters callbacks but must not destroy the ROS subscriber or publisher.
+    """
     world = World(name="stop_no_close_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
@@ -1794,8 +1829,9 @@ def test_stop_without_close_leaves_ros_resources_alive(rclpy_node):
 
 
 def test_stop_deregisters_from_model_change_callbacks(rclpy_node):
-    """After stop(), the synchronizer must no longer be in
-    model_change_callbacks."""
+    """
+    After stop(), the synchronizer must no longer be in model_change_callbacks.
+    """
     world = World(name="stop_deregister_model_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
@@ -1811,8 +1847,9 @@ def test_stop_deregisters_from_model_change_callbacks(rclpy_node):
 
 
 def test_stop_deregisters_from_state_change_callbacks(rclpy_node):
-    """After stop(), the synchronizer must no longer be in
-    state_change_callbacks."""
+    """
+    After stop(), the synchronizer must no longer be in state_change_callbacks.
+    """
     world = World(name="stop_deregister_state_world")
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
@@ -1826,9 +1863,11 @@ def test_stop_deregisters_from_state_change_callbacks(rclpy_node):
 
 
 def test_apply_missed_messages_interleaved_model_and_state(rclpy_node):
-    """Messages buffered while paused are applied in order even when model and
-    state messages are interleaved — the model message must be applied before
-    the state message that references its DOFs."""
+    """
+    Messages buffered while paused are applied in order even when model and state
+    messages are interleaved — the model message must be applied before the state
+    message that references its DOFs.
+    """
     world_1 = World(name="interleaved_w1")
     world_2 = World(name="interleaved_w2")
 
@@ -1877,9 +1916,11 @@ def test_apply_missed_messages_interleaved_model_and_state(rclpy_node):
 
 
 def test_apply_state_with_unknown_identifier_raises(rclpy_node):
-    """_apply_state must raise StateUpdateContainsUnknownDegreesOfFreedomError
-    when any DOF identifier in the WorldStateUpdate is absent from the world
-    state index, whether that is one unknown identifier or all of them."""
+    """
+    _apply_state must raise StateUpdateContainsUnknownDegreesOfFreedomError when any DOF
+    identifier in the WorldStateUpdate is absent from the world state index, whether
+    that is one unknown identifier or all of them.
+    """
     world = create_dummy_world()
     world_synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
 
@@ -1908,10 +1949,11 @@ def test_apply_state_with_unknown_identifier_raises(rclpy_node):
 
 
 def test_apply_missed_messages_inside_modify_world_raises(rclpy_node):
-    """Calling apply_missed_messages() while a modify_world context is active
-    must raise ApplyMissedMessagesWhileWorldIsBeingModifiedError before
-    attempting to apply any message (which would otherwise cause a
-    MismatchingPublishChangesAttribute crash)."""
+    """
+    Calling apply_missed_messages() while a modify_world context is active must raise
+    ApplyMissedMessagesWhileWorldIsBeingModifiedError before attempting to apply any
+    message (which would otherwise cause a MismatchingPublishChangesAttribute crash).
+    """
     world_1 = World(name="missed_in_modify_w1")
     world_2 = World(name="missed_in_modify_w2")
 
@@ -1939,12 +1981,13 @@ def test_apply_missed_messages_inside_modify_world_raises(rclpy_node):
 
 
 def test_apply_state_does_not_deadlock_when_callback_acquires_world_lock(rclpy_node):
-    """_apply_state must call notify_state_change after releasing _world_lock
-    so that a StateChangeCallback whose on_state_change acquires _world_lock
-    from a separate thread does not deadlock.
+    """
+    _apply_state must call notify_state_change after releasing _world_lock so that a
+    StateChangeCallback whose on_state_change acquires _world_lock from a separate
+    thread does not deadlock.
 
-    A 3-second thread-join timeout is used as the deadlock sentinel —
-    the test fails if the publish does not complete within that window.
+    A 3-second thread-join timeout is used as the deadlock sentinel — the test fails if
+    the publish does not complete within that window.
     """
     receiver_node = rclpy.create_node("deadlock_test_receiver")
     receiver_executor = SingleThreadedExecutor()
@@ -1964,8 +2007,9 @@ def test_apply_state_does_not_deadlock_when_callback_acquires_world_lock(rclpy_n
 
         @dataclass(eq=False)
         class LockAcquiringStateCallback(StateChangeCallback):
-            """A state callback that acquires _world_lock from inside
-            on_state_change."""
+            """
+            A state callback that acquires _world_lock from inside on_state_change.
+            """
 
             def on_state_change(self, **kwargs):
                 with self._world._world_lock:
@@ -2001,9 +2045,10 @@ def test_apply_state_does_not_deadlock_when_callback_acquires_world_lock(rclpy_n
 
 
 def test_model_publish_does_not_hold_world_lock(rclpy_node):
-    """A model update must be published *after* ``_world_lock`` is released, so
-    that the modification it describes is complete by the time it leaves this
-    process."""
+    """
+    A model update must be published *after* ``_world_lock`` is released, so that the
+    modification it describes is complete by the time it leaves this process.
+    """
     w = World()
     ms = WorldSynchronizer(node=rclpy_node, _world=w)
 
@@ -2029,8 +2074,10 @@ def test_model_publish_does_not_hold_world_lock(rclpy_node):
 
 
 def test_state_publish_does_not_hold_world_lock(rclpy_node):
-    """A state update triggered from within ``modify_world`` must be published
-    after the lock is released."""
+    """
+    A state update triggered from within ``modify_world`` must be published after the
+    lock is released.
+    """
     w = create_dummy_world()
     ms = WorldSynchronizer(node=rclpy_node, _world=w)
 
@@ -2059,10 +2106,11 @@ def test_state_publish_does_not_hold_world_lock(rclpy_node):
 def test_state_change_during_a_modification_is_published_after_its_model_change(
     rclpy_node,
 ):
-    """A thread that waits for the world lock while a modification is running
-    describes the world that modification produced, so whatever it announces
-    afterwards must leave this process behind the model change of that
-    modification."""
+    """
+    A thread that waits for the world lock while a modification is running describes the
+    world that modification produced, so whatever it announces afterwards must leave
+    this process behind the model change of that modification.
+    """
     world = create_dummy_world()
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/publication_order_{uuid4().hex}"
@@ -2120,9 +2168,10 @@ def test_state_change_during_a_modification_is_published_after_its_model_change(
 
 
 def test_inbound_message_deserialization_holds_world_lock(rclpy_node):
-    """``subscription_callback`` reads the world (building the id/kwargs
-    tracker and running ``from_json``) *before* acquiring ``_world_lock``,
-    racing with concurrent modifications.
+    """
+    ``subscription_callback`` reads the world (building the id/kwargs tracker and
+    running ``from_json``) *before* acquiring ``_world_lock``, racing with concurrent
+    modifications.
 
     Deserialization that reads world structure must hold the lock.
     """
@@ -2178,9 +2227,11 @@ def test_inbound_message_deserialization_holds_world_lock(rclpy_node):
 
 
 def test_callback_removal_during_notify_does_not_skip_callbacks():
-    """Model-change callbacks are iterated over the *live* list, so a callback
-    removing itself during notification shifts the indices and silently skips
-    the following callback."""
+    """
+    Model-change callbacks are iterated over the *live* list, so a callback removing
+    itself during notification shifts the indices and silently skips the following
+    callback.
+    """
     world = World()
 
     @dataclass(eq=False)
@@ -2262,9 +2313,10 @@ def test_apply_missed_messages_is_atomic_against_concurrent_modify(rclpy_node):
 
 
 def test_combined_update_model_and_state_applied_atomically(rclpy_node):
-    """``apply_message`` applies the model block and the state update under
-    *separate* ``_world_lock`` acquisitions, leaving a window where the new
-    structure is visible without its state.
+    """
+    ``apply_message`` applies the model block and the state update under *separate*
+    ``_world_lock`` acquisitions, leaving a window where the new structure is visible
+    without its state.
 
     The combined update must be applied atomically.
     """
@@ -2332,23 +2384,27 @@ def test_combined_update_model_and_state_applied_atomically(rclpy_node):
 
 @dataclass
 class WorldUpdateSender:
-    """A world whose updates are handed to a receiving synchronizer directly.
+    """
+    A world whose updates are handed to a receiving synchronizer directly.
 
-    Standing in for the publishing process leaves out the ros hop, so
-    what a receiver has seen is decided by the test rather than by
-    delivery timing.
+    Standing in for the publishing process leaves out the ros hop, so what a receiver
+    has seen is decided by the test rather than by delivery timing.
     """
 
     world: World
-    """The world whose changes are announced."""
+    """
+    The world whose changes are announced.
+    """
 
     meta_data: MetaData = field(init=False)
-    """Identifies the sender, so a receiver does not mistake an update for its
-    own."""
+    """
+    Identifies the sender, so a receiver does not mistake an update for its own.
+    """
 
     _sequence_number: int = field(default=0, init=False)
-    """Counts the announcements, so they carry the positions a publication
-    would."""
+    """
+    Counts the announcements, so they carry the positions a publication would.
+    """
 
     def __post_init__(self):
         self.meta_data = MetaData(
@@ -2358,13 +2414,15 @@ class WorldUpdateSender:
         )
 
     def lose_model_change(self) -> None:
-        """Publish the modification block the world recorded last without
-        handing it over, the way a message is lost on the way to a late
-        joiner."""
+        """
+        Publish the modification block the world recorded last without handing it over,
+        the way a message is lost on the way to a late joiner.
+        """
         self._sequence_number += 1
 
     def announce_model_change(self, receiver: WorldSynchronizer) -> None:
-        """Hand over the modification block the world recorded last.
+        """
+        Hand over the modification block the world recorded last.
 
         :param receiver: The synchronizer that is told about the change.
         """
@@ -2384,11 +2442,11 @@ class WorldUpdateSender:
     def announce_state_change(
         self, receiver: WorldSynchronizer, positions: dict[uuid.UUID, float]
     ) -> None:
-        """Hand over the positions of the given degrees of freedom.
+        """
+        Hand over the positions of the given degrees of freedom.
 
         :param receiver: The synchronizer that is told about the change.
-        :param positions: The position of every degree of freedom that
-            moved.
+        :param positions: The position of every degree of freedom that moved.
         """
         self._deliver(
             receiver,
@@ -2403,15 +2461,17 @@ class WorldUpdateSender:
         )
 
     def announce_whole_state(self, receiver: WorldSynchronizer) -> None:
-        """Hand over every degree of freedom, as a model modification does.
+        """
+        Hand over every degree of freedom, as a model modification does.
 
         :param receiver: The synchronizer that is told about the state.
         """
         self.announce_state_change(receiver, self.world.state.to_uuid_position_dict())
 
     def _deliver(self, receiver: WorldSynchronizer, update: WorldUpdate) -> None:
-        """Serialize the update and give it to the receiver the way ros
-        would."""
+        """
+        Serialize the update and give it to the receiver the way ros would.
+        """
         self._sequence_number += 1
         update.sequence_number = self._sequence_number
         receiver.subscription_callback(
@@ -2424,12 +2484,15 @@ class WorldUpdateSender:
 
 @dataclass(eq=False)
 class DelayedApplyWorldSynchronizer(WorldSynchronizer):
-    """A synchronizer that applies a single message slowly, so another thread
-    can append to the buffer while a drain is still running."""
+    """
+    A synchronizer that applies a single message slowly, so another thread can append to
+    the buffer while a drain is still running.
+    """
 
     apply_delay: float = 0.3
-    """Seconds spent in every ``apply_message`` before the message is really
-    applied."""
+    """
+    Seconds spent in every ``apply_message`` before the message is really applied.
+    """
 
     def apply_message(self, message: WorldUpdate):
         time.sleep(self.apply_delay)
@@ -2439,11 +2502,11 @@ class DelayedApplyWorldSynchronizer(WorldSynchronizer):
 def create_connected_worlds(
     rclpy_node: Node, name: str
 ) -> tuple[World, World, WorldSynchronizer, WorldSynchronizer]:
-    """Build a publishing world and a receiving world that share one prismatic
-    connection.
+    """
+    Build a publishing world and a receiving world that share one prismatic connection.
 
-    The receiver applies inline while it is being set up; the caller
-    switches it to deferring afterwards.
+    The receiver applies inline while it is being set up; the caller switches it to
+    deferring afterwards.
     """
     topic_name = unique_topic(name)
     publisher_world = World(name=f"{name}_publisher")
@@ -2485,17 +2548,20 @@ def create_connected_worlds(
 
 
 def publish_position(world: World, position: float) -> None:
-    """Move the prismatic connection of the given world and announce the
-    change."""
+    """
+    Move the prismatic connection of the given world and announce the change.
+    """
     connection = world.get_connections_by_type(PrismaticConnection)[0]
     world.state[connection.dof.id].position = position
     world.notify_state_change()
 
 
 def test_deferring_incoming_updates_keeps_outgoing_publishing_alive(rclpy_node):
-    """Deferring is one-directional: a synchronizer that queues incoming
-    updates must still publish its own model and state changes, so an owner of
-    the world does not have to reach around the callbacks to publish."""
+    """
+    Deferring is one-directional: a synchronizer that queues incoming updates must still
+    publish its own model and state changes, so an owner of the world does not have to
+    reach around the callbacks to publish.
+    """
     world_1 = World(name="one_directional_deferring_1")
     world_2 = World(name="one_directional_deferring_2")
     synchronizer_1 = WorldSynchronizer(
@@ -2534,9 +2600,10 @@ def test_deferring_incoming_updates_keeps_outgoing_publishing_alive(rclpy_node):
 
 
 def test_state_updates_are_applied_up_to_the_next_model_modification(rclpy_node):
-    """Draining stops at the first buffered model modification, so state that
-    was published before it can be consumed while the modification itself keeps
-    waiting in order."""
+    """
+    Draining stops at the first buffered model modification, so state that was published
+    before it can be consumed while the modification itself keeps waiting in order.
+    """
     publisher_world = World(name="partial_drain_publisher")
     receiver_world = World(name="partial_drain_receiver")
     sender = WorldUpdateSender(world=publisher_world)
@@ -2604,10 +2671,11 @@ def test_state_updates_are_applied_up_to_the_next_model_modification(rclpy_node)
 
 
 def test_a_model_modification_republishes_the_whole_state(rclpy_node):
-    """A receiver rebuilding itself from a model modification has no snapshot
-    to fill the gaps with, so the state that follows the modification carries
-    every degree of freedom rather than only the ones that moved since the last
-    message."""
+    """
+    A receiver rebuilding itself from a model modification has no snapshot to fill the
+    gaps with, so the state that follows the modification carries every degree of
+    freedom rather than only the ones that moved since the last message.
+    """
     (
         publisher_world,
         receiver_world,
@@ -2645,8 +2713,10 @@ def test_a_model_modification_republishes_the_whole_state(rclpy_node):
 def test_draining_state_updates_leaves_nothing_behind_without_model_modifications(
     rclpy_node,
 ):
-    """Without a buffered model modification the drain consumes the whole
-    buffer, so a caller draining every cycle never accumulates a backlog."""
+    """
+    Without a buffered model modification the drain consumes the whole buffer, so a
+    caller draining every cycle never accumulates a backlog.
+    """
     (
         publisher_world,
         receiver_world,
@@ -2676,9 +2746,10 @@ def test_draining_state_updates_leaves_nothing_behind_without_model_modification
 def test_deferred_model_reload_is_only_applied_on_demand(
     rclpy_node, in_memory_session_maker
 ):
-    """A reload replaces the whole world, so a process controlling that world
-    has to be able to postpone it instead of having it applied on the receiving
-    thread."""
+    """
+    A reload replaces the whole world, so a process controlling that world has to be
+    able to postpone it instead of having it applied on the receiving thread.
+    """
     publisher_world = create_dummy_world()
     receiver_world = World()
     publisher_synchronizer = ModelReloadSynchronizer(
@@ -2706,9 +2777,10 @@ def test_deferred_model_reload_is_only_applied_on_demand(
 
 
 def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
-    """The buffer is appended to on the subscription thread while its owner
-    drains it, so the drain must remove exactly the messages it applied and
-    keep the rest."""
+    """
+    The buffer is appended to on the subscription thread while its owner drains it, so
+    the drain must remove exactly the messages it applied and keep the rest.
+    """
     world = World(name="drain_race")
     synchronizer = DelayedApplyWorldSynchronizer(
         node=rclpy_node,
@@ -2746,8 +2818,10 @@ def test_message_arriving_during_a_drain_stays_buffered(rclpy_node):
 
 
 def test_a_message_reports_where_it_sits_in_the_stream_of_its_publisher():
-    """A message carries everything a reader needs to tell how far it caught up
-    with the publisher that sent it."""
+    """
+    A message carries everything a reader needs to tell how far it caught up with the
+    publisher that sent it.
+    """
     meta_data = MetaData(node_name="publisher", process_id=1)
 
     message = WorldUpdate(meta_data=meta_data, sequence_number=3)
@@ -2756,8 +2830,10 @@ def test_a_message_reports_where_it_sits_in_the_stream_of_its_publisher():
 
 
 def test_every_publication_advances_the_stream_position(rclpy_node):
-    """Positions count the messages one synchronizer sent, so a reader of the
-    stream can tell how much of it it has seen."""
+    """
+    Positions count the messages one synchronizer sent, so a reader of the stream can
+    tell how much of it it has seen.
+    """
     world = World(name="stream_position")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/stream_position_{uuid4().hex}"
@@ -2787,8 +2863,10 @@ def test_every_publication_advances_the_stream_position(rclpy_node):
 
 
 def test_applying_an_update_records_the_position_of_its_publisher(rclpy_node):
-    """Catching up is tracked per publisher, because positions of different
-    publishers say nothing about each other."""
+    """
+    Catching up is tracked per publisher, because positions of different publishers say
+    nothing about each other.
+    """
     (
         publisher_world,
         receiver_world,
@@ -2820,8 +2898,9 @@ def test_applying_an_update_records_the_position_of_its_publisher(rclpy_node):
 def test_a_publisher_that_was_never_heard_from_is_at_the_start_of_its_stream(
     rclpy_node,
 ):
-    """Nothing of an unknown publisher was applied, so its first message is
-    still awaited."""
+    """
+    Nothing of an unknown publisher was applied, so its first message is still awaited.
+    """
     world = World(name="unknown_publisher")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/unknown_publisher_{uuid4().hex}"
@@ -2839,8 +2918,10 @@ def test_a_publisher_that_was_never_heard_from_is_at_the_start_of_its_stream(
 
 
 def test_a_buffered_update_does_not_count_as_caught_up_with(rclpy_node):
-    """A deferred update has not reached the world yet, so whoever waits for it
-    must keep waiting until it is applied."""
+    """
+    A deferred update has not reached the world yet, so whoever waits for it must keep
+    waiting until it is applied.
+    """
     (
         publisher_world,
         receiver_world,
@@ -2866,8 +2947,10 @@ def test_a_buffered_update_does_not_count_as_caught_up_with(rclpy_node):
 
 
 def test_the_synchronizer_of_a_world_is_found_through_the_world(rclpy_node):
-    """A client that was handed a world, but not the synchronizer publishing
-    its changes, still has to name the stream its positions belong to."""
+    """
+    A client that was handed a world, but not the synchronizer publishing its changes,
+    still has to name the stream its positions belong to.
+    """
     world = World(name="synchronizer_lookup")
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/synchronizer_lookup_{uuid4().hex}"
@@ -2879,8 +2962,9 @@ def test_the_synchronizer_of_a_world_is_found_through_the_world(rclpy_node):
 
 
 def test_a_world_that_publishes_nowhere_has_no_synchronizer():
-    """Referring to the stream of a world that has none is a mistake worth
-    naming."""
+    """
+    Referring to the stream of a world that has none is a mistake worth naming.
+    """
     world = World(name="no_synchronizer")
 
     with pytest.raises(WorldHasNoSynchronizerError):
@@ -2888,8 +2972,10 @@ def test_a_world_that_publishes_nowhere_has_no_synchronizer():
 
 
 def test_several_synchronizers_leave_the_stream_of_a_world_undecided(rclpy_node):
-    """Positions name one stream, so a world publishing through several
-    synchronizers cannot answer which one is meant."""
+    """
+    Positions name one stream, so a world publishing through several synchronizers
+    cannot answer which one is meant.
+    """
     world = World(name="ambiguous_synchronizer")
     first = WorldSynchronizer(
         node=rclpy_node, _world=world, topic_name=f"/ambiguous_a_{uuid4().hex}"
@@ -2906,7 +2992,9 @@ def test_several_synchronizers_leave_the_stream_of_a_world_undecided(rclpy_node)
 
 
 def _make_simple_world_with_root(name: str) -> World:
-    """Create a minimal world with one root body, like an STL parse result."""
+    """
+    Create a minimal world with one root body, like an STL parse result.
+    """
     w = World(name=name)
     root_id = uuid.UUID(hashlib.sha1(name.encode()).hexdigest()[:32])
     root = Body(name=PrefixedName(name), id=root_id)
@@ -2916,12 +3004,12 @@ def _make_simple_world_with_root(name: str) -> World:
 
 
 def _merge_world_with_connection(world: World, other: World, parent: Body) -> Body:
-    """Merge *other* into *world* with a FixedConnection from *parent* to
-    *other.root*, mirroring the demo's ``merge_world`` + ``FixedConnection``
-    pattern.
+    """
+    Merge *other* into *world* with a FixedConnection from *parent* to *other.root*,
+    mirroring the demo's ``merge_world`` + ``FixedConnection`` pattern.
 
-    :return: the root body of the merged world in *world*, so the caller
-        can use it as the parent of the next merge.
+    :return: the root body of the merged world in *world*, so the caller can use it as
+        the parent of the next merge.
     """
     other_root_name = other.root.name.name
     with world.modify_world():
@@ -2933,13 +3021,14 @@ def _merge_world_with_connection(world: World, other: World, parent: Body) -> Bo
 
 
 def test_an_update_referencing_an_entity_this_world_never_received_says_so(rclpy_node):
-    """Mirror the ``feature/cable-designator`` demo, which merges its objects
-    into the world in successive blocks, each of them referencing the body the
-    block before it created.
+    """
+    Mirror the ``feature/cable-designator`` demo, which merges its objects into the
+    world in successive blocks, each of them referencing the body the block before it
+    created.
 
-    A world that never got one of those blocks cannot apply the ones
-    that build on it. The update says which publisher it came from and
-    what it was about, instead of leaving a bare id behind.
+    A world that never got one of those blocks cannot apply the ones that build on it.
+    The update says which publisher it came from and what it was about, instead of
+    leaving a bare id behind.
     """
     sender_world = World(name="unknown_entity_sender")
     receiver_world = World(name="unknown_entity_receiver")
@@ -2976,10 +3065,12 @@ def test_an_update_referencing_an_entity_this_world_never_received_says_so(rclpy
 
 
 def test_all_blocks_received_when_subscribed_before_publishing(rclpy_node):
-    """The same multi-block ``merge_world`` pattern as
-    :func:`test_a_receiver_that_missed_a_block_catches_up_with_the_sender`,
-    with the receiver subscribed before anything is published, so every block
-    reaches it over ros."""
+    """
+    The same multi-block ``merge_world`` pattern as
+    :func:`test_a_receiver_that_missed_a_block_catches_up_with_the_sender`, with the
+    receiver subscribed before anything is published, so every block reaches it over
+    ros.
+    """
     topic_name = unique_topic("on_time_join")
     sender = World(name="on_time_join_sender")
     receiver = World(name="on_time_join_receiver")
@@ -3087,15 +3178,19 @@ def add_prismatic_connection(world: World, name: str) -> PrismaticConnection:
 def move_connection(
     world: World, connection: PrismaticConnection, position: float
 ) -> None:
-    """Move `connection` of `world` and announce the change."""
+    """
+    Move `connection` of `world` and announce the change.
+    """
     world.state[connection.dof.id].position = position
     world.notify_state_change()
 
 
 def test_updates_published_while_a_receiver_is_busy_are_not_lost(rclpy_node) -> None:
-    """Only what changed is published, so an update that is lost while the
-    receiver is busy applying another one leaves a degree of freedom that does
-    not move again stale for good."""
+    """
+    Only what changed is published, so an update that is lost while the receiver is busy
+    applying another one leaves a degree of freedom that does not move again stale for
+    good.
+    """
     (
         publisher_world,
         receiver_world,
@@ -3132,11 +3227,14 @@ def test_updates_published_while_a_receiver_is_busy_are_not_lost(rclpy_node) -> 
 
 @dataclass
 class LoggerRecordingWarnings:
-    """Stands in for the logger of a ros node, recording every warning it is
-    given."""
+    """
+    Stands in for the logger of a ros node, recording every warning it is given.
+    """
 
     warnings: list[str] = field(default_factory=list)
-    """Every warning given, in order."""
+    """
+    Every warning given, in order.
+    """
 
     def warning(self, message: str, **kwargs) -> None:
         self.warnings.append(message)
@@ -3144,18 +3242,26 @@ class LoggerRecordingWarnings:
 
 @dataclass
 class ReceivingSynchronizer:
-    """A synchronizer of an empty world, on a topic nobody else publishes on,
-    and the warnings its node gives."""
+    """
+    A synchronizer of an empty world, on a topic nobody else publishes on, and the
+    warnings its node gives.
+    """
 
     synchronizer: WorldSynchronizer
-    """Receives the updates."""
+    """
+    Receives the updates.
+    """
 
     logger: LoggerRecordingWarnings
-    """Records the warnings of the node of :attr:`synchronizer`."""
+    """
+    Records the warnings of the node of :attr:`synchronizer`.
+    """
 
     def receive(self, publisher: MetaData, sequence_number: int) -> None:
-        """Hand the synchronizer an update of `publisher` at `sequence_number`
-        in its stream that changes nothing."""
+        """
+        Hand the synchronizer an update of `publisher` at `sequence_number` in its
+        stream that changes nothing.
+        """
         update = WorldUpdate(
             meta_data=publisher,
             sequence_number=sequence_number,
@@ -3182,8 +3288,9 @@ def receiving(rclpy_node, monkeypatch) -> ReceivingSynchronizer:
 def test_a_receiver_that_lost_updates_warns_about_it(
     receiving: ReceivingSynchronizer,
 ) -> None:
-    """Its world may differ from the publisher's in what the lost updates
-    carried."""
+    """
+    Its world may differ from the publisher's in what the lost updates carried.
+    """
     publisher = MetaData(node_name="publisher", process_id=1)
     receiving.receive(publisher, 1)
     receiving.receive(publisher, 4)
@@ -3204,8 +3311,10 @@ def test_updates_received_in_sequence_are_not_lost(
 def test_a_publisher_heard_from_for_the_first_time_has_lost_nothing(
     receiving: ReceivingSynchronizer,
 ) -> None:
-    """A receiver that joins late starts somewhere in the middle of the stream,
-    having fetched what was published before."""
+    """
+    A receiver that joins late starts somewhere in the middle of the stream, having
+    fetched what was published before.
+    """
     receiving.receive(MetaData(node_name="publisher", process_id=1), 7)
 
     assert receiving.logger.warnings == []

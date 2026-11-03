@@ -45,8 +45,9 @@ class PersonPosition:
     """
 
 
-# The persons stay out of the world: a model change ends the controller's running motion,
-# and the state of a body only this process knows makes its state updates unknown there.
+# The persons stay out of the world: a model change stops the robot until the controller
+# compiled again, and the state of a body only this process knows makes its state updates
+# unknown there.
 @dataclass
 class PersonsAtElevator(LatestMessageSubscriber[IdsList]):
     """

@@ -54,36 +54,54 @@ from .test_client_presence import SteppingClock, heartbeat_of, let_heartbeats_st
 
 @dataclass
 class GoalQueueMimic:
-    """Stands in for the action server: hands out one goal and records the
-    outcome."""
+    """
+    Stands in for the action server: hands out one goal and records the outcome.
+    """
 
     goal_json: str | None = None
-    """The goal that is waiting to be accepted, or ``None`` if there is
-    none."""
+    """
+    The goal that is waiting to be accepted, or ``None`` if there is none.
+    """
 
     action_name: str = "mimic"
-    """Name reported in cancel exceptions."""
+    """
+    Name reported in cancel exceptions.
+    """
 
     goal_id: int = -1
-    """Number of goals accepted so far."""
+    """
+    Number of goals accepted so far.
+    """
 
     cancel_requested: bool = False
-    """Whether the current goal should be canceled."""
+    """
+    Whether the current goal should be canceled.
+    """
 
     goal_msg: Any | None = field(init=False, default=None)
-    """Request of the accepted goal."""
+    """
+    Request of the accepted goal.
+    """
 
     result_message: Any | None = field(init=False, default=None)
-    """Result built for the accepted goal."""
+    """
+    Result built for the accepted goal.
+    """
 
     outcome: GoalOutcome | None = field(init=False, default=None)
-    """Whether the goal was marked as succeeded, aborted or canceled."""
+    """
+    Whether the goal was marked as succeeded, aborted or canceled.
+    """
 
     sent_results: list[Any] = field(init=False, default_factory=list)
-    """Every result that was handed back to a client."""
+    """
+    Every result that was handed back to a client.
+    """
 
     feedback_messages: list[Any] = field(init=False, default_factory=list)
-    """Every feedback message that was published."""
+    """
+    Every feedback message that was published.
+    """
 
     def has_goal(self) -> bool:
         return self.goal_json is not None
@@ -117,41 +135,58 @@ class GoalQueueMimic:
 
 @dataclass
 class GoalMessageMimic:
-    """Stands in for the goal request of the action."""
+    """
+    Stands in for the goal request of the action.
+    """
 
     goal: str
-    """The motion statechart as json."""
+    """
+    The motion statechart as json.
+    """
 
 
 @dataclass
 class WorldUpdatesMimic:
-    """Stands in for the incoming world updates, counting how they are drained
-    and recording what the server had already done whenever it asked about a
-    position."""
+    """
+    Stands in for the incoming world updates, counting how they are drained and
+    recording what the server had already done whenever it asked about a position.
+    """
 
     executor: StatechartExecutor | None = None
-    """The executor whose compiled motion statechart is observed while a goal
-    waits."""
+    """
+    The executor whose compiled motion statechart is observed while a goal waits.
+    """
 
     applied_batches: int = 0
-    """How often everything that was received was applied."""
+    """
+    How often everything that was received was applied.
+    """
 
     applied_state_update_batches: int = 0
-    """How often the state up to the next model modification was applied."""
+    """
+    How often the state up to the next model modification was applied.
+    """
 
     pending_reload: bool = False
-    """Whether a reload of the world model is waiting to be applied."""
+    """
+    Whether a reload of the world model is waiting to be applied.
+    """
 
     drains_until_caught_up: int | None = None
-    """How many drains it takes until an awaited position counts as applied, or
-    ``None`` if it never does."""
+    """
+    How many drains it takes until an awaited position counts as applied, or ``None`` if
+    it never does.
+    """
 
     awaited_positions: list[StreamPosition] = field(default_factory=list)
-    """Every position this mimic was asked about."""
+    """
+    Every position this mimic was asked about.
+    """
 
     compiled_while_waiting: list[bool] = field(default_factory=list)
-    """Whether a motion statechart was already compiled, per position asked
-    about."""
+    """
+    Whether a motion statechart was already compiled, per position asked about.
+    """
 
     def apply_all(self) -> None:
         self.applied_batches += 1
@@ -180,19 +215,27 @@ class WorldUpdatesMimic:
 
 @dataclass
 class PublicationProgressMimic:
-    """Stands in for the synchronizer that publishes the changes of the world,
-    reporting how far it has published."""
+    """
+    Stands in for the synchronizer that publishes the changes of the world, reporting
+    how far it has published.
+    """
 
     published_sequence_number: int = 0
-    """Sequence number of the message that was published last."""
+    """
+    Sequence number of the message that was published last.
+    """
 
     origin: MetaData = field(
         default_factory=lambda: MetaData(node_name="mimic", process_id=0)
     )
-    """The publisher the sequence numbers belong to."""
+    """
+    The publisher the sequence numbers belong to.
+    """
 
     def publish_one_update(self) -> None:
-        """Pretend that one more change of the world went out."""
+        """
+        Pretend that one more change of the world went out.
+        """
         self.published_sequence_number += 1
 
     @property
@@ -204,14 +247,19 @@ class PublicationProgressMimic:
 
 @dataclass
 class RecordingInputSynchronizer(InputSynchronizer):
-    """Records in which order inputs are read relative to the control
-    cycles."""
+    """
+    Records in which order inputs are read relative to the control cycles.
+    """
 
     executor: StatechartExecutor = None
-    """The executor whose control cycles are recorded on every apply."""
+    """
+    The executor whose control cycles are recorded on every apply.
+    """
 
     applied_at_control_cycles: list[float] = field(default_factory=list)
-    """The control cycle count at the time of every apply."""
+    """
+    The control cycle count at the time of every apply.
+    """
 
     def apply(self) -> bool:
         self.applied_at_control_cycles.append(self.executor.tick_count)
@@ -220,8 +268,10 @@ class RecordingInputSynchronizer(InputSynchronizer):
 
 @dataclass
 class WritingInputSynchronizer(InputSynchronizer):
-    """Reports that it wrote into the world state, standing in for an input
-    that received a message."""
+    """
+    Reports that it wrote into the world state, standing in for an input that received a
+    message.
+    """
 
     def apply(self) -> bool:
         return True
@@ -229,17 +279,24 @@ class WritingInputSynchronizer(InputSynchronizer):
 
 @dataclass
 class RecordingCommandPublisher(CommandPublisher):
-    """Records how often commands were published and when the robot was
-    stopped."""
+    """
+    Records how often commands were published and when the robot was stopped.
+    """
 
     published_velocities: list[float] = field(default_factory=list)
-    """The commanded velocity of every publish."""
+    """
+    The commanded velocity of every publish.
+    """
 
     stop_count: int = 0
-    """How often the robot was told to stop."""
+    """
+    How often the robot was told to stop.
+    """
 
     world: World = None
-    """The world the commanded velocities are read from."""
+    """
+    The world the commanded velocities are read from.
+    """
 
     def publish(self) -> None:
         self.published_velocities.append(float(self.world.state.velocities.sum()))
@@ -250,12 +307,15 @@ class RecordingCommandPublisher(CommandPublisher):
 
 @dataclass
 class PublishingCommandPublisher(CommandPublisher):
-    """Advances the publication progress once per control cycle, standing in
-    for a goal whose changes to the world are published to the other
-    processes."""
+    """
+    Advances the publication progress once per control cycle, standing in for a goal
+    whose changes to the world are published to the other processes.
+    """
 
     publication_progress: PublicationProgressMimic = None
-    """The progress that is advanced on every publish."""
+    """
+    The progress that is advanced on every publish.
+    """
 
     def publish(self) -> None:
         self.publication_progress.publish_one_update()
@@ -266,15 +326,18 @@ class PublishingCommandPublisher(CommandPublisher):
 
 @dataclass
 class FailingInputSynchronizer(InputSynchronizer):
-    """Fails while reading its input, standing in for a broken robot
-    interface."""
+    """
+    Fails while reading its input, standing in for a broken robot interface.
+    """
 
     def apply(self) -> bool:
         raise BrokenInputError()
 
 
 class BrokenInputError(Exception):
-    """Raised by :class:`FailingInputSynchronizer`."""
+    """
+    Raised by :class:`FailingInputSynchronizer`.
+    """
 
 
 def create_error_holding_a_variable() -> SelfInStartConditionError:
@@ -290,8 +353,9 @@ def create_error_holding_a_variable() -> SelfInStartConditionError:
 
 
 class UnserializableFailureInputSynchronizer(InputSynchronizer):
-    """Fails while reading its input with an error that cannot be
-    serialized."""
+    """
+    Fails while reading its input with an error that cannot be serialized.
+    """
 
     def apply(self) -> bool:
         raise create_error_holding_a_variable()
@@ -299,8 +363,10 @@ class UnserializableFailureInputSynchronizer(InputSynchronizer):
 
 @dataclass
 class InterruptingInputSynchronizer(InputSynchronizer):
-    """Raises KeyboardInterrupt while reading its input, standing in for a
-    process interrupted mid-goal."""
+    """
+    Raises KeyboardInterrupt while reading its input, standing in for a process
+    interrupted mid-goal.
+    """
 
     def apply(self) -> bool:
         raise KeyboardInterrupt
@@ -308,21 +374,30 @@ class InterruptingInputSynchronizer(InputSynchronizer):
 
 @dataclass
 class CycleWatchingGoalCanceler(InputSynchronizer):
-    """Watches the completed cycles from inside the control loop and cancels
-    the goal once enough of them passed, standing in for a client that cancels
-    a never-ending motion."""
+    """
+    Watches the completed cycles from inside the control loop and cancels the goal once
+    enough of them passed, standing in for a client that cancels a never-ending motion.
+    """
 
     cycle_counter: CycleCounter = None
-    """The counter that is watched."""
+    """
+    The counter that is watched.
+    """
 
     action_server: GoalQueueMimic | None = None
-    """The action server the cancel request is written to."""
+    """
+    The action server the cancel request is written to.
+    """
 
     ticks_until_cancel: int = 5
-    """How many ticks to observe before requesting the cancel."""
+    """
+    How many ticks to observe before requesting the cancel.
+    """
 
     observed_ticks: int = 0
-    """How many ticks were observed while the goal was running."""
+    """
+    How many ticks were observed while the goal was running.
+    """
 
     def apply(self) -> bool:
         self.observed_ticks = self.cycle_counter.completed_cycles
@@ -333,21 +408,31 @@ class CycleWatchingGoalCanceler(InputSynchronizer):
 
 @dataclass
 class CycleWatchingClientDisconnector(InputSynchronizer):
-    """Watches the completed cycles from inside the control loop and lets the
-    client of the goal disappear once enough of them passed, standing in for a
-    client that dies in the middle of a never-ending motion."""
+    """
+    Watches the completed cycles from inside the control loop and lets the client of the
+    goal disappear once enough of them passed, standing in for a client that dies in the
+    middle of a never-ending motion.
+    """
 
     cycle_counter: CycleCounter = None
-    """The counter that is watched."""
+    """
+    The counter that is watched.
+    """
 
     client_presence: HeartbeatPresence | None = None
-    """The check that stops reporting the client as present."""
+    """
+    The check that stops reporting the client as present.
+    """
 
     ticks_until_disconnect: int = 5
-    """How many ticks to observe before the client leaves."""
+    """
+    How many ticks to observe before the client leaves.
+    """
 
     disconnected: bool = field(init=False, default=False)
-    """Whether the client's heartbeats have already been let to stop."""
+    """
+    Whether the client's heartbeats have already been let to stop.
+    """
 
     def apply(self) -> bool:
         if not self.disconnected and (
@@ -360,18 +445,26 @@ class CycleWatchingClientDisconnector(InputSynchronizer):
 
 @dataclass
 class CycleWatchingLateClientDisconnector(CycleWatchingClientDisconnector):
-    """Lets the client of the goal announce itself only once the motion is
-    running, and disappear later, standing in for a client whose first
-    heartbeat arrives after its goal was accepted."""
+    """
+    Lets the client of the goal announce itself only once the motion is running, and
+    disappear later, standing in for a client whose first heartbeat arrives after its
+    goal was accepted.
+    """
 
     client: MetaData | None = None
-    """The client that announces itself late."""
+    """
+    The client that announces itself late.
+    """
 
     ticks_until_first_heartbeat: int = 2
-    """How many ticks to observe before the client announces itself."""
+    """
+    How many ticks to observe before the client announces itself.
+    """
 
     announced: bool = field(init=False, default=False)
-    """Whether the client has already announced itself."""
+    """
+    Whether the client has already announced itself.
+    """
 
     def apply(self) -> bool:
         if not self.announced and (
@@ -384,14 +477,20 @@ class CycleWatchingLateClientDisconnector(CycleWatchingClientDisconnector):
 
 @dataclass
 class FeedbackCountingSynchronizer(InputSynchronizer):
-    """Records how much feedback was already published when a control cycle
-    read its inputs."""
+    """
+    Records how much feedback was already published when a control cycle read its
+    inputs.
+    """
 
     action_server: GoalQueueMimic | None = None
-    """The action server whose published feedback is counted."""
+    """
+    The action server whose published feedback is counted.
+    """
 
     published_feedback_per_cycle: list[int] = field(default_factory=list)
-    """Number of feedback messages published before each control cycle."""
+    """
+    Number of feedback messages published before each control cycle.
+    """
 
     def apply(self) -> bool:
         self.published_feedback_per_cycle.append(
@@ -402,11 +501,15 @@ class FeedbackCountingSynchronizer(InputSynchronizer):
 
 @dataclass(eq=False)
 class StateChangeRecorder(StateChangeCallback):
-    """Records every announced state change, standing in for the publishers
-    that observe the world through its callbacks."""
+    """
+    Records every announced state change, standing in for the publishers that observe
+    the world through its callbacks.
+    """
 
     announced_changes: int = 0
-    """How often a state change was announced to the observers of the world."""
+    """
+    How often a state change was announced to the observers of the world.
+    """
 
     def on_state_change(self, **kwargs) -> None:
         self.announced_changes += 1
@@ -414,17 +517,25 @@ class StateChangeRecorder(StateChangeCallback):
 
 @dataclass
 class PendingReloadInjector(InputSynchronizer):
-    """Announces a pending reload after a few control cycles, standing in for
-    another process that replaces the world model mid-motion."""
+    """
+    Announces a pending reload after a few control cycles, standing in for another
+    process that replaces the world model mid-motion.
+    """
 
     world_updates: WorldUpdatesMimic | None = None
-    """The incoming updates the reload is announced on."""
+    """
+    The incoming updates the reload is announced on.
+    """
 
     cycles_until_reload: int = 5
-    """How many control cycles to run before the reload is announced."""
+    """
+    How many control cycles to run before the reload is announced.
+    """
 
     observed_cycles: int = 0
-    """How many control cycles were observed so far."""
+    """
+    How many control cycles were observed so far.
+    """
 
     def apply(self) -> bool:
         self.observed_cycles += 1
@@ -435,10 +546,14 @@ class PendingReloadInjector(InputSynchronizer):
 
 @dataclass
 class RecordingPlotter(PostGoalPlotter):
-    """Records for which goals debug plots were requested."""
+    """
+    Records for which goals debug plots were requested.
+    """
 
     plotted_goal_ids: list[int] = field(default_factory=list)
-    """The goal ids that were plotted."""
+    """
+    The goal ids that were plotted.
+    """
 
     def plot(self, goal_id: int) -> None:
         self.plotted_goal_ids.append(goal_id)
@@ -446,23 +561,27 @@ class RecordingPlotter(PostGoalPlotter):
 
 @dataclass
 class FailingPlotter(PostGoalPlotter):
-    """Fails while drawing its plot, standing in for a broken plotting
-    backend."""
+    """
+    Fails while drawing its plot, standing in for a broken plotting backend.
+    """
 
     def plot(self, goal_id: int) -> None:
         raise BrokenPlotError()
 
 
 class BrokenPlotError(Exception):
-    """Raised by :class:`FailingPlotter`."""
+    """
+    Raised by :class:`FailingPlotter`.
+    """
 
 
 # %% fixtures
 
 
 def create_executor() -> StatechartExecutor:
-    """Build an executor that simulates as fast as possible in an empty
-    world."""
+    """
+    Build an executor that simulates as fast as possible in an empty world.
+    """
     return StatechartExecutor(
         context=StatechartContext(world=World()),
         pacer=NoPacing(),
@@ -475,7 +594,9 @@ def create_executor() -> StatechartExecutor:
 
 
 def feedback_data(message: Any) -> dict:
-    """The payload of a published feedback message."""
+    """
+    The payload of a published feedback message.
+    """
     return json.loads(message.feedback)
 
 
@@ -484,11 +605,11 @@ def create_goal_json(
     required_position: StreamPosition | None = None,
     client: MetaData | None = None,
 ) -> str:
-    """Build the json of a goal whose motion ends after the given simulated
-    time.
+    """
+    Build the json of a goal whose motion ends after the given simulated time.
 
-    A goal that names no client comes from one that no check recognizes,
-    which is what every test that is not about a client leaving wants.
+    A goal that names no client comes from one that no check recognizes, which is what
+    every test that is not about a client leaving wants.
     """
     motion_statechart = Statechart(context=StatechartContext(world=World()))
     motion_statechart.add_node(counter := CountSimulationTimeSeconds(seconds=seconds))
@@ -503,8 +624,9 @@ def create_goal_json(
 
 @dataclass
 class MotionServerFixture:
-    """A motion server wired to mimics, so its lifecycle can be driven from a
-    test."""
+    """
+    A motion server wired to mimics, so its lifecycle can be driven from a test.
+    """
 
     executor: StatechartExecutor
     action_server: GoalQueueMimic
@@ -588,8 +710,9 @@ def motion_server(init_rospy) -> MotionServerFixture:
 
 
 class TestGoalResult:
-    """A goal is always answered, with an outcome that reflects what
-    happened."""
+    """
+    A goal is always answered, with an outcome that reflects what happened.
+    """
 
     def test_finished_motion_succeeds(self, motion_server: MotionServerFixture):
         motion_server.action_server.goal_json = create_goal_json()
@@ -602,8 +725,10 @@ class TestGoalResult:
     def test_a_goal_that_changed_the_world_reports_how_far_it_published(
         self, motion_server: MotionServerFixture
     ):
-        """The client reads the world once the goal is answered, so it has to
-        be told what to catch up with first."""
+        """
+        The client reads the world once the goal is answered, so it has to be told what
+        to catch up with first.
+        """
         motion_server.action_server.goal_json = create_goal_json()
         motion_server.publication_progress.publish_one_update()
         published_before_goal = (
@@ -628,9 +753,10 @@ class TestGoalResult:
     def test_a_goal_that_changed_nothing_reports_no_position(
         self, motion_server: MotionServerFixture
     ):
-        """There is nothing to catch up with when the world published nothing,
-        and waiting for a position that was already passed before the goal
-        would never return."""
+        """
+        There is nothing to catch up with when the world published nothing, and waiting
+        for a position that was already passed before the goal would never return.
+        """
         motion_server.action_server.goal_json = create_goal_json()
 
         motion_server.motion_server.run_idle_cycle()
@@ -662,9 +788,10 @@ class TestGoalResult:
     def test_the_reason_of_a_failure_is_reported(
         self, motion_server: MotionServerFixture
     ):
-        """A motion terminated by a reload of the world model can be sent
-        again, so the client has to be able to tell it apart from a real
-        failure."""
+        """
+        A motion terminated by a reload of the world model can be sent again, so the
+        client has to be able to tell it apart from a real failure.
+        """
         inject_modification = PendingReloadInjector(
             world=motion_server.executor.context.world,
             world_updates=motion_server.world_updates,
@@ -683,8 +810,9 @@ class TestGoalResult:
     def test_the_fields_of_a_failure_survive_the_round_trip(
         self, motion_server: MotionServerFixture
     ):
-        """An error only helps a client if it arrives with the details it was
-        raised with."""
+        """
+        An error only helps a client if it arrives with the details it was raised with.
+        """
         result = motion_server.motion_server.create_result(
             ExecutionCanceledException(action_server_name="mimic", goal_id=7)
         )
@@ -697,8 +825,10 @@ class TestGoalResult:
     def test_a_failure_that_cannot_be_serialized_is_reported_by_its_message(
         self, motion_server: MotionServerFixture
     ):
-        """An error holding objects of the running motion cannot travel to the
-        client, which still has to learn what went wrong."""
+        """
+        An error holding objects of the running motion cannot travel to the client,
+        which still has to learn what went wrong.
+        """
         failure = create_error_holding_a_variable()
 
         result = motion_server.motion_server.create_result(failure)
@@ -761,7 +891,9 @@ class TestGoalResult:
 
 
 class TestStatesOfAFailedGoal:
-    """A goal reports only the states of its own statechart."""
+    """
+    A goal reports only the states of its own statechart.
+    """
 
     def test_a_goal_failing_before_it_compiled_reports_no_states(
         self, motion_server: MotionServerFixture
@@ -777,8 +909,9 @@ class TestStatesOfAFailedGoal:
 
 
 class TestCleanupAfterGoal:
-    """Whatever happens to a goal, the robot is stopped and the client is
-    answered."""
+    """
+    Whatever happens to a goal, the robot is stopped and the client is answered.
+    """
 
     def test_robot_is_stopped_after_a_successful_goal(
         self, motion_server: MotionServerFixture
@@ -836,9 +969,11 @@ class TestCleanupAfterGoal:
     def test_a_failing_plotter_keeps_the_server_taking_goals(
         self, motion_server: MotionServerFixture
     ):
-        """A debug plot is a diagnostic, so it may never escape the idle cycle:
-        an exception here would end the loop that serves goals and leave every
-        later client waiting forever."""
+        """
+        A debug plot is a diagnostic, so it may never escape the idle cycle: an
+        exception here would end the loop that serves goals and leave every later client
+        waiting forever.
+        """
         motion_server.motion_server.post_goal_plotters = [
             FailingPlotter(executor=motion_server.executor)
         ]
@@ -867,7 +1002,9 @@ class TestCleanupAfterGoal:
 
 
 class TestStateFeedback:
-    """The client learns at which tick the states it is sent were taken."""
+    """
+    The client learns at which tick the states it is sent were taken.
+    """
 
     def test_the_last_feedback_carries_the_tick_the_goal_ended_on(
         self, motion_server: MotionServerFixture
@@ -884,11 +1021,11 @@ class TestStateFeedback:
 
 
 class TestGoalStructureFeedback:
-    """The client learns the structure of a motion statechart once per goal.
+    """
+    The client learns the structure of a motion statechart once per goal.
 
-    Serializing the structure is expensive, so it happens while the goal
-    is compiled and not from inside a control cycle, whose duration is
-    budgeted.
+    Serializing the structure is expensive, so it happens while the goal is compiled and
+    not from inside a control cycle, whose duration is budgeted.
     """
 
     def test_the_structure_is_published_before_the_first_control_cycle(
@@ -941,9 +1078,10 @@ class TestGoalStructureFeedback:
 
 
 class TestStateChangeAnnouncement:
-    """Announcing a state change recomputes the forward kinematics and reaches
-    every observer of the world, so it is only worth doing when an input wrote
-    something."""
+    """
+    Announcing a state change recomputes the forward kinematics and reaches every
+    observer of the world, so it is only worth doing when an input wrote something.
+    """
 
     def test_nothing_is_announced_when_no_input_wrote(self, init_rospy):
         world = World()
@@ -968,8 +1106,10 @@ class TestStateChangeAnnouncement:
     def test_the_state_is_announced_on_request_even_when_no_input_wrote(
         self, init_rospy
     ):
-        """The idle loop needs this: nothing else announces while no goal is
-        running, so the observers of the world would go stale."""
+        """
+        The idle loop needs this: nothing else announces while no goal is running, so
+        the observers of the world would go stale.
+        """
         world = World()
         inputs = WorldStateInputs(world=world, synchronizers=[])
         recorder = StateChangeRecorder(_world=world)
@@ -983,8 +1123,9 @@ class TestStateChangeAnnouncement:
 
 
 class TestControlCycleOrder:
-    """Every control cycle reads the robot before it computes the next
-    command."""
+    """
+    Every control cycle reads the robot before it computes the next command.
+    """
 
     def test_inputs_are_read_before_the_controller_ticks(
         self, motion_server: MotionServerFixture
@@ -1011,7 +1152,9 @@ class TestControlCycleOrder:
 
 
 class TestStopClearsCommands:
-    """Stopping the control loop leaves no commanded motion behind."""
+    """
+    Stopping the control loop leaves no commanded motion behind.
+    """
 
     def test_derivatives_are_zeroed(self, motion_server: MotionServerFixture):
         world = motion_server.executor.context.world
@@ -1032,9 +1175,10 @@ class TestStopClearsCommands:
 
 
 class TestRobotIsStoppedOnInterrupt:
-    """A KeyboardInterrupt (raised when the process is asked to shut down)
-    always stops the robot before it is allowed to propagate, whether it
-    arrives while idle or mid-goal."""
+    """
+    A KeyboardInterrupt (raised when the process is asked to shut down) always stops the
+    robot before it is allowed to propagate, whether it arrives while idle or mid-goal.
+    """
 
     def test_the_robot_is_stopped_when_interrupted_while_idle(
         self, motion_server: MotionServerFixture, monkeypatch: pytest.MonkeyPatch
@@ -1069,8 +1213,9 @@ class TestRobotIsStoppedOnInterrupt:
 
 
 class TestIdleLoop:
-    """While waiting for a goal, Giskard keeps its world in sync with the
-    outside."""
+    """
+    While waiting for a goal, Giskard keeps its world in sync with the outside.
+    """
 
     def test_world_updates_of_other_processes_are_applied(
         self, motion_server: MotionServerFixture
@@ -1082,9 +1227,10 @@ class TestIdleLoop:
     def test_the_state_change_is_announced_to_the_observers_of_the_world(
         self, motion_server: MotionServerFixture
     ):
-        """The idle loop hands the published state to the world callbacks
-        instead of calling a publisher itself, so every observer of the world
-        sees it."""
+        """
+        The idle loop hands the published state to the world callbacks instead of
+        calling a publisher itself, so every observer of the world sees it.
+        """
         recorder = StateChangeRecorder(_world=motion_server.executor.context.world)
 
         motion_server.motion_server.run_idle_cycle()
@@ -1115,9 +1261,10 @@ class TestIdleLoop:
 
 
 class TestCycleCountingDuringGoals:
-    """The cycle counter keeps counting while a goal is running, so an observer
-    waiting for the server to make progress is never blocked by a motion that
-    only ends on cancel."""
+    """
+    The cycle counter keeps counting while a goal is running, so an observer waiting for
+    the server to make progress is never blocked by a motion that only ends on cancel.
+    """
 
     def test_cycles_are_counted_during_a_goal(self, motion_server: MotionServerFixture):
         motion_server.action_server.goal_json = create_goal_json()
@@ -1135,8 +1282,10 @@ class TestCycleCountingDuringGoals:
     def test_cycles_are_counted_while_a_goal_never_ends_on_its_own(
         self, motion_server: MotionServerFixture
     ):
-        """A goal without an end motion only stops on cancel; an observer must
-        still see progress while it runs."""
+        """
+        A goal without an end motion only stops on cancel; an observer must still see
+        progress while it runs.
+        """
         cancel_after = CycleWatchingGoalCanceler(
             world=motion_server.executor.context.world,
             cycle_counter=motion_server.cycle_counter,
@@ -1153,9 +1302,11 @@ class TestCycleCountingDuringGoals:
 
 
 class TestWorldUpdatesDuringGoals:
-    """State updates of other processes are applied while a goal runs, but a
-    model modification invalidates the compiled motion statechart, so it
-    terminates the motion instead of being applied under it."""
+    """
+    State updates of other processes are applied while a goal runs, but a model
+    modification invalidates the compiled motion statechart, so it terminates the motion
+    instead of being applied under it.
+    """
 
     def test_state_updates_are_applied_once_per_control_cycle(
         self, motion_server: MotionServerFixture
@@ -1218,8 +1369,10 @@ class TestWorldUpdatesDuringGoals:
 
 
 class TestWaitingForTheWorldOfTheClient:
-    """A goal refers to a world its client already changed, so Giskard executes
-    it only once that change reached the world it controls."""
+    """
+    A goal refers to a world its client already changed, so Giskard executes it only
+    once that change reached the world it controls.
+    """
 
     def test_a_goal_that_requires_nothing_is_not_delayed(
         self, motion_server: MotionServerFixture
@@ -1251,9 +1404,10 @@ class TestWaitingForTheWorldOfTheClient:
     def test_the_goal_is_not_compiled_before_the_change_arrived(
         self, motion_server: MotionServerFixture
     ):
-        """Compiling resolves the entities the goal refers to against the
-        world, so a goal compiled too early would refer to entities the change
-        was supposed to bring."""
+        """
+        Compiling resolves the entities the goal refers to against the world, so a goal
+        compiled too early would refer to entities the change was supposed to bring.
+        """
         motion_server.world_updates.drains_until_caught_up = 3
         motion_server.action_server.goal_json = create_goal_json(
             required_position=StreamPosition(
@@ -1294,9 +1448,10 @@ class TestWaitingForTheWorldOfTheClient:
 
 
 class TestClientDisconnect:
-    """A goal outlives its client for as long as nobody notices, which leaves
-    the robot executing a plan nobody waits for, so a goal whose client left is
-    stopped."""
+    """
+    A goal outlives its client for as long as nobody notices, which leaves the robot
+    executing a plan nobody waits for, so a goal whose client left is stopped.
+    """
 
     def test_a_goal_whose_client_leaves_mid_motion_is_aborted(
         self, motion_server: MotionServerFixture
@@ -1323,8 +1478,10 @@ class TestClientDisconnect:
     def test_a_goal_whose_client_announces_itself_mid_motion_is_aborted_when_it_leaves(
         self, motion_server: MotionServerFixture
     ):
-        """A client's first heartbeat can arrive after its goal was accepted,
-        and that goal still has to be stopped once the client is gone."""
+        """
+        A client's first heartbeat can arrive after its goal was accepted, and that goal
+        still has to be stopped once the client is gone.
+        """
         late_client = MetaData(node_name="late_client", process_id=2)
         motion_server.action_server.goal_json = create_goal_json(
             seconds=100.0, client=late_client
@@ -1377,7 +1534,9 @@ class TestClientDisconnect:
     def test_a_goal_from_a_client_nothing_recognizes_runs_to_its_end(
         self, motion_server: MotionServerFixture
     ):
-        """A client Giskard cannot see is not a client that left."""
+        """
+        A client Giskard cannot see is not a client that left.
+        """
         motion_server.action_server.goal_json = create_goal_json()
 
         motion_server.motion_server.run_idle_cycle()
@@ -1387,8 +1546,10 @@ class TestClientDisconnect:
     def test_a_finished_goal_stops_being_watched(
         self, motion_server: MotionServerFixture
     ):
-        """The client of a finished goal may leave whenever it wants, and the
-        next goal picks its own client."""
+        """
+        The client of a finished goal may leave whenever it wants, and the next goal
+        picks its own client.
+        """
         motion_server.action_server.goal_json = create_goal_json(
             client=motion_server.client
         )

@@ -205,7 +205,7 @@ def test_attach_semantic_annotation_attaches_door_and_handle_sub_parts():
     [handle] = world.get_semantic_annotations_by_type(Handle)
 
     assert door in cabinet.doors
-    assert door.root.name.name == "hinge_cabinet_door"
+    assert door.leaf.name.name == "hinge_cabinet_door"
 
     assert door.handle == handle
     assert handle.root.name.name == "hinge_cabinet_handle"
@@ -213,7 +213,8 @@ def test_attach_semantic_annotation_attaches_door_and_handle_sub_parts():
     # the door's real hinge joint (parsed from the fixture's MJCF) must not have been disturbed by
     # recording the part-whole relationship
     assert isinstance(door_body.parent_connection, RevoluteConnection)
-    assert door_body.parent_kinematic_structure_entity == body
+    assert door_body.parent_kinematic_structure_entity == door.root
+    assert door.root.parent_kinematic_structure_entity == body
 
 
 def test_find_body_returns_none_for_missing_body():

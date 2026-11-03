@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import dataclass, field
 
 import pytest
@@ -8,18 +9,22 @@ pytest.importorskip("communication_skills")
 from geometry_msgs.msg import TransformStamped
 from hri_msgs.msg import IdsList
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from coraplex.plans.context_extensions import RobotAccess
+from cramph.composites import ChildChooserAccess
+from cramph.context import StatechartContext
+from cramph.statechart import Statechart
 from experiments.ra_fetch_elevator_people.elevator_people import (
     Ros4HriTopic,
     TrackedPersons,
 )
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_request_demo.boarding_permission import (
-    AskToBoardExecutable,
+    AbortOnStart,
+    AskToBoardChooser,
+    AskToBoardNode,
+    BoardingAnswerInProgress,
     BoardingAnswerKey,
+    BoardingConversation,
     BoardingQuestion,
     BoardingQuestionAsker,
     CommunicationSkill,
@@ -31,6 +36,7 @@ from experiments.tiago_room_request_demo.exceptions import (
     ElevatorCabinTimedOutError,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
+from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
     AriseOfficeRoom,
@@ -263,7 +269,7 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
     The world the plan was built for.
     """
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         world = context.world
         self.plan_world = world
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
@@ -274,24 +280,28 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
         )
         self.ask.after_refusal = self.next_elevator.start_round
         self.persons_at_elevator = PersonsAtElevator(
-            node=context.ros_node,
+            node=self.ros_node,
             topic_name=Ros4HriTopic.TRACKED_PERSONS,
             elevator=elevator,
         )
         track_people(self.persons_at_elevator, self.office, self.people)
-        return sequential(
-            [
-                NavigateToRoomAskingToBoardAction(
-                    self.office.get_room(
-                        world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
-                    ),
-                    persons_at_elevator=self.persons_at_elevator,
-                    elevator_arrival_threshold=self.elevator_arrival_threshold,
-                    maximum_boarding_attempts=self.maximum_boarding_attempts,
-                )
-            ],
-            context=context,
+        context.require_extension(ChildChooserAccess).choosers.append(
+            AskToBoardChooser(
+                persons_at_elevator=self.persons_at_elevator,
+                asker=BoardingQuestionAsker(self.ros_node),
+            )
         )
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            NavigateToRoomAskingToBoardAction(
+                target_room=self.office.get_room(
+                    world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
+                ),
+                elevator_arrival_threshold=self.elevator_arrival_threshold,
+                maximum_boarding_attempts=self.maximum_boarding_attempts,
+            )
+        )
+        return statechart
 
     def tear_down(self) -> None:
         if self.next_elevator is not None:
@@ -312,7 +322,6 @@ def riding_past(
     """
     return RidingPastPeopleAtTheElevator(
         used_robot=Tiago,
-        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
         people=people,
         ask=ask,
         maximum_boarding_attempts=maximum_boarding_attempts,
@@ -420,19 +429,39 @@ def boarding_question_asker(rclpy_node):
     asker.close()
 
 
-def test_asking_fails_when_nothing_serves_the_skill(boarding_question_asker):
-    with pytest.raises(AskSkillNotServedError) as error:
-        boarding_question_asker.may_board("waiting")
+def wait_for_the_answer(answer: BoardingAnswerInProgress, timeout: float = 5.0) -> bool:
+    """
+    :return: What the person answered.
+    :raises AssertionError: If that is not known within ``timeout`` seconds.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        may_board = answer.poll()
+        if may_board is not None:
+            return may_board
+        time.sleep(0.01)
+    raise AssertionError(f"no answer within {timeout} s")
 
-    assert error.value.action_name == CommunicationSkill.ASK
-    assert error.value.timeout == boarding_question_asker.server_timeout
+
+def wait_for_the_skill(asker: BoardingQuestionAsker, timeout: float = 5.0) -> None:
+    """
+    :raises AssertionError: If the skill is not served within ``timeout`` seconds.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if asker.is_served:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"the skill was not served within {timeout} s")
 
 
 @pytest.mark.parametrize("scripted_ask", [[AskAnswer.KEEP_SILENT]], indirect=True)
 def test_a_person_who_does_not_answer_in_time_does_not_agree(
     scripted_ask, boarding_question_asker
 ):
-    assert boarding_question_asker.may_board("waiting") is False
+    wait_for_the_skill(boarding_question_asker)
+
+    assert wait_for_the_answer(boarding_question_asker.ask("waiting")) is False
 
 
 @pytest.mark.parametrize(
@@ -443,43 +472,127 @@ def test_a_person_who_does_not_answer_in_time_does_not_agree(
 def test_the_answer_of_a_person_decides_whether_they_agree(
     scripted_ask, boarding_question_asker, expected_agreement
 ):
-    assert boarding_question_asker.may_board("waiting") is expected_agreement
+    wait_for_the_skill(boarding_question_asker)
+
+    assert (
+        wait_for_the_answer(boarding_question_asker.ask("waiting"))
+        is expected_agreement
+    )
 
 
-# %% waiting for the cabin
+# %% the conversation going wrong
+
+
+@dataclass
+class ConversationInAnOffice:
+    """
+    A conversation that has not started yet, on the ground floor of the office.
+    """
+
+    conversation: BoardingConversation
+    """
+    The conversation.
+    """
+
+    elevator: Elevator
+    """
+    The elevator it is about.
+    """
+
+    first_floor: FirstFloor
+    """
+    The storey above the robot.
+    """
 
 
 @pytest.fixture
-def asking_at_a_cabin_that_is_elsewhere(rclpy_node):
-    """
-    :return: An executable asking on the ground floor, with the cabin on the first floor.
-    """
-    world = TiagoElevatorRideDemonstration(
-        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    ).build_simulated_world()
+def conversation_in_an_office(rclpy_node, boarding_question_asker):
+    demonstration = TiagoElevatorRideDemonstration(used_robot=Tiago)
+    world = demonstration.build_simulated_world()
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
     elevator = world.get_semantic_annotations_by_type(Elevator)[0]
-    elevator.drive_to_floor(world.get_semantic_annotations_by_type(FirstFloor)[0])
     persons = PersonsAtElevator(
         node=rclpy_node, topic_name="/test/humans/persons/tracked", elevator=elevator
     )
-    yield AskToBoardExecutable(
-        context=Context(world=world, robot=robot, ros_node=rclpy_node),
+    track_people(persons, demonstration.office, [person_waiting()])
+    node = AskToBoardNode(
         elevator=elevator,
         level=world.get_semantic_annotations_by_type(GroundFloor)[0],
-        robot_root=robot.root,
-        persons_at_elevator=persons,
         maximum_attempts=1,
         arrival_threshold=0.01,
-        cabin_timeout=0.2,
+        cabin_timeout=0.0,
+    )
+    statechart = Statechart(
+        context=StatechartContext.with_extensions(world, [RobotAccess(robot)])
+    )
+    statechart.add_node(node)
+    yield ConversationInAnOffice(
+        conversation=BoardingConversation(
+            node=node, persons_at_elevator=persons, asker=boarding_question_asker
+        ),
+        elevator=elevator,
+        first_floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
     )
     persons.close()
 
 
-def test_waiting_gives_up_when_the_cabin_does_not_arrive(
-    asking_at_a_cabin_that_is_elsewhere,
+def test_the_plan_ends_when_the_cabin_does_not_arrive(
+    conversation_in_an_office,
 ):
-    with pytest.raises(ElevatorCabinTimedOutError) as error:
-        asking_at_a_cabin_that_is_elsewhere.execute()
+    conversation_in_an_office.elevator.drive_to_floor(
+        conversation_in_an_office.first_floor
+    )
+    time.sleep(0.01)
 
-    assert error.value.timeout == asking_at_a_cabin_that_is_elsewhere.cabin_timeout
+    child = conversation_in_an_office.conversation.advance()
+
+    assert isinstance(child, AbortOnStart)
+    assert isinstance(child.failure, ElevatorCabinTimedOutError)
+    assert (
+        child.failure.timeout
+        == conversation_in_an_office.conversation.node.cabin_timeout
+    )
+
+
+def test_the_plan_ends_when_nothing_serves_the_skill(
+    conversation_in_an_office,
+):
+    conversation = conversation_in_an_office.conversation
+    conversation.asker.server_timeout = 0.0
+    time.sleep(0.01)
+
+    child = conversation.advance()
+
+    assert isinstance(child, AbortOnStart)
+    assert isinstance(child.failure, AskSkillNotServedError)
+    assert child.failure.action_name == CommunicationSkill.ASK
+    assert child.failure.timeout == conversation.asker.server_timeout
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        BoardingPermissionNotGrantedError(3),
+        ElevatorCabinTimedOutError(0.5),
+        AskSkillNotServedError(CommunicationSkill.ASK, 0.5),
+    ],
+    ids=lambda failure: type(failure).__name__,
+)
+def test_what_went_wrong_survives_the_way_to_the_controller(failure):
+    """
+    The controller runs the child ending the plan, and reports its exception back.
+    """
+    assert from_json(json.loads(json.dumps(to_json(failure)))) == failure
+
+
+def test_the_node_ending_the_plan_survives_the_way_to_the_controller():
+    context = StatechartContext.with_extensions(World(), [])
+    statechart = Statechart(context=context)
+    statechart.add_node(AbortOnStart(failure=ElevatorCabinTimedOutError(0.5)))
+
+    received = Statechart.from_json(
+        json.loads(json.dumps(statechart.to_json())), context=context
+    )
+
+    [node] = received.get_nodes_by_type(AbortOnStart)
+    assert node.failure == ElevatorCabinTimedOutError(0.5)

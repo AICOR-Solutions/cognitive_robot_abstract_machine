@@ -8,7 +8,6 @@ from geometry_msgs.msg import PolygonStamped, TransformStamped
 from hri_msgs.msg import IdsList
 from rclpy.node import Node
 
-from coraplex.datastructures.enums import ExecutionType
 from experiments.ra_fetch_elevator_people.elevator_people import (
     ElevatorPeoplePublisher,
     ElevatorPeopleTopic,
@@ -57,8 +56,8 @@ def place_person(
     transform = TransformStamped()
     transform.header.frame_id = world.root.name.name
     transform.child_frame_id = TrackedPersons.frame_of(person_id)
-    transform.transform.translation.x = x
-    transform.transform.translation.y = y
+    transform.transform.translation.x = float(x)
+    transform.transform.translation.y = float(y)
     transform.transform.translation.z = head_height
     transform.transform.rotation.w = 1.0
     tracked_persons.person_frames.tf_wrapper.tf_buffer.set_transform_static(
@@ -170,9 +169,7 @@ class TopicRecorder:
 
 @pytest.fixture
 def office_with_tiago() -> World:
-    return TiagoElevatorRideDemonstration(
-        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    ).build_simulated_world()
+    return TiagoElevatorRideDemonstration(used_robot=Tiago).build_simulated_world()
 
 
 @pytest.fixture

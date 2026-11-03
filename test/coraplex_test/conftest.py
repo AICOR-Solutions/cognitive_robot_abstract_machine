@@ -154,12 +154,12 @@ def hsr_apartment_context(hsr_apartment_world):
 @pytest.fixture(scope="function")
 def tiago_apartment_context(tiago_apartment_world):
     """
-    The shared Tiago apartment world, its robot and a context for both, returned to its
-    initial model and state after the test.
+    The shared Tiago apartment world, its robot and the context extensions of its plans,
+    returned to its initial model and state after the test.
     """
     world, robot = tiago_apartment_world
     snapshot = WorldSnapshot.capture(world)
-    yield world, robot, Context(world, robot, sampling_seed=SAMPLING_SEED)
+    yield world, robot, robot_extensions(robot)
     snapshot.restore()
 
 

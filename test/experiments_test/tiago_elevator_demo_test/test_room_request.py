@@ -8,7 +8,6 @@ from hri_actions_msgs.msg import Intent
 from hri_msgs.msg import IdsList
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from coraplex.datastructures.enums import ExecutionType
 from experiments.ra_fetch_elevator_people.elevator_people import (
     Ros4HriTopic,
     TrackedPersons,
@@ -158,9 +157,7 @@ def test_a_room_the_office_does_not_have_is_said_to_be_unknown(
 def test_tiago_drives_to_the_room_it_was_told(
     scripted_ask, repeated_intent, tiago_speech, arise_office
 ):
-    demonstration = TiagoRoomRequestDemonstration(
-        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    )
+    demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
 
     world = demonstration.run()
 
@@ -182,9 +179,7 @@ def test_tiago_drives_to_the_room_it_was_told(
 def test_tiago_asks_the_person_the_person_manager_tracks_at_the_elevator(
     scripted_ask, repeated_intent, person_manager_tracking_someone_waiting
 ):
-    demonstration = TiagoRoomRequestDemonstration(
-        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    )
+    demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
 
     demonstration.run()
 
@@ -195,7 +190,6 @@ def test_tiago_asks_the_person_the_person_manager_tracks_at_the_elevator(
 def test_tiago_gives_up_when_nobody_tells_it_a_room(rclpy_node):
     demonstration = TiagoRoomRequestDemonstration(
         used_robot=Tiago,
-        execution_type=ExecutionType.KINEMATICALLY_SIMULATED,
         room_request_timeout=0.2,
     )
 

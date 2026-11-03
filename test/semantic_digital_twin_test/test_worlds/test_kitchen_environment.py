@@ -38,13 +38,13 @@ def test_module_1_has_fixed_face_plate_above_door() -> None:
     """
     world = KitchenEnvironment().create_world()
     face_plate_bounds = visual_world_bounds(world, "module_1_face_plate")
-    door_bounds = visual_world_bounds(world, "module_1_door")
+    door_bounds = visual_world_bounds(world, "module_1_door_leaf")
 
     assert np.isclose(np.ptp(face_plate_bounds[:, 2]), 0.143)
     assert np.isclose(face_plate_bounds[0, 2] - door_bounds[1, 2], 0.005)
 
 
-@pytest.mark.parametrize("body_name", ["module_1_face_plate", "module_1_door"])
+@pytest.mark.parametrize("body_name", ["module_1_face_plate", "module_1_door_leaf"])
 def test_module_1_front_piece_is_59_5_centimeters_wide(body_name: str) -> None:
     """
     Each Module 1 front piece should be narrower than the cabinet carcass.
@@ -61,7 +61,7 @@ def test_module_1_handle_top_is_four_centimeters_below_door_top() -> None:
     """
     world = KitchenEnvironment().create_world()
     handle_bounds = visual_world_bounds(world, "module_1_handle")
-    door_bounds = visual_world_bounds(world, "module_1_door")
+    door_bounds = visual_world_bounds(world, "module_1_door_leaf")
 
     assert np.isclose(door_bounds[1, 2] - handle_bounds[1, 2], 0.04)
 
@@ -69,10 +69,10 @@ def test_module_1_handle_top_is_four_centimeters_below_door_top() -> None:
 @pytest.mark.parametrize(
     ("handle_name", "door_name"),
     [
-        ("dishwasher_handle", "dishwasher_door"),
-        ("oven_handle", "oven_door"),
-        ("module_1_handle", "module_1_door"),
-        ("oven_cabinet_handle", "oven_cabinet_door"),
+        ("dishwasher_handle", "dishwasher_door_leaf"),
+        ("oven_handle", "oven_door_leaf"),
+        ("module_1_handle", "module_1_door_leaf"),
+        ("oven_cabinet_handle", "oven_cabinet_door_leaf"),
     ],
 )
 def test_horizontal_door_handle_fits_within_door_width(
@@ -95,7 +95,7 @@ def test_fridge_door_handle_is_near_free_edge() -> None:
     """
     world = KitchenEnvironment().create_world()
     handle_bounds = visual_world_bounds(world, "fridge_door_handle")
-    door_bounds = visual_world_bounds(world, "fridge_door")
+    door_bounds = visual_world_bounds(world, "fridge_door_leaf")
 
     handle_center_x = handle_bounds[:, 0].mean()
     assert np.isclose(door_bounds[1, 0] - handle_center_x, 0.03)

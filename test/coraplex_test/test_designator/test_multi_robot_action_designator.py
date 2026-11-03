@@ -4,11 +4,19 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 from rustworkx.rustworkx import NoEdgeBetweenNodes
-from typing_extensions import Generator, Iterable
+from typing_extensions import Generator, Iterable, Self
 
 from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.exceptions import NoFloorBelowRobot
+from semantic_digital_twin.datastructures.joint_state import JointState
+from semantic_digital_twin.robots.exceptions import MissingLidarError
+from semantic_digital_twin.robots.robot_part_mixins import HasLidar
+from semantic_digital_twin.robots.robot_parts import MobileBase
+from semantic_digital_twin.world_description.connections import OmniDrive
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
 from coraplex.plans.plan_transformation import PlanRewriting
 from cramph.statechart import Statechart
 from cramph.composites import Parallel, Sequence, TryAll, TryInOrder
@@ -30,6 +38,7 @@ from coraplex.robot_plans.actions.core.navigation import (
     NavigateAction,
     LookAtAction,
     ElevatorNavigation,
+    PassDoorAction,
 )
 from coraplex.robot_plans.actions.core.navigation import (
     PathPlanningNavigateAction,
@@ -956,6 +965,14 @@ def test_gcs_navigation_needs_a_floor_below_the_robot(
 # %% riding an elevator
 
 
+def skip_without_a_lidar(robot: AbstractRobot) -> None:
+    """
+    Skip the test for a robot whose base cannot see a doorway, which rides no elevator.
+    """
+    if not isinstance(robot.mobile_base, HasLidar):
+        pytest.skip(f"{type(robot.mobile_base).__name__} carries no lidar.")
+
+
 @dataclass(eq=False)
 class ElevatorOperator(ModelChangeCallback):
     """
@@ -997,25 +1014,6 @@ class ElevatorOperator(ModelChangeCallback):
         self.elevator.open()
 
 
-def test_elevator_navigation_needs_doors_that_can_open():
-    world = World.create_with_root_body("root")
-    with world.modify_world():
-        elevator = Elevator.create_with_new_body_in_world(
-            name="elevator", world=world, scale=Scale(2, 2, 2)
-        )
-        door = Door.create_with_new_body_in_world(
-            name="door", world=world, scale=Scale(0.05, 1, 2)
-        )
-        elevator.add(door)
-        ground_floor = GroundFloor.create_with_new_region_in_world(
-            name="ground_floor", world=world, scale=Scale(4, 4, 0.1)
-        )
-    navigation = ElevatorNavigation(elevator=elevator, target_floor=ground_floor)
-
-    with pytest.raises(MissingMovableJointError):
-        navigation._elevator_open_at_floor(ground_floor)
-
-
 def test_elevator_navigation_needs_a_cabin_that_can_move():
     world = World.create_with_root_body("root")
     with world.modify_world():
@@ -1037,11 +1035,12 @@ def test_elevator_navigation_needs_a_cabin_that_can_move():
     navigation = ElevatorNavigation(elevator=elevator, target_floor=ground_floor)
 
     with pytest.raises(MissingMovableJointError):
-        navigation._elevator_open_at_floor(ground_floor)
+        navigation._cabin_at_floor(ground_floor)
 
 
 def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     world, robot, extensions = multiple_robot_apartment_context
+    skip_without_a_lidar(robot)
 
     elevator = world.get_semantic_annotations_by_type(Elevator)[0]
     elevator.open()
@@ -1085,6 +1084,90 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     assert robot.root.global_transform.position.to_np().flatten()[:3] == pytest.approx(
         expected_position, abs=0.01
     )
+
+
+# %% passing a door
+
+
+@dataclass(eq=False)
+class MobileBaseWithoutLidar(MobileBase[OmniDrive]):
+    """
+    A mobile base that carries no lidar, standing in for robots that cannot see their
+    surroundings.
+    """
+
+    def setup_hardware_interfaces(self):
+        pass
+
+    def setup_joint_states(self) -> list[JointState]:
+        return []
+
+    @classmethod
+    def setup_default_configuration_in_world_below_robot_root(
+        cls, robot_root: KinematicStructureEntity
+    ) -> Self:
+        return cls(root=robot_root)
+
+
+def test_pass_door_drives_through_an_open_doorway(multiple_robot_apartment_context):
+    world, robot, extensions = multiple_robot_apartment_context
+    skip_without_a_lidar(robot)
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    elevator.open()
+    robot.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        1, -5, 0, reference_frame=world.root
+    )
+
+    run_plan(
+        PassDoorAction(
+            doors=elevator.doors,
+            destination=Point3(reference_frame=elevator.root),
+            exit_distance=float(elevator.scale.x) / 2,
+        ),
+        extensions,
+    )
+
+    cabin_position = elevator.root.global_transform.position.to_np().flatten()
+    robot_position = robot.root.global_transform.position.to_np().flatten()
+    assert robot_position[:2] == pytest.approx(cabin_position[:2], abs=0.05)
+
+
+def test_pass_door_watches_the_centre_of_all_its_doors(
+    multiple_robot_apartment_context,
+):
+    world, robot, extensions = multiple_robot_apartment_context
+    skip_without_a_lidar(robot)
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    action = PassDoorAction(
+        doors=elevator.doors, destination=Point3(reference_frame=elevator.root)
+    )
+    attach_to_statechart(action, extensions)
+
+    passage = action._passage_clear()
+
+    passage_middle = (
+        world.transform(passage.passage_start, world.root).to_np()
+        + world.transform(passage.passage_end, world.root).to_np()
+    ) / 2
+    doorway_middle = sum(
+        door.entry_way.root.global_transform.position.to_np() for door in elevator.doors
+    ) / len(elevator.doors)
+    assert passage_middle[:2] == pytest.approx(doorway_middle[:2], abs=1e-6)
+
+
+def test_pass_door_needs_a_lidar(multiple_robot_apartment_context, monkeypatch):
+    world, robot, extensions = multiple_robot_apartment_context
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    mobile_base_without_lidar = MobileBaseWithoutLidar(root=robot.mobile_base.root)
+    monkeypatch.setattr(robot, "mobile_base", mobile_base_without_lidar)
+    action = PassDoorAction(
+        doors=elevator.doors, destination=Point3(reference_frame=elevator.root)
+    )
+
+    with pytest.raises(MissingLidarError) as raised:
+        attach_to_statechart(action, extensions)
+
+    assert raised.value.robot_part is mobile_base_without_lidar
 
 
 # %% searching for an object

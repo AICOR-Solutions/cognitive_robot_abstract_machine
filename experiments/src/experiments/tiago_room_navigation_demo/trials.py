@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 
 from typing_extensions import Type
 
-from coraplex.datastructures.enums import ExecutionType
+from coraplex.plans.executors import (
+    KinematicallySimulatedPlanExecutor,
+    PlanExecutor,
+)
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.demo import (
     TiagoRoomNavigationDemonstration,
@@ -153,9 +156,10 @@ class RoomNavigationTrials:
     The robot that drives.
     """
 
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor
     """
-    Whether the robot is driven for real or simulated.
+    The executor running each drive, which decides whether the robot is driven for real
+    or simulated.
     """
 
     def target_room_names(self) -> list[str]:
@@ -197,7 +201,7 @@ class RoomNavigationTrials:
         """
         demonstration = TiagoRoomNavigationDemonstration(
             used_robot=self.used_robot,
-            execution_type=self.execution_type,
+            executor_type=self.executor_type,
             target_room_name=target_room_name,
         )
         try:
@@ -213,17 +217,18 @@ class RoomNavigationTrials:
 def main(
     number_of_trials: int = 50,
     seed: int | None = None,
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED,
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
 ) -> None:
     """
     Run the trials and print their overview.
 
     :param number_of_trials: How many drives to perform.
     :param seed: Seed of the sampling of the target rooms.
-    :param execution_type: Whether to drive the real (or Gazebo) robot or simulate it.
+    :param executor_type: The executor running each drive, which decides whether it
+        drives the real (or Gazebo) robot or simulates it.
     """
     summary = RoomNavigationTrials(
-        number_of_trials=number_of_trials, seed=seed, execution_type=execution_type
+        number_of_trials=number_of_trials, seed=seed, executor_type=executor_type
     ).run()
     print(summary.report())
 

@@ -1,7 +1,7 @@
 """
 Tiago drives out of the apartment through a doorway and back in again.
 
-Running with :attr:`~coraplex.datastructures.enums.ExecutionType.REAL` drives the actual
+Running with :class:`~coraplex.plans.executors.RealRobotPlanExecutor` drives the actual
 robot, fetches the world from the running controller and reads the base lidar from the
 robot's ``/scan``. The default runs the whole plan in simulation against a world built from
 the Tiago URDF, so nothing on the network is needed.
@@ -17,12 +17,18 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import (
+    KinematicallySimulatedPlanExecutor,
+    PlanExecutor,
+    RealRobotPlanExecutor,
+    SimulatedPlanExecutor,
+)
 from coraplex.robot_plans.actions.core.navigation import PassDoorAction
+from cramph.composites import Sequence
+from cramph.context import ContextExtension, StatechartContext
+from cramph.statechart import Statechart
 from semantic_digital_twin.predefined_maps.apartment_environment import (
     ApartmentEnvironment,
 )
@@ -89,16 +95,6 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
     Thickness, width and height of the door, sized to the real doorway.
     """
 
-    odom_T_robot_start: HomogeneousTransformationMatrix = field(
-        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=-6.25, y=0.615, yaw=-np.pi / 2
-        )
-    )
-    """
-    Where a simulated Tiago starts: :attr:`room_distance_from_door` in front of the
-    doorway in the apartment, facing it, which is also where the plan brings it back to.
-    """
-
     room_distance_from_door: float = 2
     """
     How far from the doorway the robot waits and stops on the side of the apartment.
@@ -109,19 +105,33 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
     How far from the doorway the robot stops and waits on the side of the hallway.
     """
 
-    def build_simulated_world(self) -> World:
+    def scene_specification(self) -> WorldSpecification:
         """
-        Put the Tiago on its drive in a world holding nothing but a map body.
+        :return: A world holding nothing but a map body, which :meth:`populate_scene`
+            spawns the apartment into.
         """
-        return WorldSpecification(
-            world_parser=None,
-            robots=[
-                RobotSpecification(
-                    semantic_annotation_type=self.used_robot,
-                    odom_T_robot_start=self.odom_T_robot_start,
-                )
-            ],
-        ).to_domain_object()
+        return WorldSpecification()
+
+    def robot_specification(self) -> RobotSpecification:
+        """
+        :return: The Tiago on its drive :attr:`room_distance_from_door` in front of the
+            doorway in the apartment, facing it, which is also where the plan brings it
+            back to.
+        """
+        world_T_start = (
+            self.world_T_door
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=self.room_distance_from_door, yaw=np.pi
+            )
+        ).to_np()
+        return RobotSpecification(
+            semantic_annotation_type=self.used_robot,
+            odom_T_robot_start=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=float(world_T_start[0, 3]),
+                y=float(world_T_start[1, 3]),
+                yaw=float(np.arctan2(world_T_start[1, 0], world_T_start[0, 0])),
+            ),
+        )
 
     def is_scene_populated(self, world: World) -> bool:
         return world.is_kinematic_structure_entity_in_world_by_name(self.door_name)
@@ -131,7 +141,7 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         Spawn the apartment and a door into the doorway, with its leaf open.
         """
         world.merge_world_at_pose(
-            ApartmentEnvironment().get_world(), self.world_T_apartment
+            ApartmentEnvironment().create_world(), self.world_T_apartment
         )
         with world.modify_world():
             door = Door.create_with_new_body_in_world(
@@ -153,29 +163,20 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         On a real run, the base lidar is read from the robot instead of the world.
         """
         world = super().acquire_world()
-        if self.execution_type is ExecutionType.REAL:
+        if not issubclass(self.executor_type, SimulatedPlanExecutor):
             lidar = world.get_semantic_annotations_by_type(self.used_robot)[
                 0
             ].mobile_base.lidar
             lidar.use_source(lidar.real_source(self.ros_node))
         return world
 
-    def build_context(self, world: World) -> Context:
+    def build_context_extensions(self, world: World) -> list[ContextExtension]:
         """
-        Build the plan context around the Tiago in ``world``.
-
-        ..note:: The ROS node has to be in the context for a real robot.
+        Give the plan the Tiago in ``world``.
         """
-        return Context(
-            world=world,
-            robot=world.get_semantic_annotations_by_type(self.used_robot)[0],
-            ros_node=self.ros_node,
-            evaluate_conditions=False,
-            alternative_motion_mappings=self.alternative_motion_mappings,
-            _debug=self.debug,
-        )
+        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Pass the doorway to the outside and back into the apartment.
         """
@@ -186,40 +187,43 @@ class TiagoDoorPassingDemonstration(RobotDemonstration):
         inside = Point3(
             2 * self.room_distance_from_door, 0, 0, reference_frame=door.root
         )
-
-        return sequential(
-            [
-                PassDoorAction(
-                    [door],
-                    destination=outside,
-                    approach_distance=self.room_distance_from_door,
-                    exit_distance=self.hallway_distance_from_door,
-                ),
-                PassDoorAction(
-                    [door],
-                    destination=inside,
-                    approach_distance=self.hallway_distance_from_door,
-                    exit_distance=self.room_distance_from_door,
-                ),
-            ],
-            context=context,
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            Sequence(
+                nodes=[
+                    PassDoorAction(
+                        doors=[door],
+                        destination=outside,
+                        approach_distance=self.room_distance_from_door,
+                        exit_distance=self.hallway_distance_from_door,
+                    ),
+                    PassDoorAction(
+                        doors=[door],
+                        destination=inside,
+                        approach_distance=self.hallway_distance_from_door,
+                        exit_distance=self.room_distance_from_door,
+                    ),
+                ]
+            )
         )
+        return statechart
 
 
 def main(
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED,
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
     repetitions: int = 1,
 ) -> None:
     """
     Run the demonstration.
 
-    :param execution_type: Whether to drive the real robot or simulate it.
+    :param executor_type: The executor running the plan, which decides whether it drives
+        the real robot or simulates it.
     :param repetitions: How often to pass the doorway out and back in.
     """
     TiagoDoorPassingDemonstration(
-        used_robot=Tiago, execution_type=execution_type, repetitions=repetitions
+        used_robot=Tiago, executor_type=executor_type, repetitions=repetitions
     ).run()
 
 
 if __name__ == "__main__":
-    main(execution_type=ExecutionType.REAL)
+    main(executor_type=RealRobotPlanExecutor)

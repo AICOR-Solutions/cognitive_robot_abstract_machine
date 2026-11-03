@@ -44,6 +44,7 @@ from coraplex.robot_plans.actions.core.misc import DetectAction, MoveToReach
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     FaceAtAction,
+    PassDoorAction,
     LookAtAction,
     NavigateAction,
     PathPlanningNavigateAction,
@@ -80,7 +81,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Tool,
     Whisk,
 )
-from krrood_spatial_math.spatial_types import Pose, Pose2D
+from coraplex.robot_plans.actions.core.speech import SayAction, SpeakOnStart
+from krrood_spatial_math.spatial_types import Point3, Pose, Pose2D
 from semantic_digital_twin.world import World
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
@@ -248,6 +250,15 @@ def _elevator_navigation(world: World) -> list[StatechartNode]:
     return [ElevatorNavigation(elevator=elevator, target_floor=ground_floor)]
 
 
+def _pass_door(world: World) -> list[StatechartNode]:
+    elevator = _elevator_navigation(world)[0].elevator
+    return [
+        PassDoorAction(
+            doors=elevator.doors, destination=Point3(reference_frame=elevator.root)
+        )
+    ]
+
+
 def _robot_body_cases() -> list[ActionRoundTripCase]:
     return [
         ActionRoundTripCase(
@@ -327,6 +338,9 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
             FaceAndLookAtAction, lambda world: [_face_and_look_at(world)]
         ),
         ActionRoundTripCase(ElevatorNavigation, _elevator_navigation),
+        ActionRoundTripCase(PassDoorAction, _pass_door),
+        ActionRoundTripCase(SayAction, lambda world: [SayAction(text="Hello")]),
+        ActionRoundTripCase(SpeakOnStart, lambda world: [SpeakOnStart(text="Hello")]),
         ActionRoundTripCase(
             DetectAction,
             lambda world: [
