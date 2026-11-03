@@ -19,51 +19,6 @@ class ForceTorqueNode(TopicSubscriberNode[WrenchStamped]):
 
     msg_type: WrenchStamped = field(init=False, default=WrenchStamped)
 
-    readings_in_agreement: int = field(default=1, kw_only=True)
-    """
-    How many readings in a row have to meet a monitor's condition for it to hold.
-
-    A sensor whose noise alone reaches a threshold trips a monitor that believes a
-    single reading, so a noisy one is given several readings to agree on.
-    """
-
-    _readings_so_far: int = field(init=False, default=0)
-    """
-    How many of the readings up to now, in a row, have met that condition.
-    """
-
-    _counted_reading: WrenchStamped | None = field(init=False, default=None)
-    """
-    The reading counted last, which is not counted again.
-
-    Ticks outrun the sensor, so the same reading is seen on several of them and counting
-    per tick would count one reading as several.
-    """
-
-    def enough_readings_agree(self, reading_meets_condition: bool) -> bool:
-        """
-        Whether enough readings in a row have met a monitor's condition.
-
-        Counts the current reading unless it has been counted already, and starts over
-        from the first reading that does not meet the condition.
-
-        ..note:: Call this once per tick, since it is what advances the count.
-
-        :param reading_meets_condition: Whether the current reading meets it.
-        :return: Whether :attr:`readings_in_agreement` readings in a row have.
-        """
-        if self.current_msg is not self._counted_reading:
-            self._counted_reading = self.current_msg
-            self._readings_so_far = (
-                self._readings_so_far + 1 if reading_meets_condition else 0
-            )
-        return self._readings_so_far >= self.readings_in_agreement
-
-    def on_reset(self, context: MotionStatechartContext):
-        super().on_reset(context)
-        self._readings_so_far = 0
-        self._counted_reading = None
-
     def force_as_np(self) -> np.ndarray:
         return np.array(
             [
@@ -103,7 +58,7 @@ class ForceImpactMonitor(ForceTorqueNode):
         super().on_tick(context)
         if not self.has_msg():
             return ObservationStateValues.UNKNOWN
-        if self.enough_readings_agree(self.force_magnitude() > self.threshold):
+        if self.force_magnitude() > self.threshold:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
 
@@ -135,6 +90,6 @@ class ForceDirectionMonitor(ForceTorqueNode):
         force = Vector3.from_iterable(self.force_as_np())
         unit_direction = self.direction / self.direction.norm()
         force_along_direction = float(force.dot(unit_direction))
-        if self.enough_readings_agree(force_along_direction > self.threshold):
+        if force_along_direction > self.threshold:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
