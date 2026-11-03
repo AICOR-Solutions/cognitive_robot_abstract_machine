@@ -107,6 +107,9 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         self.requested_room = self.room_requests.wait_for_room(
             self.room_request_timeout
         )
+        # Every intent would take time from the updates of the world while the plan runs.
+        self.room_requests.close()
+        self.room_requests = None
         statechart = Statechart(context=context)
         statechart.add_node(
             Sequence(

@@ -476,6 +476,20 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
     example a controller that must not have the world changed under a running motion.
     """
 
+    _known_degrees_of_freedom: set[UUID] = field(
+        default_factory=set, init=False, repr=False
+    )
+    """
+    The degrees of freedom the world held after its latest model change.
+    """
+
+    _removed_degrees_of_freedom: set[UUID] = field(
+        default_factory=set, init=False, repr=False
+    )
+    """
+    The degrees of freedom the world held once and no longer does.
+    """
+
     missed_messages: list[WorldUpdate] = field(
         default_factory=list, init=False, repr=False
     )
@@ -520,6 +534,7 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         # registration.
         Synchronizer.__post_init__(self)
         ModelChangeCallback.__post_init__(self)
+        self._known_degrees_of_freedom = set(self._world.state.keys())
 
     def on_model_change(self, publish_changes: bool | None = None, **kwargs):
         """
@@ -532,6 +547,11 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         :raises MissingPublishChangesKWARG: If the notification did not say whether to
             publish.
         """
+        current_degrees_of_freedom = set(self._world.state.keys())
+        self._removed_degrees_of_freedom |= (
+            self._known_degrees_of_freedom - current_degrees_of_freedom
+        )
+        self._known_degrees_of_freedom = current_degrees_of_freedom
         if publish_changes is None:
             raise MissingPublishChangesKWARG(kwargs)
         if not publish_changes:
@@ -681,12 +701,16 @@ class WorldSynchronizer(Synchronizer, ModelChangeCallback, StateChangeCallback):
         """
         Applies the state, and raises a StateUpdateContainsUnknownDegreesOfFreedomError
         if we receive unknown degree of freedom.
+
+        The state of a degree of freedom this world removed is ignored, since the sender
+        did not know of that yet.
         """
         identifier_index_state_triples = [
             (identifier, self._world.state._index.get(identifier), state_value)
             for identifier, state_value in zip(
                 state_update_message.ids, state_update_message.states
             )
+            if identifier not in self._removed_degrees_of_freedom
         ]
         unknown_identifiers = [
             identifier

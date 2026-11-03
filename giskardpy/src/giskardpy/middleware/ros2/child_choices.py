@@ -314,31 +314,41 @@ class ChildChoiceClient:
     Every request answered, as goal, node index and the number of children the node held.
     """
 
-    _waiting_for_changes_since: float | None = field(
+    _report_being_caught_up_with: dict[str, Any] | None = field(
         default=None, init=False, repr=False
     )
     """
+    The feedback whose changes the client's world has to contain before the client
+    chooses, or ``None`` if it is not waiting.
+
+    It stays the same while the client waits, because a client that is slower than
+    Giskard never catches up with whatever the newest feedback reports.
+    """
+
+    _waiting_for_changes_since: float = field(default=0.0, init=False, repr=False)
+    """
     The :func:`time.monotonic` time the client started waiting for its world to catch up
-    with Giskard's, or ``None`` if it is not waiting.
+    with :attr:`_report_being_caught_up_with`.
     """
 
     def answer(self, feedback: dict[str, Any]) -> list[ChildChoiceMessage]:
         """
         :param feedback: The feedback of the running goal.
         :return: A choice for every node waiting for a child that was not answered
-            before, none while the client's world does not contain the changes the
-            feedback reports. A choice that is still pending is asked for again next
-            time.
+            before, none while the client's world does not contain the changes reported
+            when it started waiting for them. A choice that is still pending is asked
+            for again next time.
         :raises GiskardWorldUpdateNotReceivedError: If the client's world does not
             catch up within the timeout of :attr:`world_updates`.
         """
-        if self._waiting_for_changes_since is None:
+        if self._report_being_caught_up_with is None:
+            self._report_being_caught_up_with = feedback
             self._waiting_for_changes_since = time.monotonic()
         if not self.world_updates.has_applied_the_changes_reported_in(
-            feedback, self._waiting_for_changes_since
+            self._report_being_caught_up_with, self._waiting_for_changes_since
         ):
             return []
-        self._waiting_for_changes_since = None
+        self._report_being_caught_up_with = None
         goal_id = feedback[StatechartPayloadKey.GOAL_ID]
         messages = []
         for index, child_count in feedback[

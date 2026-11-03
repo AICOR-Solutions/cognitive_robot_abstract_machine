@@ -233,6 +233,37 @@ def unique_topic(name: str) -> str:
     return f"/{name}_{uuid4().hex}"
 
 
+def test_state_of_what_this_world_removed_itself_is_ignored(rclpy_node):
+    """
+    Another world keeps sending the state of a person until the removal of that person
+    reaches it, and that state is on its way when this world removed the person.
+    """
+    world = create_dummy_world()
+    synchronizer = WorldSynchronizer(node=rclpy_node, _world=world)
+    kept_identifier = world.state.keys()[0]
+    with world.modify_world():
+        person = Body(name=PrefixedName("person"))
+        world.add_kinematic_structure_entity(person)
+        person_connection = Connection6DoF.create_with_dofs(
+            world=world, parent=world.root, child=person
+        )
+        world.add_connection(person_connection)
+    removed_ids = [dof.id for dof in person_connection.dofs]
+    with world.modify_world():
+        world.remove_kinematic_structure_entity(person)
+
+    synchronizer._apply_state(
+        WorldStateUpdate(
+            meta_data=synchronizer.meta_data,
+            ids=[*removed_ids, kept_identifier],
+            states=[*([0.5] * len(removed_ids)), 0.25],
+        )
+    )
+
+    assert world.state[kept_identifier].position == pytest.approx(0.25)
+    synchronizer.close()
+
+
 def test_synchronizer_holds_as_many_messages_as_its_queue_depth(rclpy_node):
     synchronizer = WorldSynchronizer(
         node=rclpy_node, _world=create_dummy_world(), message_queue_depth=7

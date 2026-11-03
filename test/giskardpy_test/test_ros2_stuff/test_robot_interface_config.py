@@ -6,6 +6,10 @@ from giskardpy.data_types.exceptions import NoControlledJointsError
 from cramph.executor import NoPacing, RealTimePacer
 from giskardpy.middleware.ros2.exceptions import NoUniqueDriveError
 from giskardpy.middleware.ros2.giskard import Giskard
+from giskardpy.middleware.ros2.scripts.iai_robots.tiago.configs import (
+    WorldWithTiagoConfig,
+)
+from semantic_digital_twin.world_description.connections import DifferentialDrive
 from giskardpy.middleware.ros2.robot_interface_config import (
     ClosedLoopRobotInterfaceConfig,
     RobotInterfaceConfig,
@@ -584,3 +588,7 @@ def test_closed_loop_does_not_rewrite_a_joint_state_it_already_wrote(
     control_loop_inputs.apply_inputs()
 
     assert mini_world.state[connection.raw_dof.id].position == 1.0
+
+
+def test_the_world_of_the_tiago_drives_differentially():
+    assert WorldWithTiagoConfig().drive_class is DifferentialDrive

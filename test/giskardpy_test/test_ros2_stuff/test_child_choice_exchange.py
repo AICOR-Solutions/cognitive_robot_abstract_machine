@@ -485,6 +485,29 @@ def test_the_client_does_not_wait_for_changes_published_before_the_goal(
     assert answer.node_index == exchange.copy.starting_first.index
 
 
+def test_a_client_slower_than_the_running_side_still_gets_to_answer(
+    exchange: ClientAndRunningStatechart,
+) -> None:
+    """
+    A client catching up with every newest report never does while the running side
+    publishes at least as fast as it applies, even though it stays only a few updates
+    behind, so it catches up with the report it started waiting on.
+    """
+    publications = exchange.running_side_publications
+    publications.publish_one_update()
+    awaited_sequence_number = publications.published_sequence_number
+    answered_while_behind = exchange.let_the_client_answer()
+    publications.publish_one_update()
+    exchange.client_world_updates.world_synchronizer.applied_sequence_number = (
+        awaited_sequence_number
+    )
+
+    [answer] = exchange.let_the_client_answer()
+
+    assert answered_while_behind == []
+    assert answer.node_index == exchange.copy.starting_first.index
+
+
 def test_a_client_whose_world_does_not_catch_up_reports_it(
     exchange: ClientAndRunningStatechart,
 ) -> None:
