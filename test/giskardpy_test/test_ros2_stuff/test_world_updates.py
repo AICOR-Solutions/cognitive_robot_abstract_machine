@@ -58,34 +58,22 @@ from cramph.executor import StatechartExecutor
 
 @dataclass
 class BufferingSynchronizerMimic:
-    """
-    Stands in for a synchronizer that buffers what it receives.
-    """
+    """Stands in for a synchronizer that buffers what it receives."""
 
     buffered_model_modification: bool = False
-    """
-    Whether a model modification is waiting in the buffer.
-    """
+    """Whether a model modification is waiting in the buffer."""
 
     applied_state_update_batches: int = 0
-    """
-    How often the buffer was drained up to the next model modification.
-    """
+    """How often the buffer was drained up to the next model modification."""
 
     applied_message_batches: int = 0
-    """
-    How often the whole buffer was applied.
-    """
+    """How often the whole buffer was applied."""
 
     caught_up: bool = False
-    """
-    The answer this mimic gives about every position it is asked about.
-    """
+    """The answer this mimic gives about every position it is asked about."""
 
     asked_about_positions: list[StreamPosition] = field(default_factory=list)
-    """
-    Every position this mimic was asked about.
-    """
+    """Every position this mimic was asked about."""
 
     @property
     def has_buffered_model_modification(self) -> bool:
@@ -105,27 +93,20 @@ class BufferingSynchronizerMimic:
 
 @dataclass
 class PublishingSynchronizerMimic:
-    """
-    Stands in for the synchronizer of a client: it publishes the changes of that world
-    and reports how far it caught up with another publisher.
-    """
+    """Stands in for the synchronizer of a client: it publishes the changes of
+    that world and reports how far it caught up with another publisher."""
 
     published_sequence_number: int = 0
-    """
-    Position of the change this world published last.
-    """
+    """Position of the change this world published last."""
 
     origin: MetaData = field(
         default_factory=lambda: MetaData(node_name="client", process_id=0)
     )
-    """
-    The publisher the positions of this world belong to.
-    """
+    """The publisher the positions of this world belong to."""
 
     applied_sequence_number: int = 0
-    """
-    The position this world caught up with, for every publisher it is asked about.
-    """
+    """The position this world caught up with, for every publisher it is asked
+    about."""
 
     @property
     def latest_published_position(self) -> StreamPosition:
@@ -139,19 +120,14 @@ class PublishingSynchronizerMimic:
 
 @dataclass
 class ReloadingSynchronizerMimic:
-    """
-    Stands in for a synchronizer that remembers a request to replace the whole world.
-    """
+    """Stands in for a synchronizer that remembers a request to replace the
+    whole world."""
 
     pending_reload: bool = False
-    """
-    Whether a reload is waiting to be applied.
-    """
+    """Whether a reload is waiting to be applied."""
 
     applied_reloads: int = 0
-    """
-    How often a pending reload was applied.
-    """
+    """How often a pending reload was applied."""
 
     @property
     def has_pending_reload(self) -> bool:
@@ -168,11 +144,9 @@ class ReloadingSynchronizerMimic:
 
 
 class TestPendingModelChange:
-    """
-    Both a modification of the model and a request to replace it are changes of the
-    structure of the world, so a motion compiled against that structure has to end
-    before either can be applied.
-    """
+    """Both a modification of the model and a request to replace it are changes
+    of the structure of the world, so a motion compiled against that structure
+    has to end before either can be applied."""
 
     def test_a_buffered_modification_is_a_pending_model_modification(self):
         world_updates = IncomingWorldUpdates(
@@ -242,10 +216,8 @@ class TestPendingModelChange:
 
 
 class TestCatchingUp:
-    """
-    Whoever waits for a change of another process asks the world updates, so it has to
-    pass the question on to the synchronizer that received it.
-    """
+    """Whoever waits for a change of another process asks the world updates, so
+    it has to pass the question on to the synchronizer that received it."""
 
     def test_the_position_to_catch_up_with_reaches_the_synchronizer(self):
         world_synchronizer = BufferingSynchronizerMimic(caught_up=True)
@@ -273,10 +245,9 @@ class TestCatchingUp:
 
 
 class TestClientWorldUpdates:
-    """
-    A goal is built against a world the client may just have changed, and running it
-    changes that world again, so both sides are told what to catch up with.
-    """
+    """A goal is built against a world the client may just have changed, and
+    running it changes that world again, so both sides are told what to catch
+    up with."""
 
     def test_a_world_that_published_nothing_requires_nothing(self):
         world_updates = ClientWorldUpdates(
@@ -344,24 +315,17 @@ class TestClientWorldUpdates:
 
 @dataclass
 class GoalQueueStub:
-    """
-    Stands in for the action server of a control loop that is never canceled.
-    """
+    """Stands in for the action server of a control loop that is never
+    canceled."""
 
     action_name: str = "world_updates"
-    """
-    Name reported in cancel exceptions.
-    """
+    """Name reported in cancel exceptions."""
 
     goal_id: int = 0
-    """
-    Id of the running goal.
-    """
+    """Id of the running goal."""
 
     feedback_messages: list[Any] = field(default_factory=list)
-    """
-    Every feedback message that was published.
-    """
+    """Every feedback message that was published."""
 
     def is_cancel_requested(self) -> bool:
         return False
@@ -372,9 +336,8 @@ class GoalQueueStub:
 
 @dataclass
 class ControlLoopFixture:
-    """
-    A control loop running on a world that a second process publishes updates to.
-    """
+    """A control loop running on a world that a second process publishes
+    updates to."""
 
     control_loop: ControlLoop
     controlled_world: World
@@ -385,9 +348,7 @@ class ControlLoopFixture:
 
     @property
     def moving_connection(self) -> PrismaticConnection:
-        """
-        The connection whose position both worlds share.
-        """
+        """The connection whose position both worlds share."""
         return self.controlled_world.get_connections_by_type(PrismaticConnection)[0]
 
     def wait_until_buffered(self, count: int) -> bool:
@@ -404,11 +365,11 @@ class ControlLoopFixture:
 
 
 def add_moving_connection(world: World) -> None:
-    """
-    Add a single prismatic connection between two bodies to the given world.
+    """Add a single prismatic connection between two bodies to the given world.
 
-    The degree of freedom is limited because the compiled motion statechart needs
-    velocity limits to decide whether the world has settled.
+    The degree of freedom is limited because the compiled motion
+    statechart needs velocity limits to decide whether the world has
+    settled.
     """
     with world.modify_world():
         parent_body = Body(name=PrefixedName("parent"))
@@ -497,28 +458,20 @@ def control_loop_running(
 
 
 def waiting_for_a_long_time(statechart: Statechart, world: World) -> None:
-    """
-    Adds a motion that moves nothing and does not end by itself.
-    """
+    """Adds a motion that moves nothing and does not end by itself."""
     statechart.add_node(counter := CountSimulationTimeSeconds(seconds=1000.0))
     statechart.add_node(EndMotion.when_true(counter))
 
 
 class DrivenConnection(float, Enum):
-    """
-    Where :func:`driving_the_connection` moves the shared connection.
-    """
+    """Where :func:`driving_the_connection` moves the shared connection."""
 
     GOAL_POSITION = 0.9
-    """
-    Far enough for the motion to still run after a few control cycles.
-    """
-
+    """Far enough for the motion to still run after a few control cycles."""
 
 def driving_the_connection(statechart: Statechart, world: World) -> None:
-    """
-    Adds a motion that moves the shared connection to its goal position and then ends.
-    """
+    """Adds a motion that moves the shared connection to its goal position and
+    then ends."""
     connection = world.get_connections_by_type(PrismaticConnection)[0]
     statechart.add_node(
         joints := JointPositionList(
@@ -546,19 +499,14 @@ def driving_control_loop(init_rospy) -> Iterator[ControlLoopFixture]:
 
 @dataclass(eq=False)
 class SpeedWhenTheModelChanged(ModelChangeCallback):
-    """
-    Records how fast a degree of freedom moved whenever the world model changed.
-    """
+    """Records how fast a degree of freedom moved whenever the world model
+    changed."""
 
     degree_of_freedom_id: UUID = field(kw_only=True)
-    """
-    The degree of freedom whose speed is recorded.
-    """
+    """The degree of freedom whose speed is recorded."""
 
     speeds: list[float] = field(default_factory=list, init=False)
-    """
-    The recorded speeds, in order.
-    """
+    """The recorded speeds, in order."""
 
     def on_model_change(self, **kwargs) -> None:
         self.speeds.append(abs(self._world.state[self.degree_of_freedom_id].velocity))
@@ -582,11 +530,11 @@ def add_body_on_six_degrees_of_freedom(world: World, name: str) -> Connection6Do
 def run_cycles_until(
     control_loop: ControlLoop, reached: Callable[[], bool], timeout: float = 10.0
 ) -> None:
-    """
-    Run control cycles until ``reached`` holds, leaving updates of other processes time
-    to arrive.
+    """Run control cycles until ``reached`` holds, leaving updates of other
+    processes time to arrive.
 
-    :raises AssertionError: If it does not hold within ``timeout`` seconds.
+    :raises AssertionError: If it does not hold within ``timeout``
+        seconds.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -597,10 +545,8 @@ def run_cycles_until(
 
 
 class TestRealWorldUpdatesDuringAMotion:
-    """
-    Against a real synchronizer: the world a motion was compiled against only changes
-    where the control loop allows it to.
-    """
+    """Against a real synchronizer: the world a motion was compiled against
+    only changes where the control loop allows it to."""
 
     def test_a_state_update_reaches_the_running_motion(
         self, control_loop: ControlLoopFixture
@@ -621,10 +567,9 @@ class TestRealWorldUpdatesDuringAMotion:
     def test_a_world_that_is_being_modified_terminates_the_motion(
         self, control_loop: ControlLoopFixture
     ):
-        """
-        An open modification is a model change that already started, so the motion has
-        to end for the same reason as for one that is still waiting in the buffer.
-        """
+        """An open modification is a model change that already started, so the
+        motion has to end for the same reason as for one that is still waiting
+        in the buffer."""
         with control_loop.controlled_world.modify_world():
             with pytest.raises(WorldModelModifiedDuringMotionError):
                 control_loop.control_loop.run_cycle()
@@ -654,10 +599,9 @@ class TestRealWorldUpdatesDuringAMotion:
     def test_a_person_can_come_move_and_leave_during_the_motion(
         self, control_loop: ControlLoopFixture
     ):
-        """
-        A person tracked by another process appears, moves and disappears while the
-        motion runs, which changes the structure of the world twice.
-        """
+        """A person tracked by another process appears, moves and disappears
+        while the motion runs, which changes the structure of the world
+        twice."""
         controlled_world = control_loop.controlled_world
         entities_before = len(controlled_world.kinematic_structure_entities)
         person_connection = add_body_on_six_degrees_of_freedom(
@@ -684,8 +628,9 @@ class TestRealWorldUpdatesDuringAMotion:
             )
         run_cycles_until(
             control_loop.control_loop,
-            lambda: len(controlled_world.kinematic_structure_entities)
-            == entities_before,
+            lambda: (
+                len(controlled_world.kinematic_structure_entities) == entities_before
+            ),
         )
 
         assert not control_loop.control_loop.executor.statechart.is_ended()
@@ -693,17 +638,17 @@ class TestRealWorldUpdatesDuringAMotion:
     def test_a_moving_robot_comes_to_rest_before_a_model_modification_applies(
         self, driving_control_loop: ControlLoopFixture
     ):
-        """
-        The controller was compiled against the old structure, so it stops following the
-        motion and brings the robot to rest before anything changes underneath it.
-        """
+        """The controller was compiled against the old structure, so it stops
+        following the motion and brings the robot to rest before anything
+        changes underneath it."""
         fixture = driving_control_loop
         speed_at_rest = fixture.control_loop.executor.extensions[0].speed_at_rest
         dof_id = fixture.moving_connection.dof.id
         run_cycles_until(
             fixture.control_loop,
-            lambda: abs(fixture.controlled_world.state[dof_id].velocity)
-            > speed_at_rest,
+            lambda: (
+                abs(fixture.controlled_world.state[dof_id].velocity) > speed_at_rest
+            ),
         )
         speeds = SpeedWhenTheModelChanged(
             _world=fixture.controlled_world, degree_of_freedom_id=dof_id
@@ -721,7 +666,9 @@ class TestRealWorldUpdatesDuringAMotion:
         fixture = driving_control_loop
         run_cycles_until(
             fixture.control_loop,
-            lambda: fixture.moving_connection.position > DrivenConnection.GOAL_POSITION / 3,
+            lambda: (
+                fixture.moving_connection.position > DrivenConnection.GOAL_POSITION / 3
+            ),
         )
         add_body_on_six_degrees_of_freedom(fixture.remote_world, "person")
         assert fixture.wait_until_buffered(1)
@@ -735,10 +682,8 @@ class TestRealWorldUpdatesDuringAMotion:
     def test_a_reload_of_the_world_terminates_the_motion_before_it_is_applied(
         self, control_loop: ControlLoopFixture
     ):
-        """
-        A reload replaces every entity the motion refers to, which compiling again
-        cannot follow.
-        """
+        """A reload replaces every entity the motion refers to, which compiling
+        again cannot follow."""
         reload_synchronizer = ReloadingSynchronizerMimic(pending_reload=True)
         control_loop.world_updates.model_reload_synchronizer = reload_synchronizer
 
@@ -753,15 +698,11 @@ class TestRealWorldUpdatesDuringAMotion:
 
 @dataclass
 class CommandPublisherRecordingCalls(CommandPublisher):
-    """
-    Stands in for a publisher to the robot, recording which of its methods ran, in
-    order.
-    """
+    """Stands in for a publisher to the robot, recording which of its methods
+    ran, in order."""
 
     calls: list[str] = field(default_factory=list)
-    """
-    The methods that ran, each by its name.
-    """
+    """The methods that ran, each by its name."""
 
     def publish(self) -> None:
         self.calls.append(self.publish.__name__)
@@ -816,11 +757,10 @@ class TestModelChangesOfTheMotionItself:
     def test_commands_keep_being_published_while_the_motion_is_built_again(
         self, local_control_loop: ControlLoop
     ) -> None:
-        """
-        The controller slows the robot down while the motion statechart is built again
-        after the motion changed the model, so the command publishers are not stopped
-        and a command is published in that cycle too.
-        """
+        """The controller slows the robot down while the motion statechart is
+        built again after the motion changed the model, so the command
+        publishers are not stopped and a command is published in that cycle
+        too."""
         publisher = CommandPublisherRecordingCalls()
         local_control_loop.command_publishers.append(publisher)
         world = local_control_loop.world

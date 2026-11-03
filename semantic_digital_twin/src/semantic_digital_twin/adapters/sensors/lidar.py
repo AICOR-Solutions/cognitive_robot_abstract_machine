@@ -31,9 +31,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class LidarSource(InputSource, ABC):
-    """
-    Where the readings of a lidar come from, either the world or a real scanner.
-    """
+    """Where the readings of a lidar come from, either the world or a real
+    scanner."""
 
     @abstractmethod
     def get_lidar_reading(self, lidar: Lidar) -> LidarReading:
@@ -52,12 +51,11 @@ class LidarSource(InputSource, ABC):
 
 @dataclass
 class SimulatedLidarSource(LidarSource):
-    """
-    A source that measures the world's collision geometry by casting a ray along every
-    beam of the lidar's scan pattern.
+    """A source that measures the world's collision geometry by casting a ray
+    along every beam of the lidar's scan pattern.
 
-    The robot carrying the lidar is invisible to it, as a real scanner filters out its
-    own robot.
+    The robot carrying the lidar is invisible to it, as a real scanner
+    filters out its own robot.
     """
 
     @property
@@ -87,10 +85,7 @@ class SimulatedLidarSource(LidarSource):
                 world.get_kinematic_structure_entities_of_branch(robot.root)
             )
             hits_elsewhere = np.array(
-                [
-                    body not in robot_entities
-                    for body in ray_intersections.hit_bodies
-                ],
+                [body not in robot_entities for body in ray_intersections.bodies],
                 dtype=bool,
             )
             hit_points = hit_points[hits_elsewhere]
@@ -111,8 +106,8 @@ class SimulatedLidarSource(LidarSource):
         world_P_lidar: npt.NDArray[np.float64],
         beam_count: int,
     ) -> npt.NDArray[np.float64]:
-        """
-        Reduces the hits of a ray test to the one distance each beam measures.
+        """Reduces the hits of a ray test to the one distance each beam
+        measures.
 
         :param points: The positions where the beams met a surface.
         :param index_ray: The beam each of those positions belongs to.
@@ -135,25 +130,21 @@ class SimulatedLidarSource(LidarSource):
 
 @dataclass(eq=False)
 class Lidar(Sensor, AbstractRobotPart, HasInputSource[LidarSource], ABC):
-    """
-    A lidar is a sensor that measures the distance to the surfaces around it along a fan
-    of beams.
+    """A lidar is a sensor that measures the distance to the surfaces around it
+    along a fan of beams.
 
-    Subclasses state where they are mounted, and a source decides whether the readings
-    are measured in the world or received from a real scanner.
+    Subclasses state where they are mounted, and a source decides
+    whether the readings are measured in the world or received from a
+    real scanner.
     """
 
     scan_pattern: ScanPattern = field(kw_only=True)
-    """
-    The directions this lidar sweeps and the distances it can measure.
-    """
+    """The directions this lidar sweeps and the distances it can measure."""
 
     source: TGenericInputSource = field(
         default_factory=SimulatedLidarSource, kw_only=True
     )
-    """
-    Where the readings of this lidar come from.
-    """
+    """Where the readings of this lidar come from."""
 
     def get_lidar_reading(self) -> LidarReading:
         """

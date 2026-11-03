@@ -31,7 +31,7 @@ from semantic_digital_twin.robots.pr2 import (
 from semantic_digital_twin.robots.hsrb import HSRBBaseLidar
 from semantic_digital_twin.robots.robot_part_mixins import HasInputSource
 from semantic_digital_twin.robots.stretch import StretchBaseLidar
-from semantic_digital_twin.robots.tiago import TiagoBaseLidar
+from semantic_digital_twin.robots.tiago import TiagoBaseLidar, TiagoTopic
 from semantic_digital_twin.robots.tracy import (
     TracyLeftArm,
     TracyLeftGripperLeftFinger,
@@ -47,10 +47,8 @@ from semantic_digital_twin.world import World
 
 @dataclass
 class TopicReadingSource(JointPositionSource):
-    """
-    A source that stands in for one reading a robot, remembering only the topic it was
-    pointed at.
-    """
+    """A source that stands in for one reading a robot, remembering only the
+    topic it was pointed at."""
 
     topic_name: str
     """
@@ -60,10 +58,9 @@ class TopicReadingSource(JointPositionSource):
 
 @dataclass
 class RewritingSource(JointPositionSource, InputSynchronizer):
-    """
-    A source that writes what it last read in every cycle, standing in for the reader a
-    loop needs when it moves the world state away from the robot between cycles.
-    """
+    """A source that writes what it last read in every cycle, standing in for
+    the reader a loop needs when it moves the world state away from the robot
+    between cycles."""
 
     def apply(self) -> bool:
         return False
@@ -71,10 +68,8 @@ class RewritingSource(JointPositionSource, InputSynchronizer):
 
 @dataclass
 class AppliedSource(JointPositionSource, InputSynchronizer):
-    """
-    A source a loop has to apply, standing in for one that writes what a robot reports
-    into the world state.
-    """
+    """A source a loop has to apply, standing in for one that writes what a
+    robot reports into the world state."""
 
     def apply(self) -> bool:
         return False
@@ -85,14 +80,11 @@ class AppliedSource(JointPositionSource, InputSynchronizer):
 
 @dataclass
 class ClosableSource(JointPositionSource):
-    """
-    A source holding something that has to be released, remembering whether it was.
-    """
+    """A source holding something that has to be released, remembering whether
+    it was."""
 
     closed: bool = False
-    """
-    Whether this source was released.
-    """
+    """Whether this source was released."""
 
     def close(self) -> None:
         self.closed = True
@@ -103,9 +95,8 @@ class ClosableSource(JointPositionSource):
 
 @dataclass(eq=False)
 class PartReadFromADeclaredTopic(HasInputSource[JointPositionSource]):
-    """
-    A part whose description names the topic its robot publishes its state on.
-    """
+    """A part whose description names the topic its robot publishes its state
+    on."""
 
     topic_name = RobotTopic.JOINT_STATES
 
@@ -119,9 +110,7 @@ class PartReadFromADeclaredTopic(HasInputSource[JointPositionSource]):
 
 @dataclass(eq=False)
 class PartWithoutADeclaredTopic(PartReadFromADeclaredTopic):
-    """
-    A part whose description names no topic.
-    """
+    """A part whose description names no topic."""
 
     topic_name = None
 
@@ -221,11 +210,13 @@ def test_the_pr2_base_reads_the_odometry_its_interface_names():
     assert PR2MobileBase.topic_name == PR2Topic.ODOMETRY
 
 
-@pytest.mark.parametrize(
-    "lidar", [PR2BaseLidar, HSRBBaseLidar, TiagoBaseLidar, StretchBaseLidar]
-)
+@pytest.mark.parametrize("lidar", [PR2BaseLidar, HSRBBaseLidar, StretchBaseLidar])
 def test_a_base_lidar_whose_scanner_topic_is_unknown_declares_none(lidar):
     assert lidar.topic_name is None
+
+
+def test_the_tiago_base_lidar_reads_the_scan_topic():
+    assert TiagoBaseLidar.topic_name == TiagoTopic.LIDAR
 
 
 def test_an_arm_of_a_robot_publishing_per_controller_reads_its_own_topic():
@@ -245,9 +236,8 @@ def test_a_finger_reads_the_topic_of_the_gripper_it_belongs_to():
 
 @pytest.fixture
 def annotated_pr2(pr2_world_copy: World) -> PR2:
-    """
-    The PR2 annotated in a world of its own, which the tests below switch around.
-    """
+    """The PR2 annotated in a world of its own, which the tests below switch
+    around."""
     return pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
 
 

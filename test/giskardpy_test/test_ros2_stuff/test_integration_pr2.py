@@ -188,10 +188,9 @@ class TestCartGoals:
 def test_bodies_added_relative_to_the_gripper_are_placed_there_on_the_server(
     pocky_pose_setup: PR2Tester,
 ) -> None:
-    """
-    Bodies placed relative to the gripper end up at the same place relative to it in the
-    server's world, which needs that world to be in step with the robot's state.
-    """
+    """Bodies placed relative to the gripper end up at the same place relative
+    to it in the server's world, which needs that world to be in step with the
+    robot's state."""
     r_tip = pocky_pose_setup.right_tip
     poses_relative_to_r_tip = {
         "box": HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -330,12 +329,12 @@ class TestActionServerEvents:
     async def test_a_goal_whose_client_stops_announcing_itself_is_aborted(
         self, giskard: PR2Tester
     ):
-        """
-        Nobody is waiting for a motion whose client died, so it is stopped instead of
-        being driven to its end.
+        """Nobody is waiting for a motion whose client died, so it is stopped
+        instead of being driven to its end.
 
-        The motion ends by itself after a while, so that a client that is not noticed
-        leaving fails this test instead of keeping the goal running forever.
+        The motion ends by itself after a while, so that a client that
+        is not noticed leaving fails this test instead of keeping the
+        goal running forever.
         """
         statechart = Statechart(context=giskard.api.context)
         statechart.add_node(
@@ -374,10 +373,8 @@ class TestActionServerEvents:
     async def test_a_world_model_modification_reaches_the_running_motion(
         self, giskard: PR2Tester
     ):
-        """
-        A body another process adds reaches the running motion, which compiles again
-        and goes on.
-        """
+        """A body another process adds reaches the running motion, which
+        compiles again and goes on."""
         statechart = Statechart(context=giskard.api.context)
         statechart.add_node(
             CartesianPose(
