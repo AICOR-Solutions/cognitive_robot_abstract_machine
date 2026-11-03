@@ -27,8 +27,8 @@ class IncomingWorldUpdates:
     The updates arrive on a ros thread but are applied on the thread that owns the
     world, so that the world cannot change in the middle of a control cycle. This class
     answers the questions the loops of Giskard have about them: what may be applied right
-    now, whether the structure of the world is about to change, and whether the world
-    caught up with a given publisher.
+    now, whether the structure of the world is about to change or be replaced, and whether
+    the world caught up with a given publisher.
     """
 
     world_synchronizer: WorldSynchronizer
@@ -44,15 +44,23 @@ class IncomingWorldUpdates:
     """
 
     @property
-    def has_pending_model_change(self) -> bool:
+    def has_pending_model_modification(self) -> bool:
         """
         Whether a change of the structure of the world is waiting to be applied.
 
-        Anything compiled against the current structure becomes invalid once it is, so a
-        running motion has to end before it can be applied.
+        Anything compiled against the current structure has to be compiled again once it
+        is.
         """
-        if self.world_synchronizer.has_buffered_model_modification:
-            return True
+        return self.world_synchronizer.has_buffered_model_modification
+
+    @property
+    def has_pending_reload(self) -> bool:
+        """
+        Whether a replacement of the whole world model is waiting to be applied.
+
+        It replaces every entity a running motion refers to, so that motion has to end
+        before it can be applied.
+        """
         if self.model_reload_synchronizer is None:
             return False
         return self.model_reload_synchronizer.has_pending_reload
@@ -62,6 +70,16 @@ class IncomingWorldUpdates:
         Apply the state that arrived before the next model change.
         """
         self.world_synchronizer.apply_missed_state_updates()
+
+    def apply_model_modifications(self) -> None:
+        """
+        Apply every model and state update that was received, leaving a pending reload
+        waiting.
+
+        Only safe while nothing runs on what was compiled against the structure of the
+        world.
+        """
+        self.world_synchronizer.apply_missed_messages()
 
     def apply_all(self) -> None:
         """

@@ -655,7 +655,9 @@ tick settles, so expressions reading the structure follow it.
 
 Before compiling again or letting a node choose its child, both of which block the tick, the
 statechart asks its recompile callbacks whether what they drive is at rest. Until all are,
-the statechart keeps ticking and asks again on the next tick.
+the statechart keeps ticking and asks again on the next tick. Whatever else has to wait for that,
+such as a change of the world coming from another process, is handed to
+`StatechartCompiler.run_once_held_still`, and runs on the tick that compiles for it.
 
 ## Choosing a child while running
 

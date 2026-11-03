@@ -1,12 +1,15 @@
 import json
 import time
 from dataclasses import dataclass, field
-from typing_extensions import Any
+from enum import Enum
+from uuid import UUID
+from typing_extensions import Any, Callable, Iterator
 
 import pytest
 
 from cramph.executor import NoPacing
 from semantic_digital_twin.adapters.ros import rospy
+from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from giskardpy.middleware.ros2.command_publishing import CommandPublisher
 from giskardpy.middleware.ros2.client_presence import ClientWatchdog, HeartbeatPresence
 from giskardpy.middleware.ros2.control_loop import ControlLoop
@@ -25,14 +28,20 @@ from giskardpy.middleware.ros2.world_updates import (
 from giskardpy.motion_statechart.graph_node import EndMotion
 from cramph.monitors import CountSimulationTimeSeconds
 from cramph.statechart import Statechart
+from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
+from semantic_digital_twin.datastructures.joint_state import JointState
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.adapters.json_serializer import to_json
 from semantic_digital_twin.adapters.ros.messages import MetaData, StreamPosition
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from krrood_spatial_math.spatial_types import Vector3
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Vector3,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
+    Connection6DoF,
     FixedConnection,
     PrismaticConnection,
 )
@@ -165,28 +174,46 @@ class TestPendingModelChange:
     before either can be applied.
     """
 
-    def test_a_buffered_modification_is_a_pending_model_change(self):
-        world_synchronizer = BufferingSynchronizerMimic(
-            buffered_model_modification=True
+    def test_a_buffered_modification_is_a_pending_model_modification(self):
+        world_updates = IncomingWorldUpdates(
+            world_synchronizer=BufferingSynchronizerMimic(
+                buffered_model_modification=True
+            )
         )
-        world_updates = IncomingWorldUpdates(world_synchronizer=world_synchronizer)
 
-        assert world_updates.has_pending_model_change
+        assert world_updates.has_pending_model_modification
+        assert not world_updates.has_pending_reload
 
-    def test_a_pending_reload_is_a_pending_model_change(self):
+    def test_a_pending_reload_is_no_pending_model_modification(self):
         world_updates = IncomingWorldUpdates(
             world_synchronizer=BufferingSynchronizerMimic(),
             model_reload_synchronizer=ReloadingSynchronizerMimic(pending_reload=True),
         )
 
-        assert world_updates.has_pending_model_change
+        assert world_updates.has_pending_reload
+        assert not world_updates.has_pending_model_modification
 
-    def test_nothing_is_pending_without_a_reload_synchronizer(self):
+    def test_no_reload_is_pending_without_a_reload_synchronizer(self):
         world_updates = IncomingWorldUpdates(
             world_synchronizer=BufferingSynchronizerMimic()
         )
 
-        assert not world_updates.has_pending_model_change
+        assert not world_updates.has_pending_reload
+
+    def test_applying_the_model_modifications_leaves_a_pending_reload_waiting(self):
+        world_synchronizer = BufferingSynchronizerMimic(
+            buffered_model_modification=True
+        )
+        reload_synchronizer = ReloadingSynchronizerMimic(pending_reload=True)
+        world_updates = IncomingWorldUpdates(
+            world_synchronizer=world_synchronizer,
+            model_reload_synchronizer=reload_synchronizer,
+        )
+
+        world_updates.apply_model_modifications()
+
+        assert world_synchronizer.applied_message_batches == 1
+        assert reload_synchronizer.applied_reloads == 0
 
     def test_applying_everything_also_applies_a_pending_reload(self):
         reload_synchronizer = ReloadingSynchronizerMimic(pending_reload=True)
@@ -198,7 +225,7 @@ class TestPendingModelChange:
         world_updates.apply_all()
 
         assert reload_synchronizer.applied_reloads == 1
-        assert not world_updates.has_pending_model_change
+        assert not world_updates.has_pending_reload
 
     def test_applying_everything_works_without_a_reload_synchronizer(self):
         world_synchronizer = BufferingSynchronizerMimic(
@@ -401,8 +428,14 @@ def add_moving_connection(world: World) -> None:
         )
 
 
-@pytest.fixture()
-def control_loop(init_rospy) -> ControlLoopFixture:
+def control_loop_running(
+    build_motion: Callable[[Statechart, World], None],
+) -> ControlLoopFixture:
+    """
+    :param build_motion: Adds the motion the control loop runs to a statechart, given
+        the world it runs on.
+    :return: A control loop running that motion on a world a second process updates.
+    """
     controlled_world = World(name="controlled")
     remote_world = World(name="remote")
     controlled_synchronizer = WorldSynchronizer(
@@ -432,18 +465,12 @@ def control_loop(init_rospy) -> ControlLoopFixture:
             )
         ],
     )
-    motion_statechart = Statechart(context=StatechartContext(world=controlled_world))
-    motion_statechart.add_node(counter := CountSimulationTimeSeconds(seconds=1000.0))
-    motion_statechart.add_node(EndMotion.when_true(counter))
-    executor.compile(
-        Statechart.from_json(
-            json.loads(json.dumps(motion_statechart.to_json())),
-            context=executor.context,
-        )
-    )
+    motion_statechart = Statechart(context=executor.context)
+    build_motion(motion_statechart, controlled_world)
+    executor.compile(motion_statechart)
     action_server = GoalQueueStub()
     world_updates = IncomingWorldUpdates(world_synchronizer=controlled_synchronizer)
-    fixture = ControlLoopFixture(
+    return ControlLoopFixture(
         control_loop=ControlLoop(
             executor=executor,
             action_server=action_server,
@@ -467,8 +494,106 @@ def control_loop(init_rospy) -> ControlLoopFixture:
         remote_synchronizer=remote_synchronizer,
         world_updates=world_updates,
     )
+
+
+def waiting_for_a_long_time(statechart: Statechart, world: World) -> None:
+    """
+    Adds a motion that moves nothing and does not end by itself.
+    """
+    statechart.add_node(counter := CountSimulationTimeSeconds(seconds=1000.0))
+    statechart.add_node(EndMotion.when_true(counter))
+
+
+class DrivenConnection(float, Enum):
+    """
+    Where :func:`driving_the_connection` moves the shared connection.
+    """
+
+    GOAL_POSITION = 0.9
+    """
+    Far enough for the motion to still run after a few control cycles.
+    """
+
+
+def driving_the_connection(statechart: Statechart, world: World) -> None:
+    """
+    Adds a motion that moves the shared connection to its goal position and then ends.
+    """
+    connection = world.get_connections_by_type(PrismaticConnection)[0]
+    statechart.add_node(
+        joints := JointPositionList(
+            goal_state=JointState.from_mapping(
+                {connection: DrivenConnection.GOAL_POSITION}
+            )
+        )
+    )
+    statechart.add_node(EndMotion.when_true(joints))
+
+
+@pytest.fixture()
+def control_loop(init_rospy) -> Iterator[ControlLoopFixture]:
+    fixture = control_loop_running(waiting_for_a_long_time)
     yield fixture
     fixture.close()
+
+
+@pytest.fixture()
+def driving_control_loop(init_rospy) -> Iterator[ControlLoopFixture]:
+    fixture = control_loop_running(driving_the_connection)
+    yield fixture
+    fixture.close()
+
+
+@dataclass(eq=False)
+class SpeedWhenTheModelChanged(ModelChangeCallback):
+    """
+    Records how fast a degree of freedom moved whenever the world model changed.
+    """
+
+    degree_of_freedom_id: UUID = field(kw_only=True)
+    """
+    The degree of freedom whose speed is recorded.
+    """
+
+    speeds: list[float] = field(default_factory=list, init=False)
+    """
+    The recorded speeds, in order.
+    """
+
+    def on_model_change(self, **kwargs) -> None:
+        self.speeds.append(abs(self._world.state[self.degree_of_freedom_id].velocity))
+
+
+def add_body_on_six_degrees_of_freedom(world: World, name: str) -> Connection6DoF:
+    """
+    :return: The connection of a new body that can be moved anywhere, the way a tracked
+        person is modelled.
+    """
+    with world.modify_world():
+        body = Body(name=PrefixedName(name))
+        world.add_kinematic_structure_entity(body)
+        connection = Connection6DoF.create_with_dofs(
+            world=world, parent=world.root, child=body
+        )
+        world.add_connection(connection)
+    return connection
+
+
+def run_cycles_until(
+    control_loop: ControlLoop, reached: Callable[[], bool], timeout: float = 10.0
+) -> None:
+    """
+    Run control cycles until ``reached`` holds, leaving updates of other processes time
+    to arrive.
+
+    :raises AssertionError: If it does not hold within ``timeout`` seconds.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if reached():
+            return
+        control_loop.run_cycle()
+    assert reached(), f"not reached within {timeout} s"
 
 
 class TestRealWorldUpdatesDuringAMotion:
@@ -504,13 +629,9 @@ class TestRealWorldUpdatesDuringAMotion:
             with pytest.raises(WorldModelModifiedDuringMotionError):
                 control_loop.control_loop.run_cycle()
 
-    def test_a_model_modification_terminates_the_motion_before_it_is_applied(
+    def test_a_model_modification_reaches_the_running_motion(
         self, control_loop: ControlLoopFixture
     ):
-        """
-        The modification must still be unapplied when the motion ends: the motion
-        statechart and the quadratic program were compiled against the old structure.
-        """
         with control_loop.remote_world.modify_world():
             late_body = Body(name=PrefixedName("late_body"))
             control_loop.remote_world.add_body(late_body)
@@ -522,20 +643,109 @@ class TestRealWorldUpdatesDuringAMotion:
             control_loop.controlled_world.kinematic_structure_entities
         )
 
-        with pytest.raises(WorldModelModifiedDuringMotionError):
-            control_loop.control_loop.run()
-
-        assert (
-            len(control_loop.controlled_world.kinematic_structure_entities)
-            == entities_before
-        ), "the model was modified under the running motion"
-
-        control_loop.world_updates.apply_all()
+        control_loop.control_loop.run_cycle()
 
         assert (
             len(control_loop.controlled_world.kinematic_structure_entities)
             == entities_before + 1
         )
+        assert not control_loop.control_loop.executor.statechart.is_ended()
+
+    def test_a_person_can_come_move_and_leave_during_the_motion(
+        self, control_loop: ControlLoopFixture
+    ):
+        """
+        A person tracked by another process appears, moves and disappears while the
+        motion runs, which changes the structure of the world twice.
+        """
+        controlled_world = control_loop.controlled_world
+        entities_before = len(controlled_world.kinematic_structure_entities)
+        person_connection = add_body_on_six_degrees_of_freedom(
+            control_loop.remote_world, "person"
+        )
+        assert control_loop.wait_until_buffered(1)
+        control_loop.control_loop.run_cycle()
+        person_in_motion = controlled_world.get_kinematic_structure_entity_by_name(
+            "person"
+        )
+
+        person_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=1.5, reference_frame=control_loop.remote_world.root
+        )
+        control_loop.remote_world.notify_state_change()
+        run_cycles_until(
+            control_loop.control_loop,
+            lambda: float(person_in_motion.global_pose.x) == pytest.approx(1.5),
+        )
+
+        with control_loop.remote_world.modify_world():
+            control_loop.remote_world.remove_kinematic_structure_entity(
+                person_connection.child
+            )
+        run_cycles_until(
+            control_loop.control_loop,
+            lambda: len(controlled_world.kinematic_structure_entities)
+            == entities_before,
+        )
+
+        assert not control_loop.control_loop.executor.statechart.is_ended()
+
+    def test_a_moving_robot_comes_to_rest_before_a_model_modification_applies(
+        self, driving_control_loop: ControlLoopFixture
+    ):
+        """
+        The controller was compiled against the old structure, so it stops following the
+        motion and brings the robot to rest before anything changes underneath it.
+        """
+        fixture = driving_control_loop
+        speed_at_rest = fixture.control_loop.executor.extensions[0].speed_at_rest
+        dof_id = fixture.moving_connection.dof.id
+        run_cycles_until(
+            fixture.control_loop,
+            lambda: abs(fixture.controlled_world.state[dof_id].velocity)
+            > speed_at_rest,
+        )
+        speeds = SpeedWhenTheModelChanged(
+            _world=fixture.controlled_world, degree_of_freedom_id=dof_id
+        )
+        add_body_on_six_degrees_of_freedom(fixture.remote_world, "person")
+        assert fixture.wait_until_buffered(1)
+
+        run_cycles_until(fixture.control_loop, lambda: bool(speeds.speeds))
+
+        assert speeds.speeds[0] <= speed_at_rest
+
+    def test_the_motion_goes_on_after_a_model_modification(
+        self, driving_control_loop: ControlLoopFixture
+    ):
+        fixture = driving_control_loop
+        run_cycles_until(
+            fixture.control_loop,
+            lambda: fixture.moving_connection.position > DrivenConnection.GOAL_POSITION / 3,
+        )
+        add_body_on_six_degrees_of_freedom(fixture.remote_world, "person")
+        assert fixture.wait_until_buffered(1)
+
+        fixture.control_loop.run()
+
+        assert fixture.moving_connection.position == pytest.approx(
+            DrivenConnection.GOAL_POSITION.value, abs=0.01
+        )
+
+    def test_a_reload_of_the_world_terminates_the_motion_before_it_is_applied(
+        self, control_loop: ControlLoopFixture
+    ):
+        """
+        A reload replaces every entity the motion refers to, which compiling again
+        cannot follow.
+        """
+        reload_synchronizer = ReloadingSynchronizerMimic(pending_reload=True)
+        control_loop.world_updates.model_reload_synchronizer = reload_synchronizer
+
+        with pytest.raises(WorldModelModifiedDuringMotionError):
+            control_loop.control_loop.run_cycle()
+
+        assert reload_synchronizer.applied_reloads == 0
 
 
 # %% a model change the motion makes itself

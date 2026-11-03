@@ -78,6 +78,13 @@ class StatechartCompiler:
     compile builds them again.
     """
 
+    _steps_waiting_for_rest: list[Callable[[], None]] = field(
+        default_factory=list, init=False
+    )
+    """
+    What :meth:`run_once_held_still` was handed and did not run yet.
+    """
+
     _recompile_callbacks: list[RecompileCallback] = field(
         default_factory=list, init=False, repr=False
     )
@@ -169,8 +176,35 @@ class StatechartCompiler:
         :meth:`~cramph.node.StatechartNode.set_up` are kept, so the statechart goes on
         from where it was.
         """
+        if (
+            self._steps_waiting_for_rest
+            or self.changed_since_compile
+            or self._world_structure_changed()
+        ):
+            self.when_held_still(self._run_waiting_steps_and_compile)
+
+    def _run_waiting_steps_and_compile(self) -> None:
+        """
+        Run what :meth:`run_once_held_still` was handed, and compile if the statechart
+        or the kinematic structure of the world changed by then.
+        """
+        steps, self._steps_waiting_for_rest = self._steps_waiting_for_rest, []
+        for step in steps:
+            step()
         if self.changed_since_compile or self._world_structure_changed():
-            self.when_held_still(self.compile)
+            self.compile()
+
+    def run_once_held_still(self, step: Callable[[], None]) -> None:
+        """
+        Run `step` once, on a later tick, as soon as every :class:`RecompileCallback` is
+        at rest. If it changes the kinematic structure of the world, the statechart
+        compiles again on that same tick.
+
+        :param step: What has to wait until everything is at rest. Handing over a step
+            that is still waiting changes nothing.
+        """
+        if step not in self._steps_waiting_for_rest:
+            self._steps_waiting_for_rest.append(step)
 
     def when_held_still(self, step: Callable[[], None]) -> None:
         """

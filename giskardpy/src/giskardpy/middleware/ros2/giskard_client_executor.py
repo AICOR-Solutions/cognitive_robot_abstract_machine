@@ -190,7 +190,7 @@ class GiskardClientExecutor(Executor):
         states and tells every extension that the run stopped.
 
         A goal that fails raises the exception that made Giskard abort it, for example
-        :class:`WorldModelModifiedDuringMotionError` when another process modified the
+        :class:`WorldModelModifiedDuringMotionError` when another process reloaded the
         world model while the motion was running.
         """
         self.statechart.sanity_check()
@@ -314,7 +314,7 @@ class GiskardClientExecutor(Executor):
         tell every extension that the run stopped.
 
         A goal that fails raises the exception that made Giskard abort it, for example
-        :class:`WorldModelModifiedDuringMotionError` when another process modified the
+        :class:`WorldModelModifiedDuringMotionError` when another process reloaded the
         world model while the motion was running.
         """
         try:

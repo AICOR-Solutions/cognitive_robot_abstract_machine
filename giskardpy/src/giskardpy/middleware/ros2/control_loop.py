@@ -62,9 +62,9 @@ class ControlLoop:
     """
     Delivers the world updates of other processes at the start of every cycle.
 
-    State updates are applied right away; a model change would invalidate the compiled
-    motion statechart, so it terminates the motion and is applied by the idle loop
-    instead.
+    State updates are applied right away. A model modification waits until the robot is
+    at rest, and the motion statechart then compiles again and goes on. A reload of the
+    whole world model terminates the motion and is applied by the idle loop instead.
     """
 
     command_publishers: list[CommandPublisher] = field(default_factory=list)
@@ -95,8 +95,8 @@ class ControlLoop:
 
         :raises ExecutionCanceledException: If the goal was canceled.
         :raises ClientDisconnectedError: If the client of the goal disconnected.
-        :raises WorldModelModifiedDuringMotionError: If another process modified the
-            world model.
+        :raises WorldModelModifiedDuringMotionError: If another process is modifying
+            this world or reloads the world model.
         """
         self.apply_world_updates()
         self.inputs.synchronize()
@@ -109,16 +109,19 @@ class ControlLoop:
 
     def apply_world_updates(self) -> None:
         """
-        Take over the state of other processes and stop on a model change.
+        Take over the state of other processes, and hand over their model modifications
+        to be applied once the robot is at rest.
 
-        :raises WorldModelModifiedDuringMotionError: If another process modified the
-            world model, or is in the middle of doing so.
+        :raises WorldModelModifiedDuringMotionError: If another process is in the middle
+            of modifying this world, or wants to replace the whole world model.
         """
-        if self.world.world_is_being_modified:
+        if self.world.world_is_being_modified or self.world_updates.has_pending_reload:
             raise WorldModelModifiedDuringMotionError()
         self.world_updates.apply_state_updates()
-        if self.world_updates.has_pending_model_change:
-            raise WorldModelModifiedDuringMotionError()
+        if self.world_updates.has_pending_model_modification:
+            self.executor.statechart.compiler.run_once_held_still(
+                self.world_updates.apply_model_modifications
+            )
 
     def raise_if_canceled(self) -> None:
         """

@@ -22,10 +22,12 @@ from cramph.executor import (
     StatechartExecutor,
     TickingExecutorExtension,
 )
-from cramph.monitors import CountNodeResets
+from cramph.monitors import CountNodeResets, CountTicks
 from cramph.node import EndStatechart, StatechartNode
 from cramph.nodes_for_testing import NodeSucceedingOnObservingTrue
 from cramph.statechart import Statechart
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world_description.world_entity import Body
 
 # %% mimics
 
@@ -165,6 +167,92 @@ def test_the_extensions_are_asked_to_hold_still_once_per_choice(
 
     assert extension.events == [
         ExtensionRecordingCompiles.after_compile.__name__,
+        ExtensionRecordingCompiles.before_recompile.__name__,
+        ExtensionRecordingCompiles.after_compile.__name__,
+    ]
+
+
+# %% running a step at rest
+
+
+@dataclass
+class StepCountingItsRuns:
+    """
+    A step that has to wait until everything an executor drives is at rest.
+    """
+
+    runs: int = 0
+    """
+    How often it ran.
+    """
+
+    def __call__(self) -> None:
+        self.runs += 1
+
+
+def _counting_statechart(
+    statechart_context: StatechartContext, extension: ExecutorExtension
+) -> StatechartExecutor:
+    """
+    :return: An executor with `extension` running a statechart that does not end by
+        itself, compiled.
+    """
+    executor = StatechartExecutor(context=statechart_context, extensions=[extension])
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(CountTicks(name="counter", ticks=1000))
+    executor.compile(statechart)
+    return executor
+
+
+def test_a_step_waits_until_the_extensions_are_at_rest(statechart_context) -> None:
+    extension = ExtensionComingToRest(questions_until_at_rest=2)
+    executor = _counting_statechart(statechart_context, extension)
+    step = StepCountingItsRuns()
+
+    executor.statechart.compiler.run_once_held_still(step)
+    executor.tick()
+    executor.tick()
+
+    assert step.runs == 0
+
+    executor.tick()
+
+    assert step.runs == 1
+
+
+def test_a_step_runs_once_however_often_it_was_handed_over(statechart_context) -> None:
+    extension = ExtensionComingToRest(questions_until_at_rest=1)
+    executor = _counting_statechart(statechart_context, extension)
+    step = StepCountingItsRuns()
+
+    for _ in range(3):
+        executor.statechart.compiler.run_once_held_still(step)
+    for _ in range(3):
+        executor.tick()
+
+    assert step.runs == 1
+
+
+def test_the_extensions_are_asked_once_for_a_step_and_the_compile_it_causes(
+    statechart_context,
+) -> None:
+    """
+    A step changing the kinematic structure compiles the statechart on the same tick,
+    so nothing ticks on the structure the statechart was compiled against before.
+    """
+    extension = ExtensionRecordingCompiles()
+    executor = _counting_statechart(statechart_context, extension)
+    world = executor.context.world
+    extension.events.clear()
+
+    def add_body() -> None:
+        with world.modify_world():
+            world.add_body(Body(name=PrefixedName("late_body")))
+
+    executor.statechart.compiler.run_once_held_still(add_body)
+    executor.tick()
+
+    assert extension.events == [
         ExtensionRecordingCompiles.before_recompile.__name__,
         ExtensionRecordingCompiles.after_compile.__name__,
     ]

@@ -36,7 +36,6 @@ from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.middleware.ros2.exceptions import (
     ClientDisconnectedError,
     ExecutionCanceledException,
-    WorldModelModifiedDuringMotionError,
 )
 from krrood.symbolic_math import symbolic_math as sm
 from semantic_digital_twin.robots.pr2 import PR2Joint
@@ -372,12 +371,12 @@ class TestActionServerEvents:
             giskard.api.execute()
 
     @pytest.mark.asyncio
-    async def test_world_model_modification_terminates_the_motion(
+    async def test_a_world_model_modification_reaches_the_running_motion(
         self, giskard: PR2Tester
     ):
         """
-        The running motion was compiled against the structure of the world, so a body
-        added by another process ends it instead of being applied underneath it.
+        A body another process adds reaches the running motion, which compiles again
+        and goes on.
         """
         statechart = Statechart(context=giskard.api.context)
         statechart.add_node(
@@ -405,13 +404,14 @@ class TestActionServerEvents:
             parent_link=giskard.right_tip,
         )
 
-        with pytest.raises(WorldModelModifiedDuringMotionError):
-            await giskard.api.get_result()
-
         await asyncio.sleep(1)
 
-        # the modification is applied once the motion is over
         assert giskard.api.world.get_kinematic_structure_entity_by_name("box")
         assert giskard.giskard.executor.context.world.get_kinematic_structure_entity_by_name(
             "box"
         )
+
+        # This motion has no end of its own, so only canceling it ends it now.
+        wait_for_future_to_complete(giskard.api.cancel_goal_async())
+        with pytest.raises(ExecutionCanceledException):
+            await giskard.api.get_result()

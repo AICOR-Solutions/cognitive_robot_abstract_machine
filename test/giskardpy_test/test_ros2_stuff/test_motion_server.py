@@ -164,12 +164,12 @@ class WorldUpdatesMimic:
 
     applied_state_update_batches: int = 0
     """
-    How often the state up to the next model change was applied.
+    How often the state up to the next model modification was applied.
     """
 
-    pending_model_change: bool = False
+    pending_reload: bool = False
     """
-    Whether a model change is waiting to be applied.
+    Whether a reload of the world model is waiting to be applied.
     """
 
     drains_until_caught_up: int | None = None
@@ -190,7 +190,7 @@ class WorldUpdatesMimic:
 
     def apply_all(self) -> None:
         self.applied_batches += 1
-        self.pending_model_change = False
+        self.pending_reload = False
 
     def apply_state_updates(self) -> None:
         self.applied_state_update_batches += 1
@@ -205,8 +205,12 @@ class WorldUpdatesMimic:
         return self.applied_batches >= self.drains_until_caught_up
 
     @property
-    def has_pending_model_change(self) -> bool:
-        return self.pending_model_change
+    def has_pending_reload(self) -> bool:
+        return self.pending_reload
+
+    @property
+    def has_pending_model_modification(self) -> bool:
+        return False
 
 
 @dataclass
@@ -512,20 +516,20 @@ class StateChangeRecorder(StateChangeCallback):
 
 
 @dataclass
-class PendingModelChangeInjector(InputSynchronizer):
+class PendingReloadInjector(InputSynchronizer):
     """
-    Announces a pending model change after a few control cycles, standing in for another
-    process that changes the world model mid-motion.
+    Announces a pending reload after a few control cycles, standing in for another
+    process that replaces the world model mid-motion.
     """
 
     world_updates: WorldUpdatesMimic | None = None
     """
-    The incoming updates the model change is announced on.
+    The incoming updates the reload is announced on.
     """
 
-    cycles_until_model_change: int = 5
+    cycles_until_reload: int = 5
     """
-    How many control cycles to run before the model change is announced.
+    How many control cycles to run before the reload is announced.
     """
 
     observed_cycles: int = 0
@@ -535,8 +539,8 @@ class PendingModelChangeInjector(InputSynchronizer):
 
     def apply(self) -> bool:
         self.observed_cycles += 1
-        if self.observed_cycles >= self.cycles_until_model_change:
-            self.world_updates.pending_model_change = True
+        if self.observed_cycles >= self.cycles_until_reload:
+            self.world_updates.pending_reload = True
         return False
 
 
@@ -785,13 +789,13 @@ class TestGoalResult:
         self, motion_server: MotionServerFixture
     ):
         """
-        A motion terminated by a world model modification can be sent again, so the
+        A motion terminated by a reload of the world model can be sent again, so the
         client has to be able to tell it apart from a real failure.
         """
-        inject_modification = PendingModelChangeInjector(
+        inject_modification = PendingReloadInjector(
             world=motion_server.executor.context.world,
             world_updates=motion_server.world_updates,
-            cycles_until_model_change=5,
+            cycles_until_reload=5,
         )
         motion_server.control_loop.inputs.synchronizers.append(inject_modification)
         motion_server.action_server.goal_json = create_goal_json(seconds=1000.0)
@@ -1326,13 +1330,13 @@ class TestWorldUpdatesDuringGoals:
 
         assert motion_server.world_updates.applied_batches == 1
 
-    def test_a_pending_model_change_terminates_the_goal(
+    def test_a_pending_reload_terminates_the_goal(
         self, motion_server: MotionServerFixture
     ):
-        inject_modification = PendingModelChangeInjector(
+        inject_modification = PendingReloadInjector(
             world=motion_server.executor.context.world,
             world_updates=motion_server.world_updates,
-            cycles_until_model_change=5,
+            cycles_until_reload=5,
         )
         motion_server.control_loop.inputs.synchronizers.append(inject_modification)
         motion_server.action_server.goal_json = create_goal_json(seconds=1000.0)
@@ -1343,22 +1347,22 @@ class TestWorldUpdatesDuringGoals:
         control_cycles = len(motion_server.control_input.applied_at_control_cycles)
         assert control_cycles < 10, "the goal ran on instead of terminating promptly"
 
-    def test_the_buffered_modification_is_applied_by_the_next_idle_cycle(
+    def test_the_pending_reload_is_applied_by_the_next_idle_cycle(
         self, motion_server: MotionServerFixture
     ):
-        inject_modification = PendingModelChangeInjector(
+        inject_modification = PendingReloadInjector(
             world=motion_server.executor.context.world,
             world_updates=motion_server.world_updates,
-            cycles_until_model_change=5,
+            cycles_until_reload=5,
         )
         motion_server.control_loop.inputs.synchronizers.append(inject_modification)
         motion_server.action_server.goal_json = create_goal_json(seconds=1000.0)
         motion_server.motion_server.run_idle_cycle()
-        assert motion_server.world_updates.has_pending_model_change
+        assert motion_server.world_updates.has_pending_reload
 
         motion_server.motion_server.run_idle_cycle()
 
-        assert not motion_server.world_updates.has_pending_model_change
+        assert not motion_server.world_updates.has_pending_reload
 
 
 # %% waiting for the world the goal was built on
