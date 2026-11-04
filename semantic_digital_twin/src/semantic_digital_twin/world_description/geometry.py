@@ -305,6 +305,13 @@ class Color:
         return cls.from_rgba(red=1, green=0.827, blue=0.6078, opacity=1)
 
     @classmethod
+    def LIGHT_BEIGE(cls) -> Self:
+        """
+        Create an opaque light beige color.
+        """
+        return cls.from_rgba(red=0.961, green=0.922, blue=0.843, opacity=1)
+
+    @classmethod
     def ORANGE(cls) -> Self:
         """
         Create an opaque orange color.
