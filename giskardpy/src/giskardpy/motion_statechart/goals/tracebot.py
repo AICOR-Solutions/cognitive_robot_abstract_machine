@@ -124,7 +124,17 @@ class InsertCylinder(Goal):
 
     weight: float = DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE
     """
-    Task priority relative to other tasks.
+    Task priority relative to other tasks, for everything but the approach.
+
+    Above collision avoidance, because the cylinder has to touch the hole.
+    """
+
+    approach_weight: float = DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
+    """
+    Task priority of reaching the point above the hole.
+
+    Below collision avoidance, so the way there gives way to whatever is around the hole
+    instead of being driven through it.
     """
 
     insertion_velocity: float = 0.05
@@ -149,7 +159,7 @@ class InsertCylinder(Goal):
             tip_point=self.tip_P_tool,
             reference_point=root_P_top,
             maximum_velocity=0.1,
-            weight=self.weight,
+            weight=self.approach_weight,
         )
         self.tilt_task = AngleGoal(
             name="Slightly Tilted",

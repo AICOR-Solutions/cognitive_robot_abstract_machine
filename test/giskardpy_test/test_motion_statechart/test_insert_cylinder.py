@@ -86,7 +86,61 @@ def test_insert_cylinder_with_tracy(tracy_world):
     executor.tick_until_end(3000)
 
     root_T_cylinder = world.compute_forward_kinematics(world.root, cylinder)
-    root_V_axis = root_T_cylinder.to_rotation_matrix().z_vector()
-    root_P_bottom = root_T_cylinder.to_position() + root_V_axis * (cylinder_height / 2)
-    assert np.allclose(root_P_bottom, hole_point, atol=0.02)
-    assert np.allclose(root_V_axis, Vector3(0.0, 0.0, -1.0), atol=0.02)
+    root_V_axis = root_T_cylinder.rotation_matrix.z_vector()
+    root_P_bottom = root_T_cylinder.position + root_V_axis * (cylinder_height / 2)
+    assert np.allclose(root_P_bottom.to_np(), hole_point.to_np(), atol=0.02)
+    assert np.allclose(root_V_axis.to_np(), Vector3(0.0, 0.0, -1.0).to_np(), atol=0.02)
+
+
+def test_insert_cylinder_untilted_into_leaning_hole(tracy_world):
+    """
+    An untilted cylinder goes down a hole that leans off the vertical, staying lined up
+    with it, without the joint velocities jumping once it is nearly lined up.
+    """
+    world = deepcopy(tracy_world)
+    tool_frame = world.get_body_by_name("r_gripper_tool_frame")
+    hole_point = Point3(0.8, -0.3, 0.88, reference_frame=world.root)
+    cylinder_height = 0.1
+    lean = 0.35
+    up_axis = Vector3(np.sin(lean), 0.0, np.cos(lean), reference_frame=world.root)
+
+    with world.modify_world():
+        cylinder = Body(
+            name=PrefixedName("cylinder"),
+            visual=ShapeCollection([Cylinder(width=0.017, height=cylinder_height)]),
+        )
+        world.add_connection(
+            FixedConnection.create_with_dofs(
+                world=world,
+                parent=tool_frame,
+                child=cylinder,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    0.0, 0.0, 0.02, reference_frame=tool_frame
+                ),
+            )
+        )
+
+    msc = MotionStatechart()
+    goal = InsertCylinder(
+        tip_link=cylinder,
+        tip_P_tool=Point3(0.0, 0.0, cylinder_height / 2, reference_frame=cylinder),
+        tip_V_axis=Vector3(0.0, 0.0, -1.0, reference_frame=cylinder),
+        up_axis=up_axis,
+        hole_point=hole_point,
+        pre_grasp_height=0.1,
+        tilt=0.0,
+    )
+    msc.add_node(goal)
+    msc.add_node(EndMotion.when_true(goal))
+
+    executor = Executor(
+        MotionStatechartContext(world=world),
+    )
+    executor.compile(motion_statechart=msc)
+    executor.tick_until_end(3000)
+
+    root_T_cylinder = world.compute_forward_kinematics(world.root, cylinder)
+    root_V_axis = root_T_cylinder.rotation_matrix.z_vector()
+    root_P_bottom = root_T_cylinder.position + root_V_axis * (cylinder_height / 2)
+    assert np.allclose(root_P_bottom.to_np(), hole_point.to_np(), atol=0.02)
+    assert np.allclose(root_V_axis.to_np(), (-up_axis).to_np(), atol=0.02)
