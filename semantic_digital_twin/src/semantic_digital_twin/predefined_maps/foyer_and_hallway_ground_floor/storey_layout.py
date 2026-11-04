@@ -23,7 +23,7 @@ from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
     RegionSpecification,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point2
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Box, Color, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection

@@ -10,7 +10,7 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.except
     NonRectilinearOutlineError,
     OpenEdgeOffOutlineError,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point2
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point2
 from semantic_digital_twin.world_description.geometry import Color, PlanarBoundingBox
 
 # %% plan geometry

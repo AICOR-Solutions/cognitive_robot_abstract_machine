@@ -7,7 +7,7 @@ from typing_extensions import TYPE_CHECKING
 from semantic_digital_twin.exceptions import UsageError
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.spatial_types import Point2
+    from krrood_spatial_math.spatial_types import Point2
 
 # %% room outline
 

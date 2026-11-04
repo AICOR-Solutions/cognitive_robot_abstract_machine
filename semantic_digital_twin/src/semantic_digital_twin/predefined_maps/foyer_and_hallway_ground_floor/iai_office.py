@@ -31,7 +31,7 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     ElevatorLobby,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import (
     PlanarBoundingBox,
     Scale,

@@ -21,7 +21,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Kitchen,
     StorageRoom,
 )
-from semantic_digital_twin.spatial_types import Point2
+from krrood_spatial_math.spatial_types import Point2
 
 # %% second floor
 
