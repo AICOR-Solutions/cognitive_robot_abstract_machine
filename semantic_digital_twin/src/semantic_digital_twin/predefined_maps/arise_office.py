@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
@@ -88,7 +88,7 @@ class AriseOfficeRoom(StrEnum):
 
 
 @dataclass
-class AriseOfficeBuilding:
+class AriseOfficeBuilding(ElevatorBuilding):
     """
     World-independent description of the two-storey office of the TIAGo ARISE Gazebo
     simulator (``office_area.sdf`` and ``elevator.urdf`` of the
@@ -231,39 +231,6 @@ class AriseOfficeBuilding:
                 if annotations:
                     rooms[self.spoken_name_of(type(level), room)] = annotations[0]
         return rooms
-
-    def find_room_by_spoken_name(
-        self, world: World, spoken_name: str, name: str = "arise_office"
-    ) -> Room | None:
-        """
-        :param world: The world the office was spawned into.
-        :param spoken_name: How a person named the room, in any letter case.
-        :param name: The prefix the office was spawned with.
-        :return: The room annotation named so by :meth:`spoken_name_of`, or None if no
-            room of the office is named so.
-        """
-        requested = spoken_name.strip().casefold()
-        for known_name, room in self.rooms_by_spoken_name(world, name).items():
-            if known_name.casefold() == requested:
-                return room
-        return None
-
-    def rooms_named_in(
-        self, world: World, sentence: str, name: str = "arise_office"
-    ) -> dict[str, Room]:
-        """
-        :param world: The world the office was spawned into.
-        :param sentence: What a person said, in any letter case.
-        :param name: The prefix the office was spawned with.
-        :return: The rooms whose whole name by :meth:`spoken_name_of` the sentence holds,
-            by that name.
-        """
-        heard = sentence.casefold()
-        return {
-            known_name: room
-            for known_name, room in self.rooms_by_spoken_name(world, name).items()
-            if re.search(rf"\b{re.escape(known_name.casefold())}\b", heard)
-        }
 
     @staticmethod
     def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:

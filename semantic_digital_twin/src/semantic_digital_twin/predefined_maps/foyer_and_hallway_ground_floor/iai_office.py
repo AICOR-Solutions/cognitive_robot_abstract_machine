@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.elevator_room import (
     LabElevatorRoom,
 )
@@ -29,9 +31,11 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
     StoreyLayout,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    BathroomCabin,
     ElevatorLobby,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import (
     PlanarBoundingBox,
     Scale,
@@ -41,17 +45,28 @@ if TYPE_CHECKING:
     from semantic_digital_twin.semantic_annotations.semantic_annotations import (
         Floor,
         Level,
+        Room,
     )
-    from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.world_entity import (
         KinematicStructureEntity,
     )
+
+# %% names
+
+
+class SpokenElevatorRoom(StrEnum):
+    """
+    How a person names the room in front of the elevator.
+    """
+
+    NAME = "elevator room"
+
 
 # %% office
 
 
 @dataclass
-class IAIOffice:
+class IAIOffice(ElevatorBuilding):
     """
     World-independent description of the IAI's office: the lab elevator room with its
     hallway, and the rooms and hallways on the ground, first and second floor that are
@@ -165,7 +180,7 @@ class IAIOffice:
     def spawn(
         self,
         world: World,
-        name: str,
+        name: str = "iai_office",
         parent: KinematicStructureEntity | None = None,
     ) -> list[Level]:
         """
@@ -202,6 +217,33 @@ class IAIOffice:
                 @ self.elevator_room.room_T_elevator,
             )
         return levels
+
+    def create_world(self, root_name: str = "map") -> World:
+        """
+        :param root_name: Name of the world's root body, the frame the office is in.
+        :return: A world holding nothing but this office.
+        """
+        world = World.create_with_root_body(root_name)
+        self.spawn(world)
+        return world
+
+    def rooms_by_spoken_name(self, world: World) -> dict[str, Room]:
+        """
+        Every numbered room a robot's base fits into, and the elevator room.
+        """
+        rooms = {
+            office_room.spoken_name: world.get_semantic_annotation_by_name(
+                office_room.number
+            )
+            for floor_plan in self.floor_plans
+            for office_room in floor_plan.rooms
+            if office_room.navigation_target
+            and office_room.room_type is not BathroomCabin
+        }
+        rooms[SpokenElevatorRoom.NAME] = world.get_semantic_annotation_by_name(
+            "elevator_room"
+        )
+        return rooms
 
     def _spawn_level(
         self, world: World, name: str, floor: Floor, floor_plan: FloorPlan

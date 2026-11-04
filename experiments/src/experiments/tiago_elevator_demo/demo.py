@@ -36,6 +36,7 @@ from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.input_synchronization import WorldStateInputs
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
 )
@@ -118,7 +119,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
     ros_node_name: str = "tiago_elevator_demo_node"
 
-    office: AriseOfficeBuilding = field(default_factory=AriseOfficeBuilding)
+    office: ElevatorBuilding = field(default_factory=AriseOfficeBuilding)
     """
     The building the robot rides the elevator in.
     """
@@ -192,9 +193,9 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
 
         In a kinematic simulation the elevator waits with open doors.
         """
-        elevator = self.office.spawn(world)
+        self.office.spawn(world)
         if not self.runs_on_a_real_robot:
-            elevator.open()
+            world.get_semantic_annotations_by_type(Elevator)[0].open()
 
     def acquire_world(self) -> World:
         """

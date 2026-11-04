@@ -27,8 +27,18 @@ from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
     AriseOfficeRoom,
 )
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan import (
+    OfficeRoom,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.first_floor import (
+    FirstFloorPlan,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Elevator,
     FirstFloor,
     Floor,
 )
@@ -75,7 +85,7 @@ def repeated_raw_input(rclpy_node, request):
 
 
 @pytest.fixture
-def person_manager_tracking_someone_waiting(rclpy_node, arise_office):
+def person_manager_tracking_someone_waiting(rclpy_node):
     """
     Publishes a person in the waiting area the way a ROS4HRI person manager does.
 
@@ -86,9 +96,14 @@ def person_manager_tracking_someone_waiting(rclpy_node, arise_office):
     transform.header.stamp = rclpy_node.get_clock().now().to_msg()
     transform.header.frame_id = World.create_with_root_body().root.name.name
     transform.child_frame_id = TrackedPersons.frame_of(person_id)
-    transform.transform.translation.x = 0.85
-    transform.transform.translation.y = 1.0
-    transform.transform.translation.z = arise_office.ground_floor_height + 1.65
+    office_world = IAIOffice().create_world()
+    elevator = office_world.get_semantic_annotations_by_type(Elevator)[0]
+    in_front_of_the_doors = office_world.transform(
+        elevator.pose_in_front_of_doors(0.8), office_world.root
+    )
+    transform.transform.translation.x = float(in_front_of_the_doors.x)
+    transform.transform.translation.y = float(in_front_of_the_doors.y)
+    transform.transform.translation.z = 1.65
     transform.transform.rotation.w = 1.0
     frames = StaticTransformBroadcaster(rclpy_node)
     frames.sendTransform(transform)
@@ -99,6 +114,13 @@ def person_manager_tracking_someone_waiting(rclpy_node, arise_office):
     yield person_id
     rclpy_node.destroy_timer(timer)
     rclpy_node.destroy_publisher(tracked)
+
+
+def office_room_upstairs() -> OfficeRoom:
+    """
+    :return: The room of the IAI office requested in the demonstration's tests.
+    """
+    return next(room for room in FirstFloorPlan().rooms if room.number == "1.85")
 
 
 def east_office_upstairs() -> str:
@@ -288,18 +310,16 @@ def test_the_robot_asks_again_when_a_refused_room_is_requested_again(
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 @pytest.mark.parametrize(
     "repeated_intent",
-    [(Intent.MOVE_TO, east_office_upstairs())],
+    [(Intent.MOVE_TO, office_room_upstairs().spoken_name)],
     indirect=True,
 )
-def test_tiago_drives_to_the_room_it_was_told(
-    scripted_person, repeated_intent, arise_office
-):
+def test_tiago_drives_to_the_room_it_was_told(scripted_person, repeated_intent):
     demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
 
     world = demonstration.run()
 
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
-    target_room = arise_office.get_room(world, FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+    target_room = world.get_semantic_annotation_by_name(office_room_upstairs().number)
     assert Floor.under(robot.root) is target_room.floor
     [confirmation, heading_to, *_] = scripted_person.wait_for_sentences(2)
     assert confirmation == RoomRequestAnnouncement.CONFIRMING.verbalize(
@@ -313,7 +333,7 @@ def test_tiago_drives_to_the_room_it_was_told(
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 @pytest.mark.parametrize(
     "repeated_intent",
-    [(Intent.MOVE_TO, east_office_upstairs())],
+    [(Intent.MOVE_TO, office_room_upstairs().spoken_name)],
     indirect=True,
 )
 def test_tiago_asks_the_person_the_person_manager_tracks_at_the_elevator(

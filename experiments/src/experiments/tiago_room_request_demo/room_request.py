@@ -1,10 +1,10 @@
 """
-Being told which room of the ARISE office to drive to, through ROS4HRI intents.
+Being told which room of a building to drive to, through ROS4HRI intents.
 
 A chatbot or a dialogue manager publishes an ``hri_actions_msgs/Intent`` once a person
 says something. A ``MOVE_TO`` intent names the room in its ``goal`` role, and a
 ``RAW_USER_INPUT`` holds the sentence a chatbot could not interpret, which may hold the
-room. Rooms are named as people speak of them, such as *east office on the first floor*.
+room. Rooms are named as people speak of them.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from rclpy.subscription import Subscription
 
 from experiments.tiago_room_request_demo.exceptions import NoRoomRequestedError
 from experiments.tiago_room_request_demo.yes_no_question import YesNoQuestionAsker
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
 from semantic_digital_twin.world import World
 
@@ -176,7 +176,7 @@ class RoomRequests:
     The world the office was spawned into.
     """
 
-    office: AriseOfficeBuilding
+    office: ElevatorBuilding
     """
     The office whose rooms can be requested.
     """

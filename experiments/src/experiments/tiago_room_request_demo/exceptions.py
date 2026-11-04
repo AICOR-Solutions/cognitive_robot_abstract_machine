@@ -97,6 +97,5 @@ class NoRoomRequestedError(DataclassException):
     def suggest_correction(self) -> str:
         return (
             "Check that the chatbot publishes intents on the robot's ROS domain and that "
-            "they name the whole name of a room of the office, such as "
-            "'east office on the first floor'."
+            "they hold the whole spoken name of one room of the building."
         )

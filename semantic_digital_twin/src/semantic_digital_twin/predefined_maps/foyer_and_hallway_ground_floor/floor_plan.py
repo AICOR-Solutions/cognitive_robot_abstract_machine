@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
+from enum import Enum, StrEnum, auto
 
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
     RectilinearRoom,
@@ -10,6 +10,35 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
     Storey,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
+
+# %% saying a room's number
+
+
+class SpokenDigit(StrEnum):
+    """
+    How a digit of a room's number is said, in the order of the digits' values.
+    """
+
+    ZERO = "zero"
+    ONE = "one"
+    TWO = "two"
+    THREE = "three"
+    FOUR = "four"
+    FIVE = "five"
+    SIX = "six"
+    SEVEN = "seven"
+    EIGHT = "eight"
+    NINE = "nine"
+
+
+class SpokenSeparator(StrEnum):
+    """
+    Words said around a room's number.
+    """
+
+    ROOM = "room"
+    POINT = "point"
+
 
 # %% frames
 
@@ -88,6 +117,22 @@ class OfficeRoom:
     Whether a robot may be sent into this room: false where a robot's base does not fit
     at the room's middle.
     """
+
+    @property
+    def spoken_name(self) -> str:
+        """
+        :return: How a person says this room's number, such as *room one point five
+            three* for ``1.53``.
+        """
+        words = [SpokenSeparator.ROOM.value]
+        for character in self.number.casefold():
+            if character == ".":
+                words.append(SpokenSeparator.POINT.value)
+            elif character.isdigit():
+                words.append(list(SpokenDigit)[int(character)].value)
+            else:
+                words.append(character)
+        return " ".join(words)
 
 
 @dataclass

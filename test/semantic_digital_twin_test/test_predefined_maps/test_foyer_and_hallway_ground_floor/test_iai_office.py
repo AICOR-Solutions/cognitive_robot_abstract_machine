@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
@@ -9,11 +11,16 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
     Storey,
 )
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan import (
+    OfficeRoom,
+    OutlineFrame,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bathroom,
     BathroomCabin,
     Elevator,
     ElevatorLobby,
+    Floor,
     Hallway,
 )
 from krrood_spatial_math.spatial_types import Point2
@@ -145,3 +152,94 @@ def test_the_elevator_room_is_the_only_elevator_lobby(iai_office_world):
     assert [
         lobby.name for lobby in world.get_semantic_annotations_by_type(ElevatorLobby)
     ] == [PrefixedName("elevator_room", "office_ground_floor")]
+
+
+# %% floors
+
+
+def test_a_rooms_floor_ends_at_its_surface_not_at_its_walls(iai_office_world):
+    world, _ = iai_office_world
+
+    extent = world.get_semantic_annotation_by_name("1.85").floor.extent
+
+    assert extent.max_z == pytest.approx(Storey.FIRST_FLOOR.elevation)
+
+
+def test_the_middle_of_a_room_lies_on_its_floor(iai_office_world):
+    world, _ = iai_office_world
+
+    middle = world.get_semantic_annotation_by_name("1.85").floor_centre
+
+    assert float(middle.z) == pytest.approx(Storey.FIRST_FLOOR.elevation)
+
+
+@pytest.mark.parametrize("room_number", ["0.30", "1.85", "2.50"])
+def test_a_body_in_a_room_stands_on_that_rooms_floor_not_on_the_hallways(
+    iai_office_world, room_number
+):
+    world, _ = iai_office_world
+    room = world.get_semantic_annotation_by_name(room_number)
+
+    standing_in_the_room = SimpleNamespace(
+        global_transform=room.floor_centre, _world=world
+    )
+
+    assert Floor.under(standing_in_the_room) is room.floor
+
+
+# %% rooms spoken of
+
+
+@pytest.mark.parametrize(
+    "number, spoken_name",
+    [
+        ("1.53", "room one point five three"),
+        ("T.0.4.1", "room t point zero point four point one"),
+        ("2.16f.1", "room two point one six f point one"),
+    ],
+)
+def test_a_rooms_number_is_said_digit_by_digit(number, spoken_name):
+    room = OfficeRoom(number, OutlineFrame.ELEVATOR_ROOM, layout=None)
+
+    assert room.spoken_name == spoken_name
+
+
+def test_every_room_a_robot_may_enter_can_be_named(iai_office_world):
+    world, _ = iai_office_world
+    office = IAIOffice()
+    rooms = office.rooms_by_spoken_name(world)
+
+    named = {room.name.name for room in rooms.values()}
+    assert named == {"elevator_room"} | {
+        office_room.number
+        for floor_plan in office.floor_plans
+        for office_room in floor_plan.rooms
+        if office_room.navigation_target and office_room.room_type is not BathroomCabin
+    }
+
+
+def test_a_room_a_robot_does_not_fit_into_cannot_be_named(iai_office_world):
+    world, _ = iai_office_world
+
+    assert (
+        IAIOffice().find_room_by_spoken_name(world, "room zero point three nine")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "sentence, expected_number",
+    [
+        ("go to room zero point three four please", "0.34"),
+        ("go to room zero point three four point one please", "0.34.1"),
+        ("take me to the elevator room", "elevator_room"),
+    ],
+)
+def test_a_sentence_names_the_most_specific_room_it_holds(
+    iai_office_world, sentence, expected_number
+):
+    world, _ = iai_office_world
+
+    assert [
+        room.name.name for room in IAIOffice().rooms_named_in(world, sentence).values()
+    ] == [expected_number]

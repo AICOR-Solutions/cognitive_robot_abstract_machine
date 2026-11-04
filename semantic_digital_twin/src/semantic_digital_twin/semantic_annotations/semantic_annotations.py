@@ -1000,13 +1000,19 @@ class Floor(HasSupportingSurface):
         )
 
     @property
+    def surface_boxes(self) -> BoundingBoxCollection:
+        """
+        The bounding boxes of the floor's own shapes in the frame of its world's root,
+        without anything standing on it.
+        """
+        return self.root.collision.as_bounding_box_collection_in_frame(self._world.root)
+
+    @property
     def extent(self) -> VolumetricBoundingBox:
         """
-        The floor's bounding box in the frame of its world's root.
+        The bounding box of the floor's own shapes in the frame of its world's root.
         """
-        return self.as_bounding_box_collection_at_origin(
-            HomogeneousTransformationMatrix(reference_frame=self._world.root)
-        ).bounding_box()
+        return self.surface_boxes.bounding_box()
 
     @classmethod
     def under(
@@ -1015,19 +1021,21 @@ class Floor(HasSupportingSurface):
         """
         :param floor_tolerance: How far a floor's top may lie above ``entity``'s origin
             for ``entity`` to count as standing on that floor.
-        :return: The topmost floor of ``entity``'s world whose footprint holds
-            ``entity``'s origin and whose top lies at most ``floor_tolerance`` above
-            it, or None if ``entity`` stands over no floor.
+        :return: The topmost floor of ``entity``'s world with a surface box around
+            ``entity``'s origin whose top lies at most ``floor_tolerance`` above it, or
+            None if ``entity`` stands over no floor.
         """
         position = entity.global_transform
         x, y, z = float(position.x), float(position.y), float(position.z)
-        tops_of_floors_below = {
-            floor: extent.max_z
-            for floor in entity._world.get_semantic_annotations_by_type(cls)
-            if (extent := floor.extent).min_x <= x <= extent.max_x
-            and extent.min_y <= y <= extent.max_y
-            and extent.max_z <= z + floor_tolerance
-        }
+        tops_of_floors_below = {}
+        for floor in entity._world.get_semantic_annotations_by_type(cls):
+            for box in floor.surface_boxes:
+                if (
+                    box.min_x <= x <= box.max_x
+                    and box.min_y <= y <= box.max_y
+                    and box.max_z <= z + floor_tolerance
+                ):
+                    tops_of_floors_below[floor] = box.max_z
         if not tops_of_floors_below:
             return None
         return max(tops_of_floors_below, key=tops_of_floors_below.get)

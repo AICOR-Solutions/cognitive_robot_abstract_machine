@@ -51,7 +51,9 @@ from experiments.tiago_room_request_demo.yes_no_question import (
     YesNoQuestionAsker,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
 from semantic_digital_twin.robots.tiago import Tiago, TiagoTopic
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Elevator
 
@@ -368,7 +370,7 @@ class RealTiagoCheck:
         :return: A listener to the people the robot tracks, around an office kept out of
             the controller's world.
         """
-        world = AriseOfficeBuilding().create_world()
+        world = IAIOffice().create_world()
         return PersonsAtElevator(
             node=self.node,
             topic_name=Ros4HriTopic.TRACKED_PERSONS,
@@ -422,7 +424,7 @@ class RealTiagoCheck:
         :return: Always true, as not hearing a room raises.
         :raises NoRoomRequestedError: If no room of the office was requested in time.
         """
-        office = AriseOfficeBuilding()
+        office = IAIOffice()
         world = office.create_world()
         room_requests = RoomRequests(
             node=self.node,

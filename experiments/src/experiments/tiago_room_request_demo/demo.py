@@ -1,5 +1,5 @@
 """
-Tiago is told which room of the ARISE office to drive to and drives there.
+Tiago is told which room of the IAI office to drive to and drives there.
 
 Riding the elevator, it asks the people at it whether it may board, and waits for the
 next cabin while they say no.
@@ -36,6 +36,11 @@ from experiments.tiago_room_request_demo.room_request import (
     RoomRequestAnnouncement,
     RoomRequests,
 )
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -54,6 +59,20 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
     """
 
     ros_node_name: str = "tiago_room_request_demo_node"
+
+    office: ElevatorBuilding = field(default_factory=IAIOffice)
+    """
+    The building the robot drives in.
+    """
+
+    odom_T_robot_start: HomogeneousTransformationMatrix = field(
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=-19.0, y=39.0
+        )
+    )
+    """
+    Where a simulated Tiago starts, in the elevator room of the office.
+    """
 
     room_request_timeout: float = 300.0
     """
