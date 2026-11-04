@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 pytest.importorskip("communication_skills")
@@ -16,6 +18,8 @@ from experiments.tiago_room_request_demo.demo import TiagoRoomRequestDemonstrati
 from experiments.tiago_room_request_demo.exceptions import NoRoomRequestedError
 from experiments.tiago_room_request_demo.room_request import (
     MoveToIntentData,
+    RawUserInputData,
+    RawUserInputKey,
     RoomRequestAnnouncement,
     RoomRequests,
 )
@@ -51,7 +55,21 @@ def room_requests(rclpy_node, arise_office, arise_office_world):
 @pytest.fixture
 def repeated_intent(rclpy_node, request):
     intent_name, goal = request.param
-    publisher = RepeatedIntent(node=rclpy_node, intent_name=intent_name, goal=goal)
+    publisher = RepeatedIntent(
+        node=rclpy_node, intent_name=intent_name, spoken_text=goal
+    )
+    yield publisher
+    publisher.close()
+
+
+@pytest.fixture
+def repeated_raw_input(rclpy_node, request):
+    publisher = RepeatedIntent(
+        node=rclpy_node,
+        intent_name=Intent.RAW_USER_INPUT,
+        spoken_text=request.param,
+        data_key=RawUserInputKey.SENTENCE,
+    )
     yield publisher
     publisher.close()
 
@@ -101,6 +119,16 @@ def test_a_move_to_intent_without_data_names_no_goal():
     assert MoveToIntentData.from_json("").goal is None
 
 
+def test_the_sentence_of_a_raw_user_input_is_read_from_its_data():
+    data = json.dumps({RawUserInputKey.SENTENCE: "go to the lobby"})
+
+    assert RawUserInputData.from_json(data).sentence == "go to the lobby"
+
+
+def test_a_raw_user_input_without_data_holds_no_sentence():
+    assert RawUserInputData.from_json("").sentence == ""
+
+
 # %% listening for requests
 
 
@@ -114,7 +142,7 @@ def test_a_move_to_intent_naming_a_room_requests_it(
 ):
     requested_room = room_requests.wait_for_room(timeout=5.0)
 
-    assert requested_room.spoken_name == repeated_intent.goal
+    assert requested_room.spoken_name == repeated_intent.spoken_text
     assert requested_room.room is arise_office.get_room(
         arise_office_world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
     )
@@ -139,10 +167,119 @@ def test_a_room_the_office_does_not_have_is_said_to_be_unknown(
     [first_sentence, *_] = tiago_speech.wait_for_sentences(1)
 
     assert first_sentence == RoomRequestAnnouncement.UNKNOWN_ROOM.verbalize(
-        repeated_intent.goal
+        repeated_intent.spoken_text
     )
     with pytest.raises(NoRoomRequestedError):
         room_requests.wait_for_room(timeout=0.5)
+
+
+@pytest.mark.parametrize(
+    "repeated_raw_input",
+    [f"please go to the {east_office_upstairs()} now"],
+    indirect=True,
+)
+def test_a_raw_user_input_naming_a_room_requests_it(
+    room_requests, repeated_raw_input, arise_office, arise_office_world
+):
+    requested_room = room_requests.wait_for_room(timeout=5.0)
+
+    assert requested_room.spoken_name == east_office_upstairs()
+    assert requested_room.room is arise_office.get_room(
+        arise_office_world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
+    )
+
+
+@pytest.mark.parametrize(
+    "repeated_raw_input",
+    [
+        "go into the kitchen",
+        "east office",
+        f"{east_office_upstairs()} or west office on the first floor",
+    ],
+    indirect=True,
+)
+def test_a_raw_user_input_naming_no_single_room_is_ignored_silently(
+    room_requests, repeated_raw_input, tiago_speech
+):
+    with pytest.raises(NoRoomRequestedError):
+        room_requests.wait_for_room(timeout=1.0)
+
+    assert tiago_speech.sentences == []
+
+
+# %% confirming a room
+
+
+def request_the_room_once(room_requests: RoomRequests) -> None:
+    """
+    Let a person ask for the room once, the way the chatbot passes on what it heard.
+    """
+    room_requests._hear(
+        Intent(
+            intent=Intent.RAW_USER_INPUT,
+            data=json.dumps({RawUserInputKey.SENTENCE: east_office_upstairs()}),
+        )
+    )
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_a_room_counts_once_the_person_confirms_it(room_requests, scripted_person):
+    request_the_room_once(room_requests)
+
+    requested_room = room_requests.wait_for_confirmed_room(timeout=5.0)
+
+    assert requested_room.spoken_name == east_office_upstairs()
+    [goal] = scripted_person.confirmation_goals
+    assert goal.input == RoomRequestAnnouncement.CONFIRMING.verbalize(
+        east_office_upstairs()
+    )
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_a_refused_room_is_forgotten(room_requests, scripted_person):
+    scripted_person.room_confirmations = [PersonAnswer.NO]
+    request_the_room_once(room_requests)
+
+    with pytest.raises(NoRoomRequestedError):
+        room_requests.wait_for_confirmed_room(timeout=1.0)
+
+    assert len(scripted_person.confirmation_goals) == 1
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_the_robot_says_that_it_stays_when_a_room_is_refused(
+    room_requests, scripted_person
+):
+    scripted_person.room_confirmations = [PersonAnswer.NO]
+    request_the_room_once(room_requests)
+
+    with pytest.raises(NoRoomRequestedError):
+        room_requests.wait_for_confirmed_room(timeout=0.5)
+
+    [_, acknowledgement] = scripted_person.wait_for_sentences(2)
+    assert acknowledgement == RoomRequestAnnouncement.STAYING
+
+
+def test_the_robot_does_not_name_the_room_when_it_stays():
+    """
+    The robot hearing itself name a room would take that for a new request.
+    """
+    assert (
+        RoomRequestAnnouncement.STAYING.verbalize(east_office_upstairs())
+        == RoomRequestAnnouncement.STAYING
+    )
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+@pytest.mark.parametrize("repeated_raw_input", [east_office_upstairs()], indirect=True)
+def test_the_robot_asks_again_when_a_refused_room_is_requested_again(
+    room_requests, scripted_person, repeated_raw_input
+):
+    scripted_person.room_confirmations = [PersonAnswer.NO, PersonAnswer.YES]
+
+    room_requests.wait_for_confirmed_room(timeout=5.0)
+
+    assert len(scripted_person.confirmation_goals) == 2
 
 
 # %% the demonstration
@@ -164,9 +301,12 @@ def test_tiago_drives_to_the_room_it_was_told(
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
     target_room = arise_office.get_room(world, FirstFloor, AriseOfficeRoom.EAST_OFFICE)
     assert Floor.under(robot.root) is target_room.floor
-    [first_sentence, *_] = scripted_person.wait_for_sentences(1)
-    assert first_sentence == RoomRequestAnnouncement.HEADING_TO.verbalize(
-        repeated_intent.goal
+    [confirmation, heading_to, *_] = scripted_person.wait_for_sentences(2)
+    assert confirmation == RoomRequestAnnouncement.CONFIRMING.verbalize(
+        repeated_intent.spoken_text
+    )
+    assert heading_to == RoomRequestAnnouncement.HEADING_TO.verbalize(
+        repeated_intent.spoken_text
     )
 
 

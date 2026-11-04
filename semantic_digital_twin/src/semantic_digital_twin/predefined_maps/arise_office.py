@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -212,6 +213,25 @@ class AriseOfficeBuilding:
         """
         return f"{room.spoken_name} on the {level_type.spoken_name}"
 
+    def rooms_by_spoken_name(
+        self, world: World, name: str = "arise_office"
+    ) -> dict[str, Room]:
+        """
+        :param world: The world the office was spawned into.
+        :param name: The prefix the office was spawned with.
+        :return: The room annotations of the office, by the name :meth:`spoken_name_of`
+            gives them.
+        """
+        rooms = {}
+        for level in world.get_semantic_annotations_by_type(Level):
+            for room in AriseOfficeRoom:
+                annotations = world.get_semantic_annotations_by_name(
+                    self._room_name(name, type(level), room)
+                )
+                if annotations:
+                    rooms[self.spoken_name_of(type(level), room)] = annotations[0]
+        return rooms
+
     def find_room_by_spoken_name(
         self, world: World, spoken_name: str, name: str = "arise_office"
     ) -> Room | None:
@@ -223,15 +243,27 @@ class AriseOfficeBuilding:
             room of the office is named so.
         """
         requested = spoken_name.strip().casefold()
-        for level in world.get_semantic_annotations_by_type(Level):
-            for room in AriseOfficeRoom:
-                if self.spoken_name_of(type(level), room).casefold() != requested:
-                    continue
-                rooms = world.get_semantic_annotations_by_name(
-                    self._room_name(name, type(level), room)
-                )
-                return rooms[0] if rooms else None
+        for known_name, room in self.rooms_by_spoken_name(world, name).items():
+            if known_name.casefold() == requested:
+                return room
         return None
+
+    def rooms_named_in(
+        self, world: World, sentence: str, name: str = "arise_office"
+    ) -> dict[str, Room]:
+        """
+        :param world: The world the office was spawned into.
+        :param sentence: What a person said, in any letter case.
+        :param name: The prefix the office was spawned with.
+        :return: The rooms whose whole name by :meth:`spoken_name_of` the sentence holds,
+            by that name.
+        """
+        heard = sentence.casefold()
+        return {
+            known_name: room
+            for known_name, room in self.rooms_by_spoken_name(world, name).items()
+            if re.search(rf"\b{re.escape(known_name.casefold())}\b", heard)
+        }
 
     @staticmethod
     def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:

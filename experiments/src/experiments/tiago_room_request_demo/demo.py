@@ -4,10 +4,10 @@ Tiago is told which room of the ARISE office to drive to and drives there.
 Riding the elevator, it asks the people at it whether it may board, and waits for the
 next cabin while they say no.
 
-The room arrives as a ROS4HRI move-to intent on ``/intents``. The question is said
-through the ROS4HRI ``say`` skill and the answer is read from the recognized speech; on
-the real TIAGo these come from PAL's communication stack. The people at the elevator
-come from a ROS4HRI person manager.
+The room arrives as a ROS4HRI intent on ``/intents``, and Tiago drives once a person
+confirmed it. Questions are said through the ROS4HRI ``say`` skill and answers are read
+from the recognized speech; on the real TIAGo these come from PAL's communication stack.
+The people at the elevator come from a ROS4HRI person manager.
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ from experiments.tiago_room_navigation_demo.exceptions import (
 )
 from experiments.tiago_room_request_demo.boarding_permission import (
     AskToBoardChooser,
-    BoardingQuestionAsker,
     NavigateToRoomAskingToBoardAction,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
+from experiments.tiago_room_request_demo.yes_no_question import YesNoQuestionAsker
 from experiments.tiago_room_request_demo.room_request import (
     RequestedRoom,
     RoomRequestAnnouncement,
@@ -49,8 +49,8 @@ from semantic_digital_twin.world import World
 @dataclass
 class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
     """
-    Tiago waits to be told a room of the office, then drives there, asking the people at
-    the elevator whether it may board on the way.
+    Tiago waits to be told a room of the office and confirms it, then drives there,
+    asking the people at the elevator whether it may board on the way.
     """
 
     ros_node_name: str = "tiago_room_request_demo_node"
@@ -82,7 +82,8 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Wait to be told a room, then drive there, asking to board the elevator.
+        Wait to be told a room and confirm it, then drive there, asking to board the
+        elevator.
 
         :raises NoRoomRequestedError: If nobody told a room the office has within
             :attr:`room_request_timeout`.
@@ -96,7 +97,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         context.require_extension(ChildChooserAccess).choosers.append(
             AskToBoardChooser(
                 persons_at_elevator=self.persons_at_elevator,
-                asker=BoardingQuestionAsker(self.ros_node, robot.text_to_speech_action),
+                asker=YesNoQuestionAsker(self.ros_node, robot.text_to_speech_action),
             )
         )
         self.room_requests = RoomRequests(
@@ -105,7 +106,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
             office=self.office,
             text_to_speech_action=robot.text_to_speech_action,
         )
-        self.requested_room = self.room_requests.wait_for_room(
+        self.requested_room = self.room_requests.wait_for_confirmed_room(
             self.room_request_timeout
         )
         # Every intent would take time from the updates of the world while the plan runs.

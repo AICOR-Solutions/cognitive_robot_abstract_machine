@@ -1,25 +1,14 @@
 """
-Asking the people at an elevator whether the robot may take it with them, by saying the
-question through the ROS4HRI ``say`` skill and listening for a yes or no in the
-recognized speech, and waiting for the next cabin while they say no.
+Asking the people at an elevator whether the robot may take it with them, and waiting for
+the next cabin while they say no.
 """
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum, auto
 
-from action_msgs.msg import GoalStatus
-from communication_skills.action import Say
-from hri_msgs.msg import LiveSpeech
-from rclpy.action import ActionClient
-from rclpy.action.client import ClientGoalHandle
-from rclpy.node import Node
-from rclpy.subscription import Subscription
-from rclpy.task import Future
-from std_skills.msg import Result as SkillResult
 
 from coraplex.exceptions import NotOnASingleLevelException
 from coraplex.plans.context_extensions import RobotAccess
@@ -38,6 +27,10 @@ from experiments.tiago_room_request_demo.exceptions import (
     SaySkillNotServedError,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
+from experiments.tiago_room_request_demo.yes_no_question import (
+    YesNoAnswerInProgress,
+    YesNoQuestionAsker,
+)
 from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
@@ -45,14 +38,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 
 # %% the question
-
-
-class Ros4HriVoiceTopic(StrEnum):
-    """
-    Topics of REP-155 on which the robot hears people.
-    """
-
-    ANONYMOUS_SPEAKER_SPEECH = "/humans/voices/anonymous_speaker/speech"
 
 
 class BoardingQuestion(StrEnum):
@@ -64,207 +49,6 @@ class BoardingQuestion(StrEnum):
     """
     Asked before the robot boards an elevator people stand in or wait at.
     """
-
-
-class AgreeingWord(StrEnum):
-    """
-    Words with which a person lets the robot board.
-    """
-
-    YES = "yes"
-    YEAH = "yeah"
-    YEP = "yep"
-    SURE = "sure"
-    OKAY = "okay"
-    OK = "ok"
-
-
-class RefusingWord(StrEnum):
-    """
-    Words with which a person refuses the robot, which outweigh any
-    :class:`AgreeingWord` in the same sentence.
-    """
-
-    NO = "no"
-    NOPE = "nope"
-    NOT = "not"
-    DO_NOT = "don't"
-    SORRY = "sorry"
-
-
-# %% asking a person
-
-
-@dataclass
-class BoardingAnswerInProgress:
-    """
-    A question to a person, which the robot is saying through the ``say`` skill or the
-    person is answering.
-    """
-
-    answer_timeout: float
-    """
-    Seconds the person may take to answer.
-    """
-
-    asked_at: float = field(default_factory=time.monotonic)
-    """
-    When the question was asked, on the monotonic clock.
-    """
-
-    may_board: bool | None = field(default=None, init=False)
-    """
-    Whether the person agreed, None until that is known.
-    """
-
-    _goal_handle: ClientGoalHandle | None = field(default=None, init=False)
-    """
-    The accepted goal, None until the skill accepted it.
-    """
-
-    _question_ended: bool = field(default=False, init=False)
-    """
-    Whether the robot finished saying the question, which is when answers start to count.
-    """
-
-    def on_goal_response(self, future: Future) -> None:
-        """
-        Wait for the result of an accepted goal; a rejected goal counts as not agreeing.
-        """
-        goal_handle = future.result()
-        if goal_handle is None or not goal_handle.accepted:
-            self.may_board = False
-            return
-        self._goal_handle = goal_handle
-        goal_handle.get_result_async().add_done_callback(self.on_result)
-
-    def on_result(self, future: Future) -> None:
-        """
-        Start listening once the question was said; a failed skill counts as not agreeing.
-        """
-        response = future.result()
-        if (
-            response is None
-            or response.status != GoalStatus.STATUS_SUCCEEDED
-            or response.result.result.error_code != SkillResult.ROS_ENOERR
-        ):
-            self.may_board = False
-            return
-        self._question_ended = True
-
-    def on_speech(self, sentence: str) -> None:
-        """
-        Take a sentence holding a yes or a no as the answer, and keep listening otherwise.
-
-        :param sentence: What the robot heard.
-        """
-        if not self._question_ended or self.may_board is not None:
-            return
-        words = set(re.findall(r"[\w']+", sentence.casefold()))
-        if words & set(RefusingWord):
-            self.may_board = False
-        elif words & set(AgreeingWord):
-            self.may_board = True
-
-    def poll(self) -> bool | None:
-        """
-        :return: Whether the person agreed, None while that is not known yet. No clear
-            answer within :attr:`answer_timeout` counts as not agreeing.
-        """
-        if self.may_board is None and (
-            time.monotonic() - self.asked_at > self.answer_timeout
-        ):
-            if self._goal_handle is not None and not self._question_ended:
-                self._goal_handle.cancel_goal_async()
-            self.may_board = False
-        return self.may_board
-
-
-@dataclass
-class BoardingQuestionAsker:
-    """
-    Asks a person whether the robot may board, without waiting for the answer.
-
-    .. warning:: The recognized speech names no speaker, so anybody can answer.
-    """
-
-    node: Node
-    """
-    The node the skill is called from, which an executor has to spin elsewhere.
-    """
-
-    text_to_speech_action: str
-    """
-    The name of the action that makes the robot speak.
-    """
-
-    speech_topic: str = Ros4HriVoiceTopic.ANONYMOUS_SPEAKER_SPEECH
-    """
-    The topic the recognized speech of people is read from.
-    """
-
-    server_timeout: float = 10.0
-    """
-    Seconds to wait for the skill to be served.
-    """
-
-    answer_timeout: float = 60.0
-    """
-    Seconds a person may take to answer.
-    """
-
-    _client: ActionClient = field(init=False)
-    """
-    The client calling the skill.
-    """
-
-    _speech_subscription: Subscription = field(init=False)
-    """
-    The subscription to the recognized speech.
-    """
-
-    _answer: BoardingAnswerInProgress | None = field(default=None, init=False)
-    """
-    The question asked last, None until one was asked.
-    """
-
-    def __post_init__(self) -> None:
-        self._client = ActionClient(self.node, Say, self.text_to_speech_action)
-        self._speech_subscription = self.node.create_subscription(
-            LiveSpeech, self.speech_topic, self._hear, 10
-        )
-
-    def _hear(self, speech: LiveSpeech) -> None:
-        """
-        Pass what the robot heard on to the question asked last.
-        """
-        if self._answer is not None:
-            self._answer.on_speech(speech.final)
-
-    @property
-    def is_served(self) -> bool:
-        """
-        :return: Whether the skill can be called right now.
-        """
-        return self._client.server_is_ready()
-
-    def ask(self, person_id: str) -> BoardingAnswerInProgress:
-        """
-        :param person_id: The ROS4HRI ID of the person to ask.
-        :return: The question, which tells the answer once it is known.
-        """
-        self._answer = BoardingAnswerInProgress(answer_timeout=self.answer_timeout)
-        self._client.send_goal_async(
-            Say.Goal(person_id=person_id, input=BoardingQuestion.ASKING_TO_BOARD)
-        ).add_done_callback(self._answer.on_goal_response)
-        return self._answer
-
-    def close(self) -> None:
-        """
-        Stop calling the skill and listening.
-        """
-        self._client.destroy()
-        self.node.destroy_subscription(self._speech_subscription)
 
 
 # %% asking until allowed
@@ -368,7 +152,7 @@ class BoardingConversation:
     Finds the people to ask.
     """
 
-    asker: BoardingQuestionAsker
+    asker: YesNoQuestionAsker
     """
     Asks the people.
     """
@@ -393,7 +177,7 @@ class BoardingConversation:
     The person to ask, None until somebody was found.
     """
 
-    answer: BoardingAnswerInProgress | None = None
+    answer: YesNoAnswerInProgress | None = None
     """
     The question being answered, None while nobody is being asked.
     """
@@ -444,7 +228,7 @@ class BoardingConversation:
                     )
                 )
             return None
-        self.answer = self.asker.ask(self.person_id)
+        self.answer = self.asker.ask(BoardingQuestion.ASKING_TO_BOARD, self.person_id)
         self._enter(BoardingStage.ANSWER)
         return None
 
@@ -536,7 +320,7 @@ class AskToBoardChooser(ChildChooser[AskToBoardNode]):
     Finds the people to ask.
     """
 
-    asker: BoardingQuestionAsker
+    asker: YesNoQuestionAsker
     """
     Asks the people.
     """

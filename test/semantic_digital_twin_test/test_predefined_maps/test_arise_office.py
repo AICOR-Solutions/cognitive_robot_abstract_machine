@@ -271,6 +271,39 @@ def test_a_room_the_storey_does_not_have_is_not_found(arise_office_world, arise_
     )
 
 
+def test_a_sentence_names_the_room_whose_whole_spoken_name_it_holds(
+    arise_office, arise_office_world
+):
+    spoken_name = arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+
+    assert arise_office.rooms_named_in(
+        arise_office_world, f"please GO to the {spoken_name.upper()} now"
+    ) == {
+        spoken_name: arise_office.get_room(
+            arise_office_world, FirstFloor, AriseOfficeRoom.EAST_OFFICE
+        )
+    }
+
+
+def test_a_sentence_naming_two_rooms_names_both(arise_office, arise_office_world):
+    first = arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+    second = arise_office.spoken_name_of(FirstFloor, AriseOfficeRoom.WEST_OFFICE)
+
+    assert set(
+        arise_office.rooms_named_in(arise_office_world, f"{first} or {second}")
+    ) == {first, second}
+
+
+@pytest.mark.parametrize(
+    "sentence",
+    ["east office", "go into the kitchen", "the east office on the first floors", ""],
+)
+def test_a_sentence_without_a_whole_spoken_name_names_no_room(
+    arise_office, arise_office_world, sentence
+):
+    assert arise_office.rooms_named_in(arise_office_world, sentence) == {}
+
+
 def test_a_room_spoken_of_by_another_name_is_not_found(
     arise_office_world, arise_office
 ):

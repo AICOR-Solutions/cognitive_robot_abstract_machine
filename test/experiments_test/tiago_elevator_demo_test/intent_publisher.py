@@ -31,9 +31,14 @@ class RepeatedIntent:
     The intent published, one of the constants of :class:`Intent`.
     """
 
-    goal: str
+    spoken_text: str
     """
-    What the intent's goal role names.
+    What the intent's data holds under :attr:`data_key`.
+    """
+
+    data_key: str = IntentRole.GOAL
+    """
+    The key of the intent's data holding :attr:`spoken_text`.
     """
 
     period: float = 0.1
@@ -61,7 +66,7 @@ class RepeatedIntent:
         self._publisher.publish(
             Intent(
                 intent=self.intent_name,
-                data=json.dumps({IntentRole.GOAL: self.goal}),
+                data=json.dumps({self.data_key: self.spoken_text}),
             )
         )
 

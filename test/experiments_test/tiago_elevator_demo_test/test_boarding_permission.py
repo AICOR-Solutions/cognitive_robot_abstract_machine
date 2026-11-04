@@ -1,17 +1,13 @@
 import json
 import time
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("communication_skills")
 
-from action_msgs.msg import GoalStatus
-from communication_skills.action import Say
 from geometry_msgs.msg import TransformStamped
 from hri_msgs.msg import IdsList
-from rclpy.task import Future
 
 from coraplex.plans.context_extensions import RobotAccess
 from cramph.composites import ChildChooserAccess
@@ -26,10 +22,8 @@ from experiments.tiago_room_request_demo.boarding_permission import (
     AbortOnStart,
     AskToBoardChooser,
     AskToBoardNode,
-    BoardingAnswerInProgress,
     BoardingConversation,
     BoardingQuestion,
-    BoardingQuestionAsker,
     NavigateToRoomAskingToBoardAction,
 )
 from experiments.tiago_room_request_demo.exceptions import (
@@ -38,6 +32,10 @@ from experiments.tiago_room_request_demo.exceptions import (
     SaySkillNotServedError,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
+from experiments.tiago_room_request_demo.yes_no_question import (
+    YesNoAnswerInProgress,
+    YesNoQuestionAsker,
+)
 from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
@@ -290,7 +288,7 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
         context.require_extension(ChildChooserAccess).choosers.append(
             AskToBoardChooser(
                 persons_at_elevator=self.persons_at_elevator,
-                asker=BoardingQuestionAsker(self.ros_node, Tiago.text_to_speech_action),
+                asker=YesNoQuestionAsker(self.ros_node, Tiago.text_to_speech_action),
             )
         )
         statechart = Statechart(context=context)
@@ -425,7 +423,7 @@ def test_a_rejected_question_counts_as_a_refusal(scripted_person):
 
 @pytest.fixture
 def boarding_question_asker(rclpy_node):
-    asker = BoardingQuestionAsker(
+    asker = YesNoQuestionAsker(
         rclpy_node,
         Tiago.text_to_speech_action,
         server_timeout=0.2,
@@ -435,21 +433,21 @@ def boarding_question_asker(rclpy_node):
     asker.close()
 
 
-def wait_for_the_answer(answer: BoardingAnswerInProgress, timeout: float = 5.0) -> bool:
+def wait_for_the_answer(answer: YesNoAnswerInProgress, timeout: float = 5.0) -> bool:
     """
     :return: What the person answered.
     :raises AssertionError: If that is not known within ``timeout`` seconds.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        may_board = answer.poll()
-        if may_board is not None:
-            return may_board
+        agreed = answer.poll()
+        if agreed is not None:
+            return agreed
         time.sleep(0.01)
     raise AssertionError(f"no answer within {timeout} s")
 
 
-def wait_for_the_skill(asker: BoardingQuestionAsker, timeout: float = 5.0) -> None:
+def wait_for_the_skill(asker: YesNoQuestionAsker, timeout: float = 5.0) -> None:
     """
     :raises AssertionError: If the skill is not served within ``timeout`` seconds.
     """
@@ -471,7 +469,12 @@ def test_a_person_who_gives_no_clear_answer_in_time_does_not_agree(
 ):
     wait_for_the_skill(boarding_question_asker)
 
-    assert wait_for_the_answer(boarding_question_asker.ask("waiting")) is False
+    assert (
+        wait_for_the_answer(
+            boarding_question_asker.ask(BoardingQuestion.ASKING_TO_BOARD, "waiting")
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize(
@@ -485,62 +488,11 @@ def test_the_answer_of_a_person_decides_whether_they_agree(
     wait_for_the_skill(boarding_question_asker)
 
     assert (
-        wait_for_the_answer(boarding_question_asker.ask("waiting"))
+        wait_for_the_answer(
+            boarding_question_asker.ask(BoardingQuestion.ASKING_TO_BOARD, "waiting")
+        )
         is expected_agreement
     )
-
-
-# %% understanding what a person says
-
-
-def answer_after_the_question() -> BoardingAnswerInProgress:
-    """
-    :return: A question the robot has finished saying.
-    """
-    answer = BoardingAnswerInProgress(answer_timeout=60.0)
-    question_ended = Future()
-    question_ended.set_result(
-        SimpleNamespace(status=GoalStatus.STATUS_SUCCEEDED, result=Say.Result())
-    )
-    answer.on_result(question_ended)
-    return answer
-
-
-@pytest.mark.parametrize(
-    "sentence, expected_agreement",
-    [
-        ("yes", True),
-        ("Yes, please.", True),
-        ("sure", True),
-        ("no", False),
-        ("no thank you", False),
-        ("not now", False),
-        ("yes no", False),
-    ],
-)
-def test_what_a_person_says_decides_whether_they_agree(sentence, expected_agreement):
-    answer = answer_after_the_question()
-
-    answer.on_speech(sentence)
-
-    assert answer.poll() is expected_agreement
-
-
-@pytest.mark.parametrize("sentence", ["", "maybe later", "yesterday", "nobody knows"])
-def test_a_sentence_without_a_clear_answer_leaves_the_answer_open(sentence):
-    answer = answer_after_the_question()
-
-    answer.on_speech(sentence)
-
-    assert answer.poll() is None
-
-
-def test_speech_during_the_question_does_not_count_as_an_answer():
-    answer = BoardingAnswerInProgress(answer_timeout=60.0)
-
-    answer.on_speech("yes")
-
-    assert answer.poll() is None
 
 
 # %% the conversation going wrong

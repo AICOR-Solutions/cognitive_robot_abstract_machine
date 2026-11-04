@@ -11,10 +11,8 @@ from rclpy.publisher import Publisher
 from rclpy.timer import Timer
 from semantic_digital_twin.robots.tiago import Tiago
 
-from experiments.tiago_room_request_demo.boarding_permission import (
-    BoardingQuestion,
-    Ros4HriVoiceTopic,
-)
+from experiments.tiago_room_request_demo.boarding_permission import BoardingQuestion
+from experiments.tiago_room_request_demo.yes_no_question import Ros4HriVoiceTopic
 
 from .speech_listener import SpeechListener
 
@@ -46,6 +44,13 @@ class ScriptedPerson(SpeechListener):
     How the questions are answered, in order.
     """
 
+    room_confirmations: list[PersonAnswer] = field(
+        default_factory=lambda: [PersonAnswer.YES]
+    )
+    """
+    How the questions confirming a room are answered, in order.
+    """
+
     speech_repetition_period: float = 0.1
     """
     Seconds between two repetitions of the answer.
@@ -61,6 +66,11 @@ class ScriptedPerson(SpeechListener):
     goals: list = field(default_factory=list, init=False)
     """
     The goals asking the question that were accepted, in order.
+    """
+
+    confirmation_goals: list = field(default_factory=list, init=False)
+    """
+    The goals asking to confirm a room that were accepted, in order.
     """
 
     answer_times: list[float] = field(default_factory=list, init=False)
@@ -134,10 +144,21 @@ class ScriptedPerson(SpeechListener):
 
     def _hear(self, goal_handle: ServerGoalHandle) -> object:
         """
-        Start answering once a boarding question ended.
+        Start answering once a question ended.
         """
-        if goal_handle.request.input != BoardingQuestion.ASKING_TO_BOARD:
-            return super()._hear(goal_handle)
+        sentence = goal_handle.request.input
+        if sentence != BoardingQuestion.ASKING_TO_BOARD:
+            if not sentence.endswith("?"):
+                return super()._hear(goal_handle)
+            confirmation = self.room_confirmations[
+                min(len(self.confirmation_goals), len(self.room_confirmations) - 1)
+            ]
+            self.confirmation_goals.append(goal_handle.request)
+            self._repeated_speech = None
+            result = super()._hear(goal_handle)
+            if confirmation is not PersonAnswer.KEEP_SILENT:
+                self._repeated_speech = confirmation.value
+            return result
         answer = self._next_answer()
         self._decided_questions += 1
         self._repeated_speech = None

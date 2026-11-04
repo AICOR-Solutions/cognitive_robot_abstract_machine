@@ -8,7 +8,7 @@ order with ``python -m experiments.tiago_room_request_demo.real_tiago_check <sta
 - ``say`` speaks a sentence through the skill, then through Giskard.
 - ``people`` prints the people the robot tracks.
 - ``ask`` asks a person whether the robot may board, and prints the answer.
-- ``intent`` waits for a move-to intent and prints the room it names.
+- ``intent`` waits to be told a room, asks to confirm it, and prints it without driving.
 - ``drive`` runs the whole demonstration.
 
 .. warning:: Only ``drive`` moves the robot. Keep a person at the emergency stop.
@@ -39,16 +39,16 @@ from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 from experiments.ra_fetch_elevator_people.elevator_people import Ros4HriTopic
 from experiments.tiago_arise_gazebo.elevator_drive import SimulatorTopic
-from experiments.tiago_room_request_demo.boarding_permission import (
-    BoardingQuestionAsker,
-    Ros4HriVoiceTopic,
-)
+from experiments.tiago_room_request_demo.boarding_permission import BoardingQuestion
 from experiments.tiago_room_request_demo.demo import TiagoRoomRequestDemonstration
-from experiments.tiago_room_request_demo.exceptions import SaySkillNotServedError
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
 from experiments.tiago_room_request_demo.room_request import (
     Ros4HriInteractionTopic,
     RoomRequests,
+)
+from experiments.tiago_room_request_demo.yes_no_question import (
+    Ros4HriVoiceTopic,
+    YesNoQuestionAsker,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeBuilding
@@ -152,7 +152,8 @@ def topics_of_the_demonstration() -> list[RequiredTopic]:
             Ros4HriTopic.TRACKED_PERSONS, [Stage.PEOPLE, Stage.ASK, Stage.DRIVE]
         ),
         RequiredTopic(
-            Ros4HriVoiceTopic.ANONYMOUS_SPEAKER_SPEECH, [Stage.ASK, Stage.DRIVE]
+            Ros4HriVoiceTopic.ANONYMOUS_SPEAKER_SPEECH,
+            [Stage.ASK, Stage.INTENT, Stage.DRIVE],
         ),
         RequiredTopic(Ros4HriInteractionTopic.INTENTS, [Stage.INTENT, Stage.DRIVE]),
         RequiredTopic(TiagoTopic.LIDAR, [Stage.DRIVE]),
@@ -405,24 +406,17 @@ class RealTiagoCheck:
         print(
             f"Asking {person_id or 'anybody'}. Say yes or no once the robot finished."
         )
-        asker = BoardingQuestionAsker(self.node, Tiago.text_to_speech_action)
-        deadline = time.monotonic() + asker.server_timeout
-        while not asker.is_served:
-            if time.monotonic() > deadline:
-                raise SaySkillNotServedError(
-                    Tiago.text_to_speech_action, asker.server_timeout
-                )
-            time.sleep(0.1)
-        answer = asker.ask(person_id)
-        while (may_board := answer.poll()) is None:
-            time.sleep(0.1)
+        asker = YesNoQuestionAsker(self.node, Tiago.text_to_speech_action)
+        may_board = asker.ask_until_answered(
+            BoardingQuestion.ASKING_TO_BOARD, person_id
+        )
         asker.close()
         print(f"May the robot board: {may_board}")
         return may_board
 
     def intent(self, timeout: float) -> bool:
         """
-        Wait for a move-to intent, and print the room it names without driving there.
+        Wait to be told a room and confirm it, and print it without driving there.
 
         :param timeout: Seconds to wait at most.
         :return: Always true, as not hearing a room raises.
@@ -436,8 +430,8 @@ class RealTiagoCheck:
             office=office,
             text_to_speech_action=Tiago.text_to_speech_action,
         )
-        print("Ask the robot to go to a room of the office now.")
-        requested_room = room_requests.wait_for_room(timeout)
+        print("Say the whole name of a room, then answer the robot with yes or no.")
+        requested_room = room_requests.wait_for_confirmed_room(timeout)
         print(f"Heard '{requested_room.spoken_name}': {requested_room.room.name.name}")
         room_requests.close()
         return True
