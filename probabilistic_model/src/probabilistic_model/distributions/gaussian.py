@@ -7,11 +7,11 @@ import numpy as np
 import numpy.typing as npt
 from numpy import nextafter
 from scipy.stats import norm, truncnorm
-from typing_extensions import Any, Self, Tuple, TYPE_CHECKING
+from typing_extensions import Any, Self, TYPE_CHECKING
 
 from probabilistic_model.distributions.distributions import (
     ContinuousDistribution,
-    ContinuousDistributionWithFiniteSupport,
+    ContinuousDistributionWithConstrainedSupport,
     DiracDeltaDistribution,
 )
 from probabilistic_model.probabilistic_model import OrderType, CenterType, MomentType
@@ -165,7 +165,7 @@ class GaussianDistribution(ContinuousDistribution):
 
 @dataclass
 class TruncatedGaussianDistribution(
-    ContinuousDistributionWithFiniteSupport, GaussianDistribution
+    ContinuousDistributionWithConstrainedSupport, GaussianDistribution
 ):
     """
     Class for Truncated Gaussian distributions.
@@ -174,7 +174,7 @@ class TruncatedGaussianDistribution(
     """
 
     @property
-    def standardized_bounds(self) -> Tuple[float, float]:
+    def standardized_bounds(self) -> tuple[float, float]:
         """
         :return: The bounds of the interval in standard deviations from the location,
             as :data:`scipy.stats.truncnorm` expects them.

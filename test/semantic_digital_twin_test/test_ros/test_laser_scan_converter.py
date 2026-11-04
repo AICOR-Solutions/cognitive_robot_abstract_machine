@@ -111,6 +111,33 @@ def test_converted_scan_carries_the_pattern_the_message_declares(
     )
 
 
+@pytest.mark.parametrize(
+    "invalid_range",
+    [laser_scan().range_min / 2, laser_scan().range_max * 2, float("nan")],
+    ids=["below_range_min", "above_range_max", "nan"],
+)
+def test_a_beam_without_a_valid_measurement_hit_nothing(
+    world_with_laser_body, invalid_range
+):
+    reading = LaserScanToSemDTConverter.convert(
+        laser_scan(ranges=[RANGES[0], invalid_range, RANGES[2]]),
+        world_with_laser_body,
+    )
+
+    assert reading.ranges.tolist() == [RANGES[0], np.inf, RANGES[2]]
+
+
+def test_beams_measuring_exactly_the_range_limits_keep_their_distances(
+    world_with_laser_body,
+):
+    scan = laser_scan()
+    scan.ranges = [scan.range_min, RANGES[1], scan.range_max]
+
+    reading = LaserScanToSemDTConverter.convert(scan, world_with_laser_body)
+
+    assert reading.ranges.tolist() == np.asarray(scan.ranges, dtype=float).tolist()
+
+
 def test_scan_whose_range_count_disagrees_with_its_angles_is_rejected(
     world_with_laser_body,
 ):
@@ -197,7 +224,6 @@ def test_subscribed_source_reports_the_reading_of_its_latest_scan(
     np.testing.assert_array_equal(reading.ranges, expected.ranges)
     assert reading.scan_pattern == expected.scan_pattern
     assert reading.reference_frame is expected.reference_frame
-
 
 
 def test_a_subscribed_source_reports_a_scan_without_changing_the_lidar(

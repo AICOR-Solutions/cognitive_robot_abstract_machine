@@ -4,7 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from typing_extensions import Any, ClassVar, Dict, Generic, Self, TypeVar
+from typing_extensions import Any, ClassVar, Generic, Self, TypeVar
 
 import krrood.symbolic_math.symbolic_math as sm
 from krrood.adapters.json_serializer import SubclassJSONSerializer
@@ -17,7 +17,10 @@ from semantic_digital_twin.exceptions import (
     InvalidConnectionLimits,
     MimicDofLimitOverwriteError,
 )
-from semantic_digital_twin.spatial_types.derivatives import Derivatives, DerivativeMap
+from semantic_digital_twin.world_description.derivatives import (
+    Derivatives,
+    DerivativeMap,
+)
 
 
 class DegreeOfFreedomVariableJSONKey(StrEnum):
@@ -57,7 +60,7 @@ class DegreeOfFreedomVariable(sm.FloatVariable):
     def resolve(self) -> float:
         return self.dof._world.state[self.dof.id][self.derivative]
 
-    def _value_to_json(self, **kwargs) -> Dict[str, Any]:
+    def _value_to_json(self, **kwargs) -> dict[str, Any]:
         result = {}
         WorldEntityReference(DegreeOfFreedomVariableJSONKey.DEGREE_OF_FREEDOM).write(
             result, self.dof
@@ -65,7 +68,7 @@ class DegreeOfFreedomVariable(sm.FloatVariable):
         return result
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         dof = WorldEntityReference(
             DegreeOfFreedomVariableJSONKey.DEGREE_OF_FREEDOM
         ).resolve(data, **kwargs)
@@ -130,6 +133,17 @@ class DegreeOfFreedomLimits(Generic[T]):
     def __post_init__(self):
         self.lower = self.lower or DerivativeMap()
         self.upper = self.upper or DerivativeMap()
+
+    def validate_position_range(self, degree_of_freedom_name: PrefixedName) -> None:
+        """
+        :param degree_of_freedom_name: The degree of freedom these limits belong to.
+        :raises InvalidConnectionLimits: If the lower position limit lies above the
+            upper one.
+        """
+        lower = self.lower.position
+        upper = self.upper.position
+        if lower is not None and upper is not None and lower > upper:
+            raise InvalidConnectionLimits(degree_of_freedom_name, self)
 
     @classmethod
     def from_position_range_and_speed(
@@ -202,10 +216,7 @@ class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
 
     def __post_init__(self):
         self.limits = self.limits or DegreeOfFreedomLimits()
-        lower = self.limits.lower.position
-        upper = self.limits.upper.position
-        if lower is not None and upper is not None and lower > upper:
-            raise InvalidConnectionLimits(self.name, self.limits)
+        self.limits.validate_position_range(self.name)
 
     def create_variables(self):
         """

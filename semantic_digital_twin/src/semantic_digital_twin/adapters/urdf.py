@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-from typing_extensions import Dict, Optional, Union, List
 from urdf_parser_py import urdf as urdfpy
 from xacro import process_file
 
@@ -11,14 +10,14 @@ from semantic_digital_twin.adapters.package_resolver import (
     CompositePathResolver,
     PathResolver,
 )
-from semantic_digital_twin.adapters.world_model_parser import WorldModelParser
+from semantic_digital_twin.world_source import WorldModelParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     NegativeConnectionVelocity,
     MissingURDFJointAxisError,
     ZeroLengthURDFJointAxisError,
 )
-from semantic_digital_twin.spatial_types.spatial_types import (
+from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
     RotationMatrix,
@@ -48,6 +47,7 @@ from semantic_digital_twin.world_description.geometry import (
     Mesh,
     Scale,
     Color,
+    Shape,
 )
 from semantic_digital_twin.world_description.inertial_properties import (
     Inertial,
@@ -66,7 +66,7 @@ connection_type_map = {  # 'unknown': JointType.UNKNOWN,
 }
 
 
-def urdf_joint_axis(urdf_joint: urdfpy.Joint) -> List[float]:
+def urdf_joint_axis(urdf_joint: urdfpy.Joint) -> list[float]:
     """
     The axis a URDF joint moves along, as the unit vector the connections expect.
 
@@ -142,7 +142,7 @@ class URDFParser(WorldModelParser):
     The URDF string.
     """
 
-    prefix: Optional[str] = None
+    prefix: str | None = None
     """
     The prefix for every name used in this world.
     """
@@ -162,8 +162,8 @@ class URDFParser(WorldModelParser):
     def from_file(
         cls,
         file_path: str,
-        prefix: Optional[str] = None,
-        path_resolver: Optional[PathResolver] = None,
+        prefix: str | None = None,
+        path_resolver: PathResolver | None = None,
         use_visual_as_collision_backup: bool = False,
     ) -> URDFParser:
         if file_path.endswith(".xacro"):
@@ -193,8 +193,8 @@ class URDFParser(WorldModelParser):
     def from_xacro(
         cls,
         xacro_path: str,
-        prefix: Optional[str] = None,
-        mappings: Optional[Dict[str, str]] = None,
+        prefix: str | None = None,
+        mappings: dict[str, str] | None = None,
         use_visual_as_collision_backup: bool = False,
     ) -> URDFParser:
         """
@@ -219,7 +219,7 @@ class URDFParser(WorldModelParser):
             use_visual_as_collision_backup=use_visual_as_collision_backup,
         )
 
-    def parse(self) -> World:
+    def create_world(self) -> World:
         for joint in self.parsed.joints:
             if connection_type_map.get(joint.type) in (
                 RevoluteConnection,
@@ -377,7 +377,7 @@ class URDFParser(WorldModelParser):
             body.inertial = inertial
         return body
 
-    def parse_inertial(self, link: urdfpy.Link, body: Body) -> Optional[Inertial]:
+    def parse_inertial(self, link: urdfpy.Link, body: Body) -> Inertial | None:
         """
         Parses the inertial properties of a URDF link.
 
@@ -416,7 +416,7 @@ class URDFParser(WorldModelParser):
 
     def parse_geometry(
         self,
-        geometry: Union[List[urdfpy.Collision], List[urdfpy.Visual]],
+        geometry: list[urdfpy.Collision] | list[urdfpy.Visual],
         body: Body,
     ) -> ShapeCollection:
         """
@@ -427,68 +427,66 @@ class URDFParser(WorldModelParser):
         :return: A List of shapes corresponding to the URDF geometry.
         """
         res = []
-        material_dict = dict(
-            zip(
-                [material.name for material in self.parsed.materials],
-                [
-                    material.color.rgba if material.color else None
-                    for material in self.parsed.materials
-                ],
-            )
-        )
         for i, geom in enumerate(geometry):
             params = (*(geom.origin.xyz + geom.origin.rpy),) if geom.origin else ()
             origin_transform = HomogeneousTransformationMatrix.from_xyz_rpy(
                 *params, reference_frame=body
             )
             if isinstance(geom.geometry, urdfpy.Box):
-                color = (
-                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
-                    if hasattr(geom, "material") and geom.material
-                    else Color(1, 1, 1, 1)
-                )
-                res.append(
-                    Box(
-                        origin=origin_transform,
-                        scale=Scale(*geom.geometry.size),
-                        color=color,
-                    )
-                )
+                shape = Box(origin=origin_transform, scale=Scale(*geom.geometry.size))
             elif isinstance(geom.geometry, urdfpy.Sphere):
-                color = (
-                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
-                    if hasattr(geom, "material") and geom.material
-                    else Color(1, 1, 1, 1)
-                )
-                res.append(
-                    Sphere(
-                        origin=origin_transform,
-                        radius=geom.geometry.radius,
-                        color=color,
-                    )
-                )
+                shape = Sphere(origin=origin_transform, radius=geom.geometry.radius)
             elif isinstance(geom.geometry, urdfpy.Cylinder):
-                color = (
-                    Color(*material_dict.get(geom.material.name, (1, 1, 1, 1)))
-                    if hasattr(geom, "material") and geom.material
-                    else Color(1, 1, 1, 1)
-                )
-                res.append(
-                    Cylinder(
-                        origin=origin_transform,
-                        width=geom.geometry.radius * 2,
-                        height=geom.geometry.length,
-                        color=color,
-                    )
+                shape = Cylinder(
+                    origin=origin_transform,
+                    width=geom.geometry.radius * 2,
+                    height=geom.geometry.length,
                 )
             elif isinstance(geom.geometry, urdfpy.Mesh):
                 if geom.geometry.filename is None:
                     raise ValueError("Mesh geometry must have a filename.")
-                res.append(
-                    Mesh(
-                        origin=origin_transform,
-                        filename=self.path_resolver.resolve(geom.geometry.filename),
-                        scale=Scale(*(geom.geometry.scale or (1, 1, 1))),
-                    )
+                shape = Mesh(
+                    origin=origin_transform,
+                    filename=self.path_resolver.resolve(geom.geometry.filename),
+                    scale=Scale(*(geom.geometry.scale or (1, 1, 1))),
                 )
+            else:
+                continue
+            color = self.color_of(geom, shape)
+            if color is not None:
+                shape.color = color
+            res.append(shape)
         return ShapeCollection(res, reference_frame=body)
+
+    def color_of(
+        self, geometry_element: urdfpy.Visual | urdfpy.Collision, shape: Shape
+    ) -> Color | None:
+        """
+        :param geometry_element: A visual or collision element of the description.
+        :param shape: The shape parsed from the element.
+        :return: The color the element's material gives the shape: the material's own
+            color, else the color of the description's material of that name. ``None``
+            if the element gives it no color, as a collision element and an element
+            without a colored material do, and for a mesh whose file paints itself,
+            which keeps its own look as a viewer of the description shows it.
+        """
+        if not isinstance(geometry_element, urdfpy.Visual):
+            return None
+        material = geometry_element.material
+        if material is None:
+            return None
+        if material.color is not None:
+            color = Color.from_rgba(*material.color.rgba)
+        else:
+            named_colors = {
+                named.name: named.color
+                for named in self.parsed.materials
+                if named.color is not None
+            }
+            if material.name not in named_colors:
+                return None
+            color = Color.from_rgba(*named_colors[material.name].rgba)
+        # The mesh's file is read only when there is a color to give.
+        if isinstance(shape, Mesh) and shape.is_textured:
+            return None
+        return color

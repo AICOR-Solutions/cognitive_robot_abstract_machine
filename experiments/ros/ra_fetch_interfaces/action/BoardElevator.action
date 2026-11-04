@@ -1,0 +1,24 @@
+# Hands the robot's base to the social navigation module, which drives the robot from
+# where it waits into the elevator's cabin, around the persons near the elevator. The
+# module drives the base until it answers. Succeeds once the robot stands inside the
+# cabin; aborts if the robot could not board, standing wherever the module stopped it.
+
+# The robot's base.
+geometry_msgs/PoseStamped robot_pose
+
+# The middle of the doorway on the cabin's floor, its x-axis pointing into the cabin.
+geometry_msgs/PoseStamped doorway_pose
+
+# The cabin's depth from the doors to the back wall (x), its width along the doors (y)
+# and its height (z).
+geometry_msgs/Vector3 cabin_size
+
+# The persons inside the cabin.
+TrackedPerson[] persons_in_cabin
+
+# The persons in front of the cabin's doors on the robot's level.
+TrackedPerson[] persons_waiting
+---
+# Why the module gave the base back, for the log.
+string reason
+---

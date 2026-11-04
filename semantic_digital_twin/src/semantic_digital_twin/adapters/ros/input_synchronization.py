@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
-from typing_extensions import Dict, List, Tuple, Union
+from typing_extensions import Union
 
 from semantic_digital_twin.adapters.ros.latest_message_subscriber import (
     LatestMessageSubscriber,
@@ -16,13 +16,14 @@ from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
 from semantic_digital_twin.exceptions import (
     AlreadyTrackedByTfFrameError,
     ConnectionCannotBeTrackedByTfFrameError,
+    ConnectionNotTrackedByTfFrameError,
 )
 from semantic_digital_twin.input_synchronization import InputSynchronizer
 from semantic_digital_twin.robots.input_source import (
     BasePoseSource,
     JointPositionSource,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
     Connection6DoF,
@@ -139,7 +140,7 @@ class SubscribedJointPositionSource(
     whatever reads it.
     """
 
-    connections: List[ActiveConnection1DOF] = field(kw_only=True)
+    connections: list[ActiveConnection1DOF] = field(kw_only=True)
     """
     The connections of the part this source is attached to.
     """
@@ -186,19 +187,31 @@ class OdometrySynchronizer(TopicInputSynchronizer[Odometry]):
 
     connection: Union[OmniDrive, DifferentialDrive] = field(kw_only=True)
     """
-    The drive connection whose origin follows the odometry.
+    The drive connection that places its child at the odometry's pose.
+
+    .. note:: When the child is moved under another parent, such as a robot boarding an
+        elevator, the drive connection it gets there is followed instead.
     """
 
     def apply_message(self, message: Odometry) -> None:
+        """
+        Write the reported pose into the drive's degrees of freedom, which keep
+        describing the pose in the odometry frame after the drive was moved under
+        another parent.
+        """
         pose = message.pose.pose
-        self.connection.origin = HomogeneousTransformationMatrix.from_xyz_quaternion(
-            pos_x=pose.position.x,
-            pos_y=pose.position.y,
-            pos_z=pose.position.z,
-            quat_w=pose.orientation.w,
-            quat_x=pose.orientation.x,
-            quat_y=pose.orientation.y,
-            quat_z=pose.orientation.z,
+        drive = self.connection.child.parent_connection
+        drive.origin = (
+            drive.parent_T_connection_expression
+            @ HomogeneousTransformationMatrix.from_xyz_quaternion(
+                pos_x=pose.position.x,
+                pos_y=pose.position.y,
+                pos_z=pose.position.z,
+                quat_w=pose.orientation.w,
+                quat_x=pose.orientation.x,
+                quat_y=pose.orientation.y,
+                quat_z=pose.orientation.z,
+            )
         )
 
 
@@ -215,7 +228,7 @@ class TfFrameSynchronizer(InputSynchronizer, HasROS2Node):
     Writes tf transforms into 6 degree of freedom connections.
     """
 
-    connection_to_frames: Dict[Connection6DoF, Tuple[str, str]] = field(
+    connection_to_frames: dict[Connection6DoF, tuple[str, str]] = field(
         init=False, default_factory=dict
     )
     """
@@ -249,6 +262,18 @@ class TfFrameSynchronizer(InputSynchronizer, HasROS2Node):
         if not isinstance(connection, Connection6DoF):
             raise ConnectionCannotBeTrackedByTfFrameError(connection=connection)
         self.connection_to_frames[connection] = (tf_parent_frame, tf_child_frame)
+
+    def untrack(self, connection: Connection6DoF) -> None:
+        """
+        Stop writing tf transforms into ``connection``, which keeps its last origin.
+
+        :raises ConnectionNotTrackedByTfFrameError: If the connection is not tracked.
+        """
+        if connection not in self.connection_to_frames:
+            raise ConnectionNotTrackedByTfFrameError(
+                connection_name=str(connection.name)
+            )
+        del self.connection_to_frames[connection]
 
     def apply(self) -> bool:
         for connection, (

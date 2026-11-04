@@ -9,7 +9,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Handle,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
@@ -55,16 +55,18 @@ def _box_body(name: str, scale: Scale, x: float = 0.0) -> Body:
 @pytest.fixture
 def door() -> Door:
     """
-    A door whose box-shaped body has a box-shaped handle as a body of its own.
+    A door whose box-shaped leaf has a box-shaped handle as a body of its own.
     """
-    body = _box_body("door", BODY_SCALE)
+    frame = Body(name=PrefixedName("door_frame"))
+    leaf = _box_body("door", BODY_SCALE)
     handle_body = _box_body("handle", HANDLE_SCALE, x=HANDLE_OFFSET)
-    door = Door(root=body)
+    door = Door(root=frame)
     handle = Handle(root=handle_body)
     world = World()
     with world.modify_world():
-        world.add_kinematic_structure_entity(body)
-        world.add_connection(FixedConnection(parent=body, child=handle_body))
+        world.add_kinematic_structure_entity(frame)
+        world.add_connection(FixedConnection(parent=frame, child=leaf))
+        world.add_connection(FixedConnection(parent=leaf, child=handle_body))
         world.add_semantic_annotation(door)
         world.add_semantic_annotation(handle)
         door.add(handle)
@@ -72,7 +74,7 @@ def door() -> Door:
 
 
 def test_the_mass_of_an_annotation_includes_its_parts(door):
-    door.root.inertial = Inertial(mass=0.3)
+    door.leaf.inertial = Inertial(mass=0.3)
     door.handle.root.inertial = Inertial(mass=0.1)
 
     assert door.mass == pytest.approx(0.4)

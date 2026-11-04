@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
-from giskardpy.executor import Executor
+from cramph.executor import StatechartExecutor
 from giskardpy.middleware.ros2.action_server import ActionServerHandler
 from giskardpy.middleware.ros2.client_presence import ClientWatchdog
 from giskardpy.middleware.ros2.command_publishing import CommandPublisher
@@ -16,6 +15,7 @@ from giskardpy.middleware.ros2.feedback_publisher import ActionFeedbackPublisher
 from giskardpy.middleware.ros2.cycle_counter import CycleCounter
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from giskardpy.middleware.ros2.world_updates import IncomingWorldUpdates
+from giskardpy.motion_control import MotionControl
 from semantic_digital_twin.world import World
 
 
@@ -28,7 +28,7 @@ class ControlLoop:
     resulting velocities back to the robot.
     """
 
-    executor: Executor
+    executor: StatechartExecutor
     """
     Computes the next command from the motion statechart.
     """
@@ -62,12 +62,12 @@ class ControlLoop:
     """
     Delivers the world updates of other processes at the start of every cycle.
 
-    State updates are applied right away; a model change would invalidate the compiled
-    motion statechart, so it terminates the motion and is applied by the idle loop
-    instead.
+    State updates are applied right away. A model modification waits until the robot is
+    at rest, and the motion statechart then compiles again and goes on. A reload of the
+    whole world model terminates the motion and is applied by the idle loop instead.
     """
 
-    command_publishers: List[CommandPublisher] = field(default_factory=list)
+    command_publishers: list[CommandPublisher] = field(default_factory=list)
     """
     Sends the computed velocities to the robot at the end of every cycle.
     """
@@ -85,7 +85,7 @@ class ControlLoop:
         """
         while True:
             self.run_cycle()
-            if self.executor.motion_statechart.is_end_motion():
+            if self.executor.statechart.is_ended():
                 return
             self.executor.pacer.sleep()
 
@@ -95,8 +95,8 @@ class ControlLoop:
 
         :raises ExecutionCanceledException: If the goal was canceled.
         :raises ClientDisconnectedError: If the client of the goal disconnected.
-        :raises WorldModelModifiedDuringMotionError: If another process modified the
-            world model.
+        :raises WorldModelModifiedDuringMotionError: If another process is modifying
+            this world or reloads the world model.
         """
         self.apply_world_updates()
         self.inputs.synchronize()
@@ -109,16 +109,19 @@ class ControlLoop:
 
     def apply_world_updates(self) -> None:
         """
-        Take over the state of other processes and stop on a model change.
+        Take over the state of other processes, and hand over their model modifications
+        to be applied once the robot is at rest.
 
-        :raises WorldModelModifiedDuringMotionError: If another process modified the
-            world model, or is in the middle of doing so.
+        :raises WorldModelModifiedDuringMotionError: If another process is in the middle
+            of modifying this world, or wants to replace the whole world model.
         """
-        if self.world.world_is_being_modified:
+        if self.world.world_is_being_modified or self.world_updates.has_pending_reload:
             raise WorldModelModifiedDuringMotionError()
         self.world_updates.apply_state_updates()
-        if self.world_updates.has_pending_model_change:
-            raise WorldModelModifiedDuringMotionError()
+        if self.world_updates.has_pending_model_modification:
+            self.executor.statechart.compiler.run_once_held_still(
+                self.world_updates.apply_model_modifications
+            )
 
     def raise_if_canceled(self) -> None:
         """
@@ -155,5 +158,5 @@ class ControlLoop:
         """
         for command_publisher in self.command_publishers:
             command_publisher.stop()
-        self.executor.set_velocity_acceleration_jerk_to_zero()
+        MotionControl.set_velocity_acceleration_jerk_to_zero(self.world)
         self.world.notify_state_change()
