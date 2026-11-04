@@ -4,9 +4,10 @@ Tiago is told which room of the ARISE office to drive to and drives there.
 Riding the elevator, it asks the people at it whether it may board, and waits for the
 next cabin while they say no.
 
-The room arrives as a ROS4HRI move-to intent on ``/intents``, the answer through the
-ROS4HRI ``ask`` skill on ``/skill/ask``; on the real TIAGo both come from PAL's
-communication hub. The people at the elevator come from a ROS4HRI person manager.
+The room arrives as a ROS4HRI move-to intent on ``/intents``. The question is said
+through the ROS4HRI ``say`` skill and the answer is read from the recognized speech; on
+the real TIAGo these come from PAL's communication stack. The people at the elevator
+come from a ROS4HRI person manager.
 """
 
 from __future__ import annotations
@@ -95,7 +96,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         context.require_extension(ChildChooserAccess).choosers.append(
             AskToBoardChooser(
                 persons_at_elevator=self.persons_at_elevator,
-                asker=BoardingQuestionAsker(self.ros_node),
+                asker=BoardingQuestionAsker(self.ros_node, robot.text_to_speech_action),
             )
         )
         self.room_requests = RoomRequests(

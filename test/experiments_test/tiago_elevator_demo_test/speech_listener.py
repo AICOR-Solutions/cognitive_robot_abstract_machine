@@ -1,7 +1,7 @@
 import threading
 from dataclasses import dataclass, field
 
-from rclpy.action import ActionServer
+from rclpy.action import ActionServer, GoalResponse
 from rclpy.action.server import ServerGoalHandle
 from rclpy.node import Node
 from rosidl_runtime_py.utilities import get_action
@@ -49,7 +49,14 @@ class SpeechListener:
             get_action(SaySkillInterface.ACTION_TYPE),
             self.action_name,
             execute_callback=self._hear,
+            goal_callback=self.decide,
         )
+
+    def decide(self, goal: object) -> GoalResponse:
+        """
+        :return: Whether a sentence is accepted.
+        """
+        return GoalResponse.ACCEPT
 
     def _hear(self, goal_handle: ServerGoalHandle) -> object:
         """

@@ -1,13 +1,17 @@
 import json
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("communication_skills")
 
+from action_msgs.msg import GoalStatus
+from communication_skills.action import Say
 from geometry_msgs.msg import TransformStamped
 from hri_msgs.msg import IdsList
+from rclpy.task import Future
 
 from coraplex.plans.context_extensions import RobotAccess
 from cramph.composites import ChildChooserAccess
@@ -23,17 +27,15 @@ from experiments.tiago_room_request_demo.boarding_permission import (
     AskToBoardChooser,
     AskToBoardNode,
     BoardingAnswerInProgress,
-    BoardingAnswerKey,
     BoardingConversation,
     BoardingQuestion,
     BoardingQuestionAsker,
-    CommunicationSkill,
     NavigateToRoomAskingToBoardAction,
 )
 from experiments.tiago_room_request_demo.exceptions import (
-    AskSkillNotServedError,
     BoardingPermissionNotGrantedError,
     ElevatorCabinTimedOutError,
+    SaySkillNotServedError,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
 from krrood.adapters.json_serializer import from_json, to_json
@@ -52,7 +54,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.world import World
 
 from .next_elevator import NextElevator
-from .scripted_ask import AskAnswer, ScriptedAsk, scripted_ask
+from .scripted_person import PersonAnswer, ScriptedPerson, scripted_person
 
 # %% people the person manager tracks
 
@@ -244,9 +246,9 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
     The people the person manager tracks.
     """
 
-    ask: ScriptedAsk | None = None
+    person: ScriptedPerson | None = None
     """
-    The skill whose refusals send the cabin off.
+    The person whose refusals send the cabin off.
     """
 
     maximum_boarding_attempts: int = 3
@@ -278,7 +280,7 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
             home_level=world.get_semantic_annotations_by_type(GroundFloor)[0],
             away_level=world.get_semantic_annotations_by_type(FirstFloor)[0],
         )
-        self.ask.after_refusal = self.next_elevator.start_round
+        self.person.after_refusal = self.next_elevator.start_round
         self.persons_at_elevator = PersonsAtElevator(
             node=self.ros_node,
             topic_name=Ros4HriTopic.TRACKED_PERSONS,
@@ -288,7 +290,7 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
         context.require_extension(ChildChooserAccess).choosers.append(
             AskToBoardChooser(
                 persons_at_elevator=self.persons_at_elevator,
-                asker=BoardingQuestionAsker(self.ros_node),
+                asker=BoardingQuestionAsker(self.ros_node, Tiago.text_to_speech_action),
             )
         )
         statechart = Statechart(context=context)
@@ -313,7 +315,7 @@ class RidingPastPeopleAtTheElevator(TiagoElevatorRideDemonstration):
 
 
 def riding_past(
-    ask: ScriptedAsk,
+    person: ScriptedPerson,
     people: list[PersonAtTheElevator],
     maximum_boarding_attempts: int = 3,
 ) -> RidingPastPeopleAtTheElevator:
@@ -323,7 +325,7 @@ def riding_past(
     return RidingPastPeopleAtTheElevator(
         used_robot=Tiago,
         people=people,
-        ask=ask,
+        person=person,
         maximum_boarding_attempts=maximum_boarding_attempts,
     )
 
@@ -344,51 +346,52 @@ def stands_in_the_east_office_upstairs(
 # %% boarding
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.NO]], indirect=True)
-def test_tiago_boards_without_asking_when_nobody_is_at_the_elevator(scripted_ask):
-    demonstration = riding_past(scripted_ask, people=[])
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.NO]], indirect=True)
+def test_tiago_boards_without_asking_when_nobody_is_at_the_elevator(scripted_person):
+    demonstration = riding_past(scripted_person, people=[])
 
     world = demonstration.run()
 
-    assert scripted_ask.goals == []
+    assert scripted_person.goals == []
     assert stands_in_the_east_office_upstairs(world, demonstration)
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.YES]], indirect=True)
-def test_tiago_asks_the_person_waiting_and_boards_once_allowed(scripted_ask):
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_tiago_asks_the_person_waiting_and_boards_once_allowed(scripted_person):
     person = person_waiting()
-    demonstration = riding_past(scripted_ask, people=[person])
+    demonstration = riding_past(scripted_person, people=[person])
 
     world = demonstration.run()
 
-    [goal] = scripted_ask.goals
+    [goal] = scripted_person.goals
     assert goal.person_id == person.person_id
-    assert goal.question == BoardingQuestion.ASKING_TO_BOARD
-    assert set(json.loads(goal.answers_schema)) == {BoardingAnswerKey.MAY_BOARD}
+    assert goal.input == BoardingQuestion.ASKING_TO_BOARD
     assert stands_in_the_east_office_upstairs(world, demonstration)
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.NO, AskAnswer.YES]], indirect=True)
-def test_tiago_asks_again_once_the_next_cabin_arrived_after_a_refusal(scripted_ask):
-    demonstration = riding_past(scripted_ask, people=[person_waiting()])
+@pytest.mark.parametrize(
+    "scripted_person", [[PersonAnswer.NO, PersonAnswer.YES]], indirect=True
+)
+def test_tiago_asks_again_once_the_next_cabin_arrived_after_a_refusal(scripted_person):
+    demonstration = riding_past(scripted_person, people=[person_waiting()])
 
     world = demonstration.run()
 
-    assert len(scripted_ask.goals) == 2
+    assert len(scripted_person.goals) == 2
     [cabin_came_back] = demonstration.next_elevator.return_times
-    assert scripted_ask.answer_times[0] < cabin_came_back
-    assert cabin_came_back < scripted_ask.answer_times[1]
+    assert scripted_person.answer_times[0] < cabin_came_back
+    assert cabin_came_back < scripted_person.answer_times[1]
     assert stands_in_the_east_office_upstairs(world, demonstration)
 
 
 # %% not boarding
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.NO]], indirect=True)
-def test_tiago_gives_up_after_being_refused_every_time(scripted_ask):
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.NO]], indirect=True)
+def test_tiago_gives_up_after_being_refused_every_time(scripted_person):
     maximum_boarding_attempts = 2
     demonstration = riding_past(
-        scripted_ask,
+        scripted_person,
         people=[person_waiting()],
         maximum_boarding_attempts=maximum_boarding_attempts,
     )
@@ -396,7 +399,7 @@ def test_tiago_gives_up_after_being_refused_every_time(scripted_ask):
     with pytest.raises(BoardingPermissionNotGrantedError):
         demonstration.run()
 
-    assert len(scripted_ask.goals) == maximum_boarding_attempts
+    assert len(scripted_person.goals) == maximum_boarding_attempts
     world = demonstration.plan_world
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
     assert (
@@ -405,18 +408,16 @@ def test_tiago_gives_up_after_being_refused_every_time(scripted_ask):
     )
 
 
-@pytest.mark.parametrize(
-    "scripted_ask", [[AskAnswer.UNANSWERED], [AskAnswer.REJECT]], indirect=True
-)
-def test_anything_but_a_yes_counts_as_a_refusal(scripted_ask):
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.REJECT]], indirect=True)
+def test_a_rejected_question_counts_as_a_refusal(scripted_person):
     demonstration = riding_past(
-        scripted_ask, people=[person_waiting()], maximum_boarding_attempts=1
+        scripted_person, people=[person_waiting()], maximum_boarding_attempts=1
     )
 
     with pytest.raises(BoardingPermissionNotGrantedError):
         demonstration.run()
 
-    assert scripted_ask.refusals == 1
+    assert scripted_person.refusals == 1
 
 
 # %% asking a person
@@ -424,7 +425,12 @@ def test_anything_but_a_yes_counts_as_a_refusal(scripted_ask):
 
 @pytest.fixture
 def boarding_question_asker(rclpy_node):
-    asker = BoardingQuestionAsker(rclpy_node, server_timeout=0.2, answer_timeout=0.5)
+    asker = BoardingQuestionAsker(
+        rclpy_node,
+        Tiago.text_to_speech_action,
+        server_timeout=0.2,
+        answer_timeout=0.5,
+    )
     yield asker
     asker.close()
 
@@ -455,9 +461,13 @@ def wait_for_the_skill(asker: BoardingQuestionAsker, timeout: float = 5.0) -> No
     raise AssertionError(f"the skill was not served within {timeout} s")
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.KEEP_SILENT]], indirect=True)
-def test_a_person_who_does_not_answer_in_time_does_not_agree(
-    scripted_ask, boarding_question_asker
+@pytest.mark.parametrize(
+    "scripted_person",
+    [[PersonAnswer.KEEP_SILENT], [PersonAnswer.UNCLEAR]],
+    indirect=True,
+)
+def test_a_person_who_gives_no_clear_answer_in_time_does_not_agree(
+    scripted_person, boarding_question_asker
 ):
     wait_for_the_skill(boarding_question_asker)
 
@@ -465,12 +475,12 @@ def test_a_person_who_does_not_answer_in_time_does_not_agree(
 
 
 @pytest.mark.parametrize(
-    "scripted_ask, expected_agreement",
-    [([AskAnswer.YES], True), ([AskAnswer.NO], False)],
-    indirect=["scripted_ask"],
+    "scripted_person, expected_agreement",
+    [([PersonAnswer.YES], True), ([PersonAnswer.NO], False)],
+    indirect=["scripted_person"],
 )
 def test_the_answer_of_a_person_decides_whether_they_agree(
-    scripted_ask, boarding_question_asker, expected_agreement
+    scripted_person, boarding_question_asker, expected_agreement
 ):
     wait_for_the_skill(boarding_question_asker)
 
@@ -478,6 +488,59 @@ def test_the_answer_of_a_person_decides_whether_they_agree(
         wait_for_the_answer(boarding_question_asker.ask("waiting"))
         is expected_agreement
     )
+
+
+# %% understanding what a person says
+
+
+def answer_after_the_question() -> BoardingAnswerInProgress:
+    """
+    :return: A question the robot has finished saying.
+    """
+    answer = BoardingAnswerInProgress(answer_timeout=60.0)
+    question_ended = Future()
+    question_ended.set_result(
+        SimpleNamespace(status=GoalStatus.STATUS_SUCCEEDED, result=Say.Result())
+    )
+    answer.on_result(question_ended)
+    return answer
+
+
+@pytest.mark.parametrize(
+    "sentence, expected_agreement",
+    [
+        ("yes", True),
+        ("Yes, please.", True),
+        ("sure", True),
+        ("no", False),
+        ("no thank you", False),
+        ("not now", False),
+        ("yes no", False),
+    ],
+)
+def test_what_a_person_says_decides_whether_they_agree(sentence, expected_agreement):
+    answer = answer_after_the_question()
+
+    answer.on_speech(sentence)
+
+    assert answer.poll() is expected_agreement
+
+
+@pytest.mark.parametrize("sentence", ["", "maybe later", "yesterday", "nobody knows"])
+def test_a_sentence_without_a_clear_answer_leaves_the_answer_open(sentence):
+    answer = answer_after_the_question()
+
+    answer.on_speech(sentence)
+
+    assert answer.poll() is None
+
+
+def test_speech_during_the_question_does_not_count_as_an_answer():
+    answer = BoardingAnswerInProgress(answer_timeout=60.0)
+
+    answer.on_speech("yes")
+
+    assert answer.poll() is None
 
 
 # %% the conversation going wrong
@@ -564,8 +627,8 @@ def test_the_plan_ends_when_nothing_serves_the_skill(
     child = conversation.advance()
 
     assert isinstance(child, AbortOnStart)
-    assert isinstance(child.failure, AskSkillNotServedError)
-    assert child.failure.action_name == CommunicationSkill.ASK
+    assert isinstance(child.failure, SaySkillNotServedError)
+    assert child.failure.action_name == conversation.asker.text_to_speech_action
     assert child.failure.timeout == conversation.asker.server_timeout
 
 
@@ -574,7 +637,7 @@ def test_the_plan_ends_when_nothing_serves_the_skill(
     [
         BoardingPermissionNotGrantedError(3),
         ElevatorCabinTimedOutError(0.5),
-        AskSkillNotServedError(CommunicationSkill.ASK, 0.5),
+        SaySkillNotServedError(Tiago.text_to_speech_action, 0.5),
     ],
     ids=lambda failure: type(failure).__name__,
 )

@@ -27,8 +27,8 @@ class BoardingPermissionNotGrantedError(DataclassException):
 
     def suggest_correction(self) -> str:
         return (
-            "Allow the robot more attempts, or check that the communication hub "
-            "understands the answers of the people at the elevator."
+            "Allow the robot more attempts, or check that the speech recognition hears "
+            "a yes or no from the people at the elevator."
         )
 
 
@@ -52,9 +52,9 @@ class ElevatorCabinTimedOutError(DataclassException):
 
 
 @dataclass
-class AskSkillNotServedError(DataclassException):
+class SaySkillNotServedError(DataclassException):
     """
-    Raised when the robot has somebody to ask and the ``ask`` skill is not served.
+    Raised when the robot has somebody to ask and the ``say`` skill is not served.
     """
 
     action_name: str
@@ -73,7 +73,7 @@ class AskSkillNotServedError(DataclassException):
     def suggest_correction(self) -> str:
         return (
             "Check that the communication hub runs on the robot's ROS domain and serves "
-            "the ask skill."
+            "the say skill."
         )
 
 

@@ -31,7 +31,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.world import World
 
 from .intent_publisher import RepeatedIntent
-from .scripted_ask import AskAnswer, scripted_ask
+from .scripted_person import PersonAnswer, scripted_person
 
 # %% fixtures
 
@@ -148,14 +148,14 @@ def test_a_room_the_office_does_not_have_is_said_to_be_unknown(
 # %% the demonstration
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.YES]], indirect=True)
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 @pytest.mark.parametrize(
     "repeated_intent",
     [(Intent.MOVE_TO, east_office_upstairs())],
     indirect=True,
 )
 def test_tiago_drives_to_the_room_it_was_told(
-    scripted_ask, repeated_intent, tiago_speech, arise_office
+    scripted_person, repeated_intent, arise_office
 ):
     demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
 
@@ -164,26 +164,26 @@ def test_tiago_drives_to_the_room_it_was_told(
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
     target_room = arise_office.get_room(world, FirstFloor, AriseOfficeRoom.EAST_OFFICE)
     assert Floor.under(robot.root) is target_room.floor
-    [first_sentence, *_] = tiago_speech.wait_for_sentences(1)
+    [first_sentence, *_] = scripted_person.wait_for_sentences(1)
     assert first_sentence == RoomRequestAnnouncement.HEADING_TO.verbalize(
         repeated_intent.goal
     )
 
 
-@pytest.mark.parametrize("scripted_ask", [[AskAnswer.YES]], indirect=True)
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 @pytest.mark.parametrize(
     "repeated_intent",
     [(Intent.MOVE_TO, east_office_upstairs())],
     indirect=True,
 )
 def test_tiago_asks_the_person_the_person_manager_tracks_at_the_elevator(
-    scripted_ask, repeated_intent, person_manager_tracking_someone_waiting
+    scripted_person, repeated_intent, person_manager_tracking_someone_waiting
 ):
     demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
 
     demonstration.run()
 
-    [goal] = scripted_ask.goals
+    [goal] = scripted_person.goals
     assert goal.person_id == person_manager_tracking_someone_waiting
 
 

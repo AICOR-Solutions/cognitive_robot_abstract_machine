@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from action_msgs.msg import GoalStatus
-from communication_skills.action import Ask, Say
+from communication_skills.action import Say
 from json_msgs.action import JsonAction
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -41,10 +41,10 @@ from experiments.ra_fetch_elevator_people.elevator_people import Ros4HriTopic
 from experiments.tiago_arise_gazebo.elevator_drive import SimulatorTopic
 from experiments.tiago_room_request_demo.boarding_permission import (
     BoardingQuestionAsker,
-    CommunicationSkill,
+    Ros4HriVoiceTopic,
 )
 from experiments.tiago_room_request_demo.demo import TiagoRoomRequestDemonstration
-from experiments.tiago_room_request_demo.exceptions import AskSkillNotServedError
+from experiments.tiago_room_request_demo.exceptions import SaySkillNotServedError
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
 from experiments.tiago_room_request_demo.room_request import (
     Ros4HriInteractionTopic,
@@ -135,9 +135,10 @@ def actions_of_the_demonstration() -> list[RequiredAction]:
     """
     return [
         RequiredAction(
-            Tiago.text_to_speech_action, Say, [Stage.SAY, Stage.INTENT, Stage.DRIVE]
+            Tiago.text_to_speech_action,
+            Say,
+            [Stage.SAY, Stage.ASK, Stage.INTENT, Stage.DRIVE],
         ),
-        RequiredAction(CommunicationSkill.ASK, Ask, [Stage.ASK, Stage.DRIVE]),
         RequiredAction(GiskardAction.COMMAND, JsonAction, [Stage.SAY, Stage.DRIVE]),
     ]
 
@@ -149,6 +150,9 @@ def topics_of_the_demonstration() -> list[RequiredTopic]:
     return [
         RequiredTopic(
             Ros4HriTopic.TRACKED_PERSONS, [Stage.PEOPLE, Stage.ASK, Stage.DRIVE]
+        ),
+        RequiredTopic(
+            Ros4HriVoiceTopic.ANONYMOUS_SPEAKER_SPEECH, [Stage.ASK, Stage.DRIVE]
         ),
         RequiredTopic(Ros4HriInteractionTopic.INTENTS, [Stage.INTENT, Stage.DRIVE]),
         RequiredTopic(TiagoTopic.LIDAR, [Stage.DRIVE]),
@@ -398,13 +402,15 @@ class RealTiagoCheck:
             tracked = persons.latest_message.ids if persons.latest_message else []
             person_id = tracked[0] if tracked else ""
             persons.close()
-        print(f"Asking {person_id or 'anybody'}. Answer the robot now.")
-        asker = BoardingQuestionAsker(self.node)
+        print(
+            f"Asking {person_id or 'anybody'}. Say yes or no once the robot finished."
+        )
+        asker = BoardingQuestionAsker(self.node, Tiago.text_to_speech_action)
         deadline = time.monotonic() + asker.server_timeout
         while not asker.is_served:
             if time.monotonic() > deadline:
-                raise AskSkillNotServedError(
-                    CommunicationSkill.ASK, asker.server_timeout
+                raise SaySkillNotServedError(
+                    Tiago.text_to_speech_action, asker.server_timeout
                 )
             time.sleep(0.1)
         answer = asker.ask(person_id)
