@@ -301,16 +301,23 @@ class _CancelBecauseExternalCollisionViolated(_CancelBecauseCollisionViolated):
 @dataclass(eq=False, repr=False)
 class UpdateTemporaryCollisionRules(MotionStatechartNode):
     """
-    Updates the temporary collision rules for the robot.
+    Updates the temporary collision rules for the robot until the motion is over.
     """
 
     temporary_rules: list[CollisionRule] = field(kw_only=True)
     collision_matrix: CollisionMatrix = field(init=False)
+    rules_before_start: list[CollisionRule] | None = field(init=False, default=None)
+    """
+    The temporary rules in force when this node first started, put back once the motion
+    is over, so the rules of one motion never carry over into the next.
+
+    ``None`` while the node has not started.
+    """
 
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
         # safe old rules
-        old_temporary_rules = context.collision_manager.temporary_rules
+        old_temporary_rules = list(context.collision_manager.temporary_rules)
 
         # compute collision matrix with new rules
         context.collision_manager.clear_temporary_rules()
@@ -326,9 +333,19 @@ class UpdateTemporaryCollisionRules(MotionStatechartNode):
         return artifacts
 
     def on_start(self, context: MotionStatechartContext):
+        if self.rules_before_start is None:
+            self.rules_before_start = list(context.collision_manager.temporary_rules)
         context.collision_manager.clear_temporary_rules()
         context.collision_manager.extend_temporary_rule(self.temporary_rules)
         context.collision_manager.set_collision_matrix(self.collision_matrix)
+
+    def cleanup(self, context: MotionStatechartContext):
+        if self.rules_before_start is None:
+            return
+        context.collision_manager.clear_temporary_rules()
+        context.collision_manager.extend_temporary_rule(self.rules_before_start)
+        context.collision_manager.update_collision_matrix()
+        self.rules_before_start = None
 
 
 @dataclass(eq=False, repr=False)
@@ -347,7 +364,7 @@ class SetInitialTemporaryCollisionRules(MotionStatechartNode):
     def build_artifacts(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
         # safe old rules
-        old_temporary_rules = context.collision_manager.temporary_rules
+        old_temporary_rules = list(context.collision_manager.temporary_rules)
 
         # compute collision matrix with new rules
         context.collision_manager.clear_temporary_rules()

@@ -286,11 +286,17 @@ class GiskardExecutable(Executable):
         This runs just before compilation rather than during parsing, because the
         execution type is only known once an
         :py:class:`~coraplex.execution_environment.ExecutionEnvironment` is entered.
+
+        Collision avoidance ends together with the motion's goal. The motion itself only
+        ends once the robot has come to rest, and with nothing left to hold the robot in
+        place, a buffer zone that the goal pressed into would otherwise push the robot
+        out of it on its own, unguided and at full speed.
         """
         end_trigger = self.root_node.goal_reached
         if GiskardExecutable.collision_avoidance:
-            self.motion_state_chart.add_node(ExternalCollisionAvoidance())
-            self.motion_state_chart.add_node(SelfCollisionAvoidance())
+            for avoidance in (ExternalCollisionAvoidance(), SelfCollisionAvoidance()):
+                avoidance.end_condition = end_trigger
+                self.motion_state_chart.add_node(avoidance)
 
         end_motion = EndMotion()
         end_motion.start_condition = end_trigger
