@@ -128,14 +128,11 @@ class IAIOffice:
         rooms, hallway = (
             [
                 PlacedRoom(
-                    f"room_{office_room.number}",
+                    office_room.number,
                     office_room.layout,
                     self.map_T_outline_frame(office_room.outline_frame),
                     room_type=office_room.room_type,
-                    cabin_names=[
-                        f"room_{cabin_number}"
-                        for cabin_number in office_room.cabin_numbers
-                    ],
+                    cabin_names=office_room.cabin_numbers,
                 )
                 for office_room in office_rooms
             ]

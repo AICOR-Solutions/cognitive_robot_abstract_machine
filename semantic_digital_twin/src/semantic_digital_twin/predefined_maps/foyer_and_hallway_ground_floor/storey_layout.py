@@ -674,7 +674,8 @@ class StoreyLayout:
         doorways.
 
         :param world: The world the storey is added to.
-        :param name: Prefix for the names of every entity the storey creates.
+        :param name: Prefix for the names of every entity the storey creates; a room
+            annotation carries it as the prefix of its room's own name.
         :param parent: The entity every floor attaches to. If None, ``world.root`` is
             used.
         :param parent_T_self: Placement of the storey's frame in ``parent``'s frame.
@@ -718,7 +719,7 @@ class StoreyLayout:
         hallway = Hallway(name=PrefixedName(f"{name}_hallway"), floor=hallway_floor)
         annotation_of = {
             room.name: room.room_type(
-                name=PrefixedName(f"{name}_{room.name}"), floor=floor_of[room]
+                name=PrefixedName(room.name, prefix=name), floor=floor_of[room]
             )
             for room in self.rooms
         }

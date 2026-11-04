@@ -18,6 +18,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from krrood_spatial_math.spatial_types import Point2
 from semantic_digital_twin.world import World
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 
 # %% fixtures
 
@@ -66,11 +67,7 @@ def test_every_room_takes_the_type_its_floor_plan_shows(iai_office_world):
         office_room.number
         for floor_plan in office.floor_plans
         for office_room in floor_plan.rooms
-        if type(
-            world.get_semantic_annotation_by_name(
-                f"office_{floor_plan.storey.name.lower()}_room_{office_room.number}"
-            )
-        )
+        if type(world.get_semantic_annotation_by_name(office_room.number))
         is not office_room.room_type
     ]
 
@@ -82,17 +79,31 @@ def test_every_bathroom_lists_the_cabins_its_floor_plan_shows(iai_office_world):
     office = IAIOffice()
 
     for floor_plan in office.floor_plans:
-        storey_name = f"office_{floor_plan.storey.name.lower()}"
         for office_room in floor_plan.rooms:
             if not office_room.cabin_numbers:
                 continue
-            bathroom = world.get_semantic_annotation_by_name(
-                f"{storey_name}_room_{office_room.number}"
-            )
-            assert [cabin.name.name for cabin in bathroom.cabins] == [
-                f"{storey_name}_room_{cabin_number}"
-                for cabin_number in office_room.cabin_numbers
-            ]
+            bathroom = world.get_semantic_annotation_by_name(office_room.number)
+            assert [
+                cabin.name.name for cabin in bathroom.cabins
+            ] == office_room.cabin_numbers
+
+
+# %% room names
+
+
+def test_every_room_is_named_by_its_number_on_its_storey(iai_office_world):
+    world, _ = iai_office_world
+    office = IAIOffice()
+
+    misnamed_rooms = [
+        office_room.number
+        for floor_plan in office.floor_plans
+        for office_room in floor_plan.rooms
+        if world.get_semantic_annotation_by_name(office_room.number).name
+        != PrefixedName(office_room.number, f"office_{floor_plan.storey.name.lower()}")
+    ]
+
+    assert misnamed_rooms == []
 
 
 def test_every_toilet_cabin_belongs_to_one_bathroom(iai_office_world):
@@ -132,6 +143,5 @@ def test_the_elevator_room_is_the_only_elevator_lobby(iai_office_world):
     world, _ = iai_office_world
 
     assert [
-        lobby.name.name
-        for lobby in world.get_semantic_annotations_by_type(ElevatorLobby)
-    ] == ["office_ground_floor_elevator_room"]
+        lobby.name for lobby in world.get_semantic_annotations_by_type(ElevatorLobby)
+    ] == [PrefixedName("elevator_room", "office_ground_floor")]

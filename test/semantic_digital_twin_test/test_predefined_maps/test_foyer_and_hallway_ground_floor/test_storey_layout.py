@@ -18,6 +18,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Wall,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point2
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
 
 # %% fixtures
@@ -108,7 +109,7 @@ def test_a_room_takes_its_room_type(bathroom_with_a_cabin):
     bathroom_with_a_cabin.spawn(world, "storey")
 
     assert [
-        type(world.get_semantic_annotation_by_name(f"storey_{room.name}"))
+        type(world.get_semantic_annotation_by_name(PrefixedName(room.name, "storey")))
         for room in bathroom_with_a_cabin.rooms
     ] == [room.room_type for room in bathroom_with_a_cabin.rooms]
 
@@ -118,8 +119,20 @@ def test_a_bathroom_lists_its_cabins(bathroom_with_a_cabin):
 
     bathroom_with_a_cabin.spawn(world, "storey")
 
-    bathroom = world.get_semantic_annotation_by_name("storey_bathroom")
-    assert bathroom.cabins == [world.get_semantic_annotation_by_name("storey_cabin")]
+    bathroom = world.get_semantic_annotation_by_name(PrefixedName("bathroom", "storey"))
+    assert bathroom.cabins == [
+        world.get_semantic_annotation_by_name(PrefixedName("cabin", "storey"))
+    ]
+
+
+def test_a_room_is_named_by_its_own_name_on_its_storey(bathroom_with_a_cabin):
+    world = World.create_with_root_body("map")
+
+    bathroom_with_a_cabin.spawn(world, "storey")
+
+    assert sorted(
+        room.name for room in world.get_semantic_annotations_by_type(Bathroom)
+    ) == [PrefixedName("bathroom", "storey")]
 
 
 def test_a_copy_of_the_world_keeps_each_bathrooms_cabins(bathroom_with_a_cabin):
@@ -128,9 +141,11 @@ def test_a_copy_of_the_world_keeps_each_bathrooms_cabins(bathroom_with_a_cabin):
 
     copied_world = deepcopy(world)
 
-    bathroom = copied_world.get_semantic_annotation_by_name("storey_bathroom")
+    bathroom = copied_world.get_semantic_annotation_by_name(
+        PrefixedName("bathroom", "storey")
+    )
     assert bathroom.cabins == [
-        copied_world.get_semantic_annotation_by_name("storey_cabin")
+        copied_world.get_semantic_annotation_by_name(PrefixedName("cabin", "storey"))
     ]
 
 
