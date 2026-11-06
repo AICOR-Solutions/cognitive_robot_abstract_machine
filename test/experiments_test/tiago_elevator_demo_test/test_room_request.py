@@ -33,6 +33,9 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.first_floor import (
     FirstFloorPlan,
 )
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.second_floor import (
+    SecondFloorPlan,
+)
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
     IAIOffice,
 )
@@ -121,6 +124,13 @@ def office_room_upstairs() -> OfficeRoom:
     :return: The room of the IAI office requested in the demonstration's tests.
     """
     return next(room for room in FirstFloorPlan().rooms if room.number == "1.85")
+
+
+def office_room_two_floors_up() -> OfficeRoom:
+    """
+    :return: A room of the IAI office on the second floor.
+    """
+    return next(room for room in SecondFloorPlan().rooms if room.number == "2.50")
 
 
 def east_office_upstairs() -> str:
@@ -305,6 +315,26 @@ def test_the_robot_asks_again_when_a_refused_room_is_requested_again(
 
 
 # %% the demonstration
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+@pytest.mark.parametrize(
+    "repeated_intent",
+    [(Intent.MOVE_TO, office_room_two_floors_up().spoken_name)],
+    indirect=True,
+)
+def test_the_elevator_takes_tiago_to_the_level_of_the_room_it_was_told(
+    scripted_person, repeated_intent
+):
+    demonstration = TiagoRoomRequestDemonstration(used_robot=Tiago)
+
+    world = demonstration.run()
+
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    target_room = world.get_semantic_annotation_by_name(
+        office_room_two_floors_up().number
+    )
+    assert Floor.under(robot.root) is target_room.floor
 
 
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)

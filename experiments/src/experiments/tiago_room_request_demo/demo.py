@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor
+from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor, KinematicallySimulatedPlanExecutor
 from coraplex.robot_plans.actions.core.speech import SayAction
 from cramph.composites import ChildChooserAccess, Sequence
 from cramph.context import StatechartContext
@@ -45,6 +45,7 @@ from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     Floor,
+    Level,
 )
 from semantic_digital_twin.world import World
 
@@ -102,7 +103,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Wait to be told a room and confirm it, then drive there, asking to board the
-        elevator.
+        elevator. A simulated elevator takes Tiago to the room's level.
 
         :raises NoRoomRequestedError: If nobody told a room the office has within
             :attr:`room_request_timeout`.
@@ -128,6 +129,10 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         self.requested_room = self.room_requests.wait_for_confirmed_room(
             self.room_request_timeout
         )
+        if self.elevator_operator is not None:
+            self.elevator_operator.floor = Level.under(
+                self.requested_room.room.floor.root
+            )
         # Every intent would take time from the updates of the world while the plan runs.
         self.room_requests.close()
         self.room_requests = None
@@ -169,7 +174,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         super().tear_down()
 
 
-def main(executor_type: type[PlanExecutor] = RealRobotPlanExecutor) -> None:
+def main(executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor) -> None:
     """
     Run the demonstration.
 
