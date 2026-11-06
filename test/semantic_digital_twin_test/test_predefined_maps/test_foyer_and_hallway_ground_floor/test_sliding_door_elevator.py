@@ -1,0 +1,95 @@
+import pytest
+
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.sliding_door_elevator import (
+    SlidingDoorElevator,
+)
+from semantic_digital_twin.world import World
+
+
+@pytest.fixture()
+def sliding_door_elevator() -> SlidingDoorElevator:
+    return SlidingDoorElevator()
+
+
+def test_opening_slides_each_door_away_from_the_middle_by_its_width(
+    sliding_door_elevator,
+):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+
+    def door_offsets() -> list[float]:
+        return [
+            float(world.compute_forward_kinematics_np(elevator.root, door.leaf)[1, 3])
+            for door in elevator.doors
+        ]
+
+    closed_offsets = door_offsets()
+    elevator.open()
+    opened_offsets = door_offsets()
+
+    door_width = sliding_door_elevator.scale.y / 2
+    assert [
+        opened - closed for opened, closed in zip(opened_offsets, closed_offsets)
+    ] == pytest.approx([-door_width, door_width])
+
+
+def test_cabin_and_doors_take_their_colors(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+    cabin_colors = {
+        shape.color
+        for shape in elevator.root.collision.shapes + elevator.root.visual.shapes
+    }
+    door_colors = {
+        shape.color
+        for door in elevator.doors
+        for shape in door.leaf.collision.shapes + door.leaf.visual.shapes
+    }
+    assert cabin_colors == {sliding_door_elevator.cabin_color}
+    assert door_colors == {sliding_door_elevator.door_color}
+
+
+def test_cabin_travels_from_its_lowest_stop_up_by_its_travel_height():
+    sliding_door_elevator = SlidingDoorElevator(travel_height=3.0)
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+    limits = elevator.movable_joint.dof.limits
+    assert (limits.lower.position, limits.upper.position) == (
+        0.0,
+        sliding_door_elevator.travel_height,
+    )
+
+
+def test_cabin_weighs_its_mass(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+    assert elevator.root.inertial.mass == sliding_door_elevator.cabin_mass
+
+
+def test_a_servo_drives_the_cabin_with_the_drive_gains(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+
+    [servo] = [
+        actuator
+        for actuator in world.actuators
+        if elevator.movable_joint.raw_dof in actuator.dofs
+    ]
+
+    assert servo.gains is sliding_door_elevator.drive_servo
+
+
+def test_a_servo_drives_each_door_with_the_door_gains(sliding_door_elevator):
+    world = World.create_with_root_body("root")
+    elevator = sliding_door_elevator.spawn(world, "elevator")
+
+    door_servos = [
+        actuator
+        for door in elevator.doors
+        for actuator in world.actuators
+        if door.movable_joint.raw_dof in actuator.dofs
+    ]
+
+    assert [servo.gains for servo in door_servos] == [
+        sliding_door_elevator.door_servo
+    ] * len(elevator.doors)

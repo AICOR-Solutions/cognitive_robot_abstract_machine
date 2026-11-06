@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from typing_extensions import TYPE_CHECKING, Tuple, Type
+from typing_extensions import TYPE_CHECKING
 
-from krrood.exceptions import DataclassException
+from probabilistic_model.exceptions import ProbabilisticModelException
 
 if TYPE_CHECKING:
     from probabilistic_model.probabilistic_circuit.tensorized.inner_layer.base import (
@@ -14,39 +14,13 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class NumberOfWeightsMismatchError(DataclassException, ValueError):
-    """
-    Exception raised when a mixture does not get exactly one weight per component.
-    """
-
-    number_of_weights: int
-    """
-    The number of weights given.
-    """
-
-    number_of_components: int
-    """
-    The number of components to mix.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"Got {self.number_of_weights} weights for "
-            f"{self.number_of_components} components."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Pass exactly one weight per component."
-
-
-@dataclass
-class UndefinedCumulativeDistributionError(DataclassException, TypeError):
+class UndefinedCumulativeDistributionError(ProbabilisticModelException, TypeError):
     """
     Exception raised when the cumulative distribution function of a layer over an
     unordered variable is queried.
     """
 
-    layer_type: Type
+    layer_type: type
     """
     The type of the layer.
     """
@@ -62,7 +36,7 @@ class UndefinedCumulativeDistributionError(DataclassException, TypeError):
 
 
 @dataclass
-class NonPositiveScaleError(DataclassException, ValueError):
+class NonPositiveScaleError(ProbabilisticModelException, ValueError):
     """
     Exception raised when a layer has a scale that is not positive.
     """
@@ -80,26 +54,28 @@ class NonPositiveScaleError(DataclassException, ValueError):
 
 
 @dataclass
-class CopiesNotAlignedError(DataclassException, ValueError):
+class CopiesNotAlignedError(ProbabilisticModelException, ValueError):
     """
     Exception raised when copies of a layer graph that are to be stacked differ in their
     structure.
     """
 
-    copies: Tuple[Layer, ...]
+    copies: tuple[Layer, ...]
     """
     The layer at the same position in every copy of the layer graph, in the order of
     the copies.
     """
 
-    path: Tuple[int, ...]
+    path: tuple[int, ...]
     """
     The index of the child layer taken at every step from the roots of the copies down
-    to :attr:`copies`. Empty if the roots themselves differ.
+    to :attr:`copies`.
+
+    Empty if the roots themselves differ.
     """
 
     @property
-    def misaligned_copies(self) -> Tuple[int, ...]:
+    def misaligned_copies(self) -> tuple[int, ...]:
         """
         :return: The index of every copy whose layer differs from the one of the first
             copy in its type, its number of nodes or its number of child layers.

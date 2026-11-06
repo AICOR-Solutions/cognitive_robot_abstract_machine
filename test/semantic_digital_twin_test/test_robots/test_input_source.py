@@ -31,7 +31,7 @@ from semantic_digital_twin.robots.pr2 import (
 from semantic_digital_twin.robots.hsrb import HSRBBaseLidar
 from semantic_digital_twin.robots.robot_part_mixins import HasInputSource
 from semantic_digital_twin.robots.stretch import StretchBaseLidar
-from semantic_digital_twin.robots.tiago import TiagoBaseLidar
+from semantic_digital_twin.robots.tiago import TiagoBaseLidar, TiagoTopic
 from semantic_digital_twin.robots.tracy import (
     TracyLeftArm,
     TracyLeftGripperLeftFinger,
@@ -221,11 +221,13 @@ def test_the_pr2_base_reads_the_odometry_its_interface_names():
     assert PR2MobileBase.topic_name == PR2Topic.ODOMETRY
 
 
-@pytest.mark.parametrize(
-    "lidar", [PR2BaseLidar, HSRBBaseLidar, TiagoBaseLidar, StretchBaseLidar]
-)
+@pytest.mark.parametrize("lidar", [PR2BaseLidar, HSRBBaseLidar, StretchBaseLidar])
 def test_a_base_lidar_whose_scanner_topic_is_unknown_declares_none(lidar):
     assert lidar.topic_name is None
+
+
+def test_the_tiago_base_lidar_reads_the_scan_topic():
+    assert TiagoBaseLidar.topic_name == TiagoTopic.LIDAR
 
 
 def test_an_arm_of_a_robot_publishing_per_controller_reads_its_own_topic():

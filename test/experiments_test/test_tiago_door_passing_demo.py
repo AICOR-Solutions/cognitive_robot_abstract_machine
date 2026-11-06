@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 
-from coraplex.execution_environment import kinematically_simulated_robot
 from experiments.tiago_apartment_door_demo.demo import TiagoDoorPassingDemonstration
 from semantic_digital_twin.callbacks.callback import StateChangeCallback
 from semantic_digital_twin.robots.tiago import Tiago
@@ -56,9 +55,7 @@ def demonstration() -> TiagoDoorPassingDemonstration:
 
 @pytest.fixture
 def populated_world(apartment_meshes, demonstration) -> World:
-    world = demonstration.build_simulated_world()
-    demonstration.populate_scene(world)
-    return world
+    return demonstration.build_simulated_world()
 
 
 def test_the_scene_counts_as_populated_once_the_door_is_spawned(
@@ -98,10 +95,10 @@ def test_the_tiago_passes_the_door_and_comes_back(demonstration, populated_world
     recorder = DoorwayProgressRecorder(
         _world=populated_world, robot_root=robot.root, door_frame=door.root
     )
-    plan = demonstration.build_plan(demonstration.build_context(populated_world))
+    executor = demonstration.create_executor(populated_world)
+    executor.compile(demonstration.build_statechart(executor.context))
 
-    with kinematically_simulated_robot:
-        plan.perform()
+    executor.execute()
     recorder.stop()
 
     assert recorder.smallest_distance_along_door_axis == pytest.approx(

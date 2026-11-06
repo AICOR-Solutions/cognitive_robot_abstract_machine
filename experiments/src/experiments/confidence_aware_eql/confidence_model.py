@@ -19,10 +19,10 @@ from krrood.entity_query_language.query.match import Match
 from krrood.exceptions import DataclassException
 from krrood.ormatic.data_access_objects.dao import get_dao_schema
 from krrood.ormatic.data_access_objects.helper import get_data_access_object_class
-from probabilistic_model.probabilistic_circuit.relational.rspn import (
+from probabilistic_model.probabilistic_circuit.relational.relational_probabilistic_circuit import (
     RelationalProbabilisticCircuit,
 )
-from typing_extensions import Any, List
+from typing_extensions import Any
 
 # %% exceptions
 
@@ -52,7 +52,7 @@ class AmbiguousThresholdError(DataclassException):
     Raised when reading the single-class threshold of a model fitted on several classes.
     """
 
-    fitted_classes: List[type]
+    fitted_classes: list[type]
     """The classes this confidence model was actually fitted on."""
 
     def error_message(self) -> str:
@@ -70,7 +70,7 @@ class AmbiguousThresholdError(DataclassException):
 
 def _build_grounding_query(domain_class: type, instance: Any) -> Match:
     """
-    Build a query mirroring an instance's collection structure for RSPN grounding.
+    Build a query mirroring an instance's collection structure for relational grounding.
 
     Every constructor field of ``domain_class`` without a default is filled with an
     ellipsis placeholder, except for the class's collection relationships - found
@@ -126,7 +126,7 @@ class PerClassConfidenceModel:
     """
 
     @classmethod
-    def fit(cls, domain_class: type, instances: List[Any]) -> PerClassConfidenceModel:
+    def fit(cls, instances: list[Any]) -> PerClassConfidenceModel:
         """
         Fit a relational probabilistic circuit and calibrate its threshold.
 
@@ -134,11 +134,10 @@ class PerClassConfidenceModel:
         own log-likelihoods, so an instance less likely than almost every familiar one
         is judged unfamiliar.
 
-        :param domain_class: The class every instance belongs to.
-        :param instances: The familiar instances of ``domain_class`` to learn from.
+        :param instances: The familiar instances to learn from.
         :return: A fitted per-class confidence model.
         """
-        circuit = RelationalProbabilisticCircuit(domain_class)
+        circuit = RelationalProbabilisticCircuit()
         circuit.fit(instances)
         model = cls(circuit, threshold=-np.inf)
         training_log_likelihoods = [
@@ -192,7 +191,7 @@ class ConfidenceModel:
     """
 
     @classmethod
-    def fit_from_instances(cls, instances: List[Any]) -> ConfidenceModel:
+    def fit_from_instances(cls, instances: list[Any]) -> ConfidenceModel:
         """
         Fit one confidence model per distinct class found among the instances.
 
@@ -200,11 +199,11 @@ class ConfidenceModel:
             number of distinct classes.
         :return: A fitted confidence model ready to score new instances.
         """
-        instances_by_class: dict[type, List[Any]] = {}
+        instances_by_class: dict[type, list[Any]] = {}
         for instance in instances:
             instances_by_class.setdefault(type(instance), []).append(instance)
         models_by_class = {
-            domain_class: PerClassConfidenceModel.fit(domain_class, class_instances)
+            domain_class: PerClassConfidenceModel.fit(class_instances)
             for domain_class, class_instances in instances_by_class.items()
         }
         return cls(models_by_class)

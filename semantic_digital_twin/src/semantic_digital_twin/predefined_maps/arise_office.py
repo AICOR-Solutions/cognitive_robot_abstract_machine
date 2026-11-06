@@ -6,6 +6,7 @@ from enum import StrEnum
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Door,
     Elevator,
@@ -16,7 +17,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Room,
     Wall,
 )
-from semantic_digital_twin.spatial_types import (
+from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
     Vector3,
@@ -78,9 +79,16 @@ class AriseOfficeRoom(StrEnum):
     The room east of the shaft, spanning the storey's whole depth.
     """
 
+    @property
+    def spoken_name(self) -> str:
+        """
+        How a person names this kind of room when speaking, such as *east office*.
+        """
+        return self.value.replace("_", " ")
+
 
 @dataclass
-class AriseOfficeBuilding:
+class AriseOfficeBuilding(ElevatorBuilding):
     """
     World-independent description of the two-storey office of the TIAGo ARISE Gazebo
     simulator (``office_area.sdf`` and ``elevator.urdf`` of the
@@ -194,6 +202,35 @@ class AriseOfficeBuilding:
         return world.get_semantic_annotation_by_name(
             self._room_name(name, level_type, room)
         )
+
+    @staticmethod
+    def spoken_name_of(level_type: type[Level], room: AriseOfficeRoom) -> str:
+        """
+        :param level_type: The storey the room lies on.
+        :param room: Which room of the storey it is.
+        :return: How a person names the room when speaking, such as *east office on
+            the first floor*.
+        """
+        return f"{room.spoken_name} on the {level_type.spoken_name}"
+
+    def rooms_by_spoken_name(
+        self, world: World, name: str = "arise_office"
+    ) -> dict[str, Room]:
+        """
+        :param world: The world the office was spawned into.
+        :param name: The prefix the office was spawned with.
+        :return: The room annotations of the office, by the name :meth:`spoken_name_of`
+            gives them.
+        """
+        rooms = {}
+        for level in world.get_semantic_annotations_by_type(Level):
+            for room in AriseOfficeRoom:
+                annotations = world.get_semantic_annotations_by_name(
+                    self._room_name(name, type(level), room)
+                )
+                if annotations:
+                    rooms[self.spoken_name_of(type(level), room)] = annotations[0]
+        return rooms
 
     @staticmethod
     def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:

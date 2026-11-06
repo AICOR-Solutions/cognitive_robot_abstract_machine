@@ -3,9 +3,7 @@ from collections import Counter
 import pytest
 from typing_extensions import Iterator
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
-from coraplex.plans.factories import execute_single
+from cramph.context import ContextExtension
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     PathPlanningNavigateAction,
@@ -38,63 +36,67 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     GroundFloor,
     Room,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
+
+from ...plan_running import expand, world_of
 
 # %% Tiago standing in the lobby
 
 
 @pytest.fixture
 def lobby_demonstration() -> Iterator[TiagoElevatorRideDemonstration]:
-    demonstration = TiagoElevatorRideDemonstration(
-        used_robot=Tiago, execution_type=ExecutionType.KINEMATICALLY_SIMULATED
-    )
+    demonstration = TiagoElevatorRideDemonstration(used_robot=Tiago)
     yield demonstration
     demonstration.tear_down()
 
 
 @pytest.fixture
-def lobby_context(lobby_demonstration) -> Context:
-    return lobby_demonstration.build_context(
+def lobby_extensions(lobby_demonstration) -> list[ContextExtension]:
+    return lobby_demonstration.build_context_extensions(
         lobby_demonstration.build_simulated_world()
     )
 
 
-def planned_steps(action: NavigateToRoomAction, context: Context) -> list:
+def planned_steps(
+    action: NavigateToRoomAction, extensions: list[ContextExtension]
+) -> list:
     """
-    :return: The actions ``action`` expands into for the robot of ``context``.
+    :return: The actions ``action`` expands into for the robot of ``extensions``.
     """
-    execute_single(action, context=context)
-    return [child.designator for child in action._action_plan.children]
+    expand(action, extensions)
+    return action.nodes
 
 
 # %% planning the way to a room
 
 
 def test_a_room_on_the_robots_level_is_driven_to_directly(
-    lobby_demonstration, lobby_context
+    lobby_demonstration, lobby_extensions
 ):
     east_office = lobby_demonstration.office.get_room(
-        lobby_context.world, GroundFloor, AriseOfficeRoom.EAST_OFFICE
+        world_of(lobby_extensions), GroundFloor, AriseOfficeRoom.EAST_OFFICE
     )
 
-    [drive] = planned_steps(NavigateToRoomAction(east_office), lobby_context)
+    [drive] = planned_steps(
+        NavigateToRoomAction(target_room=east_office), lobby_extensions
+    )
 
     assert isinstance(drive, PathPlanningNavigateAction)
     assert drive.target.to_np() == pytest.approx(east_office.floor_centre.to_np())
 
 
 def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
-    lobby_demonstration, lobby_context
+    lobby_demonstration, lobby_extensions
 ):
-    world = lobby_context.world
+    world = world_of(lobby_extensions)
     west_office = lobby_demonstration.office.get_room(
         world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
     )
     elevator = world.get_semantic_annotations_by_type(Elevator)[0]
-    action = NavigateToRoomAction(west_office)
+    action = NavigateToRoomAction(target_room=west_office)
 
-    steps = planned_steps(action, lobby_context)
+    steps = planned_steps(action, lobby_extensions)
 
     assert [type(step) for step in steps] == [
         PathPlanningNavigateAction,
@@ -111,8 +113,8 @@ def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
     )
 
 
-def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
-    world = lobby_context.world
+def test_a_room_on_no_level_cannot_be_planned_for(lobby_extensions):
+    world = world_of(lobby_extensions)
     basement_floor = Floor.get_annotation_specification(
         "basement_floor",
         Floor.get_default_root_kinematic_structure_entity_specification(
@@ -124,13 +126,13 @@ def test_a_room_on_no_level_cannot_be_planned_for(lobby_context):
         world.add_semantic_annotation(basement)
 
     with pytest.raises(RoomOnNoLevelError):
-        planned_steps(NavigateToRoomAction(basement), lobby_context)
+        planned_steps(NavigateToRoomAction(target_room=basement), lobby_extensions)
 
 
 def test_a_room_on_another_level_cannot_be_planned_for_without_an_elevator(
-    lobby_demonstration, lobby_context
+    lobby_demonstration, lobby_extensions
 ):
-    world = lobby_context.world
+    world = world_of(lobby_extensions)
     with world.modify_world():
         world.remove_semantic_annotation(
             world.get_semantic_annotations_by_type(Elevator)[0]
@@ -140,19 +142,19 @@ def test_a_room_on_another_level_cannot_be_planned_for_without_an_elevator(
     )
 
     with pytest.raises(NoElevatorError):
-        planned_steps(NavigateToRoomAction(landing), lobby_context)
+        planned_steps(NavigateToRoomAction(target_room=landing), lobby_extensions)
 
 
 def test_path_planning_lays_its_path_out_over_the_level_the_robot_is_on(
-    lobby_demonstration, lobby_context
+    lobby_demonstration, lobby_extensions
 ):
-    world = lobby_context.world
+    world = world_of(lobby_extensions)
     east_office = lobby_demonstration.office.get_room(
         world, GroundFloor, AriseOfficeRoom.EAST_OFFICE
     )
-    action = PathPlanningNavigateAction(east_office.floor_centre)
+    action = PathPlanningNavigateAction(target=east_office.floor_centre)
 
-    execute_single(action, context=lobby_context)
+    expand(action, lobby_extensions)
 
     assert action._ground is world.get_semantic_annotations_by_type(GroundFloor)[0]
 

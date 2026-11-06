@@ -9,7 +9,7 @@ from typing_extensions import TYPE_CHECKING
 from semantic_digital_twin.datastructures.scan_pattern import ScanPattern
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.spatial_types.spatial_types import Point3
+    from krrood_spatial_math.spatial_types import Point3
     from semantic_digital_twin.world_description.world_entity import (
         KinematicStructureEntity,
     )

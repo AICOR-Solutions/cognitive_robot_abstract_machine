@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from coraplex.datastructures.dataclasses import Context
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from cramph.context import StatechartContext
+from cramph.statechart import Statechart
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.exceptions import (
     TargetRoomNotReachedError,
@@ -40,21 +39,20 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
     The name of the room annotation Tiago drives to.
     """
 
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Drive to the target room.
         """
-        return sequential(
-            [
-                NavigateToRoomAction(
-                    context.world.get_semantic_annotation_by_name(
-                        self.target_room_name
-                    ),
-                    elevator_arrival_threshold=self.elevator_arrival_threshold,
-                )
-            ],
-            context=context,
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            NavigateToRoomAction(
+                target_room=context.world.get_semantic_annotation_by_name(
+                    self.target_room_name
+                ),
+                elevator_arrival_threshold=self.elevator_arrival_threshold,
+            )
         )
+        return statechart
 
     def conclude(self, world: World) -> None:
         """

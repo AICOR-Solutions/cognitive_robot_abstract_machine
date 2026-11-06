@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum, StrEnum, auto
+
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.rectilinear_room import (
+    RectilinearRoom,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey import (
+    Storey,
+)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
+
+# %% saying a room's number
+
+
+class SpokenDigit(StrEnum):
+    """
+    How a digit of a room's number is said, in the order of the digits' values.
+    """
+
+    ZERO = "zero"
+    ONE = "one"
+    TWO = "two"
+    THREE = "three"
+    FOUR = "four"
+    FIVE = "five"
+    SIX = "six"
+    SEVEN = "seven"
+    EIGHT = "eight"
+    NINE = "nine"
+
+
+class SpokenSeparator(StrEnum):
+    """
+    Words said around a room's number.
+    """
+
+    ROOM = "room"
+    POINT = "point"
+
+
+# %% frames
+
+
+class OutlineFrame(Enum):
+    """
+    A frame of the lab elevator room or of its hallway that the outline of an office
+    room is given in.
+    """
+
+    ELEVATOR_ROOM = auto()
+    """
+    The outline frame of the lab elevator room.
+    """
+
+    HALLWAY_EAST_STRETCH = auto()
+    """
+    The outline frame of the hallway's stretch running east from the elevator room.
+    """
+
+    HALLWAY_SOUTH_STRETCH = auto()
+    """
+    The outline frame of the hallway's long stretch running south.
+    """
+
+
+# %% rooms
+
+
+@dataclass
+class StoreyHighRoom(RectilinearRoom):
+    """
+    A room whose walls stand as high as the storey it is on.
+    """
+
+    wall_height: float = Storey.height
+    """
+    Height of every wall above the floor, reaching the floor of the storey above.
+    """
+
+
+@dataclass
+class OfficeRoom:
+    """
+    A room or hallway of the office, as traced from the floor plan of its storey: its
+    floor, walls and doorways, with its outline given in a frame of the lab map.
+    """
+
+    number: str
+    """
+    The room's number on the floor plan, such as ``1.53``.
+    """
+
+    outline_frame: OutlineFrame
+    """
+    The frame the outline of :attr:`layout` is given in.
+    """
+
+    layout: RectilinearRoom
+    """
+    The room's floor, walls and doorways.
+    """
+
+    room_type: type[Room] = field(default=Room, kw_only=True)
+    """
+    The kind of room the floor plan shows, which its annotation takes.
+    """
+
+    cabin_numbers: list[str] = field(default_factory=list, kw_only=True)
+    """
+    The numbers of the toilet cabins entered from this room, if it is a bathroom.
+    """
+
+    navigation_target: bool = field(default=True, kw_only=True)
+    """
+    Whether a robot may be sent into this room: false where a robot's base does not fit
+    at the room's middle.
+    """
+
+    @property
+    def spoken_name(self) -> str:
+        """
+        :return: How a person says this room's number, such as *room one point five
+            three* for ``1.53``.
+        """
+        words = [SpokenSeparator.ROOM.value]
+        for character in self.number.casefold():
+            if character == ".":
+                words.append(SpokenSeparator.POINT.value)
+            elif character.isdigit():
+                words.append(list(SpokenDigit)[int(character)].value)
+            else:
+                words.append(character)
+        return " ".join(words)
+
+
+@dataclass
+class FloorPlan:
+    """
+    The rooms and hallways of one storey of the office that are reached from the lab
+    elevator room and its hallway, traced from the building's floor plan of that
+    storey.
+
+    The rooms' floors lie at height zero in their outline frames; the storey's
+    elevation lifts them.
+    """
+
+    storey: Storey
+    """
+    The storey the rooms are on.
+    """
+
+    rooms: list[OfficeRoom]
+    """
+    The rooms of the storey, each standing on a floor of its own.
+    """
+
+    hallway: list[OfficeRoom]
+    """
+    The pieces of the storey's hallway, which stand on one floor together.
+    """
