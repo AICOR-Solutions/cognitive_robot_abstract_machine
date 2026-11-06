@@ -87,6 +87,18 @@ class AriseOfficeRoom(StrEnum):
         return self.value.replace("_", " ")
 
 
+class AriseOfficeSimulatorJoint(StrEnum):
+    """
+    Joints of the office's elevator as the TIAGo ARISE Gazebo simulator's
+    ``elevator.urdf`` names them.
+    """
+
+    ELEVATOR_DRIVE = "elevator_vertical_joint"
+    """
+    The joint that lifts the elevator's cabin.
+    """
+
+
 @dataclass
 class AriseOfficeBuilding(ElevatorBuilding):
     """
@@ -231,6 +243,9 @@ class AriseOfficeBuilding(ElevatorBuilding):
                 if annotations:
                     rooms[self.spoken_name_of(type(level), room)] = annotations[0]
         return rooms
+
+    def simulated_drive_joint_name(self, elevator: Elevator) -> str:
+        return AriseOfficeSimulatorJoint.ELEVATOR_DRIVE
 
     @staticmethod
     def _room_name(name: str, level_type: type[Level], room: AriseOfficeRoom) -> str:

@@ -243,6 +243,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 node=self.ros_node,
                 topic_name=self.elevator_joint_state_topic,
                 elevator=elevator,
+                joint_name=self.office.simulated_drive_joint_name(elevator),
                 position_offset=self.office.ground_floor_height,
             )
         )

@@ -19,6 +19,7 @@ def drive(rclpy_node, elevator, arise_office) -> ElevatorDrive:
         node=rclpy_node,
         topic_name="/test/elevator/joint_states",
         elevator=elevator,
+        joint_name=arise_office.simulated_drive_joint_name(elevator),
         position_offset=arise_office.ground_floor_height,
     )
     yield drive

@@ -43,7 +43,7 @@ class ElevatorDrive(TopicInputSynchronizer[JointState]):
     The elevator whose cabin is moved.
     """
 
-    joint_name: str = field(default="elevator_vertical_joint", kw_only=True)
+    joint_name: str = field(kw_only=True)
     """
     Name of the drive joint in the joint states.
     """

@@ -43,6 +43,7 @@ from semantic_digital_twin.world_description.geometry import (
 
 if TYPE_CHECKING:
     from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+        Elevator,
         Floor,
         Level,
         Room,
@@ -244,6 +245,13 @@ class IAIOffice(ElevatorBuilding):
             "elevator_room"
         )
         return rooms
+
+    def simulated_drive_joint_name(self, elevator: Elevator) -> str:
+        """
+        The name of ``elevator``'s drive connection in the world, which the simulator's
+        world is exported with.
+        """
+        return elevator.movable_joint.name.name
 
     def _spawn_level(
         self, world: World, name: str, floor: Floor, floor_plan: FloorPlan

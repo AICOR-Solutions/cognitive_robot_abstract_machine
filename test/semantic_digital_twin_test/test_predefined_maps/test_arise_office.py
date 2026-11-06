@@ -1,6 +1,9 @@
 import pytest
 
-from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeRoom
+from semantic_digital_twin.predefined_maps.arise_office import (
+    AriseOfficeRoom,
+    AriseOfficeSimulatorJoint,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
@@ -47,6 +50,16 @@ def test_elevator_opens_towards_negative_y(arise_office_world):
 def test_elevator_has_two_doors(arise_office_world):
     elevator = arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
     assert len(elevator.doors) == 2
+
+
+def test_the_simulator_reports_the_drive_under_its_urdf_joint_name(
+    arise_office_world, arise_office
+):
+    elevator = arise_office_world.get_semantic_annotations_by_type(Elevator)[0]
+    assert (
+        arise_office.simulated_drive_joint_name(elevator)
+        == AriseOfficeSimulatorJoint.ELEVATOR_DRIVE
+    )
 
 
 # %% levels

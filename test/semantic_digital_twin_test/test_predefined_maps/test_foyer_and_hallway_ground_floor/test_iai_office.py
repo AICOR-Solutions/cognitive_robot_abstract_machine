@@ -63,6 +63,17 @@ def test_elevator_travels_no_higher_than_the_top_storey(iai_office_world):
     )
 
 
+def test_the_simulator_reports_the_drive_under_the_name_of_its_connection(
+    iai_office_world,
+):
+    world, _ = iai_office_world
+    (elevator,) = world.get_semantic_annotations_by_type(Elevator)
+    assert (
+        IAIOffice().simulated_drive_joint_name(elevator)
+        == elevator.movable_joint.name.name
+    )
+
+
 # %% kinds of rooms
 
 
