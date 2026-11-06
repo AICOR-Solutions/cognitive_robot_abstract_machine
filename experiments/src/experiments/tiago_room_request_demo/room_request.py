@@ -19,8 +19,12 @@ from hri_actions_msgs.msg import Intent
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.subscription import Subscription
+from rclpy.task import Future
 
-from experiments.tiago_room_request_demo.exceptions import NoRoomRequestedError
+from experiments.tiago_room_request_demo.exceptions import (
+    NoRoomRequestedError,
+    SaySkillNotServedError,
+)
 from experiments.tiago_room_request_demo.yes_no_question import YesNoQuestionAsker
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
@@ -107,6 +111,12 @@ class RoomRequestAnnouncement(StrEnum):
     What the robot says about a room it was asked to go to, with any name left open.
     """
 
+    ASKING_FOR_ROOM = "Which room should I drive to?"
+    """
+    Asked before the robot listens for a room, without naming one, as the robot hearing
+    itself name a room would take that for a request.
+    """
+
     CONFIRMING = "Should I go to the {room}?"
     """
     Asked before the robot sets off to a room it was asked to go to.
@@ -186,6 +196,26 @@ class RoomRequests:
     The name of the action that makes the robot speak.
     """
 
+    server_timeout: float = 10.0
+    """
+    Seconds to wait for the robot's speech to be served.
+    """
+
+    speech_timeout: float = 30.0
+    """
+    Seconds the robot may take to say a sentence it waits for.
+    """
+
+    _listening: bool = field(init=False, default=True)
+    """
+    Whether rooms asked for are taken, false while the robot asks for one.
+    """
+
+    _question_said: threading.Event = field(default_factory=threading.Event, init=False)
+    """
+    Set once the robot said the question asking for a room.
+    """
+
     _requested_room: RequestedRoom | None = field(init=False, default=None)
     """
     The first room requested that the office has.
@@ -249,9 +279,12 @@ class RoomRequests:
 
     def _keep(self, requested_room: RequestedRoom) -> None:
         """
-        Keep ``requested_room``, unless a room is waiting for its confirmation already.
+        Keep ``requested_room``, unless the robot is still asking for a room or a room
+        is waiting for its confirmation already.
         """
         with self._heard:
+            if not self._listening:
+                return
             if self._requested_room is None:
                 self._requested_room = requested_room
             self._heard.notify_all()
@@ -269,15 +302,58 @@ class RoomRequests:
                 raise NoRoomRequestedError(timeout)
             return self._requested_room
 
+    def ask_for_room(self) -> None:
+        """
+        Ask which room to go to, and wait until the robot said it, ignoring rooms asked
+        for before it did.
+
+        :raises SaySkillNotServedError: If the robot cannot speak.
+        """
+        if not self._speech.wait_for_server(timeout_sec=self.server_timeout):
+            raise SaySkillNotServedError(
+                self.text_to_speech_action, self.server_timeout
+            )
+        with self._heard:
+            self._listening = False
+            self._requested_room = None
+        self._speech.send_goal_async(
+            Say.Goal(input=RoomRequestAnnouncement.ASKING_FOR_ROOM)
+        ).add_done_callback(self._wait_for_the_question)
+        self._question_said.wait(self.speech_timeout)
+        self._start_listening()
+
+    def _wait_for_the_question(self, future: Future) -> None:
+        """
+        Start listening once the robot said the question, or right away if the robot
+        refused to say it.
+        """
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self._start_listening()
+            return
+        goal_handle.get_result_async().add_done_callback(
+            lambda _: self._start_listening()
+        )
+
+    def _start_listening(self) -> None:
+        """
+        Take rooms asked for from now on.
+        """
+        with self._heard:
+            self._listening = True
+        self._question_said.set()
+
     def wait_for_confirmed_room(self, timeout: float) -> RequestedRoom:
         """
-        Ask about each room requested, saying so and forgetting those not confirmed.
+        Ask which room to go to, then ask about each room requested, saying so and
+        forgetting those not confirmed.
 
         :param timeout: Seconds to wait at most for each request.
         :return: The first room a person confirmed.
         :raises NoRoomRequestedError: If no room was requested within ``timeout``.
         :raises SaySkillNotServedError: If the robot cannot ask.
         """
+        self.ask_for_room()
         while True:
             requested_room = self.wait_for_room(timeout)
             if self._confirmation_asker.ask_until_answered(

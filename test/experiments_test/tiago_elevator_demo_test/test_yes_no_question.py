@@ -9,6 +9,7 @@ from communication_skills.action import Say
 from rclpy.task import Future
 
 from experiments.tiago_room_request_demo.exceptions import SaySkillNotServedError
+from experiments.tiago_room_request_demo.room_request import RoomRequestAnnouncement
 from experiments.tiago_room_request_demo.yes_no_question import (
     YesNoAnswerInProgress,
     YesNoQuestionAsker,
@@ -92,9 +93,16 @@ def test_asking_until_answered_returns_the_answer(
 ):
     scripted_person.room_confirmations = scripted_person.answers
 
-    assert question_asker.ask_until_answered("Is this a room?") is expected_agreement
+    assert (
+        question_asker.ask_until_answered(
+            RoomRequestAnnouncement.CONFIRMING.verbalize("kitchen")
+        )
+        is expected_agreement
+    )
 
 
 def test_asking_when_the_skill_is_not_served_raises(question_asker):
     with pytest.raises(SaySkillNotServedError):
-        question_asker.ask_until_answered("Is this a room?")
+        question_asker.ask_until_answered(
+            RoomRequestAnnouncement.CONFIRMING.verbalize("kitchen")
+        )

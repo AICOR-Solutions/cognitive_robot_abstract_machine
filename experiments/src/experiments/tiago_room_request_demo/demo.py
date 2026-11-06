@@ -174,7 +174,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         super().tear_down()
 
 
-def main(executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor) -> None:
+def main(executor_type: type[PlanExecutor] = RealRobotPlanExecutor) -> None:
     """
     Run the demonstration.
 

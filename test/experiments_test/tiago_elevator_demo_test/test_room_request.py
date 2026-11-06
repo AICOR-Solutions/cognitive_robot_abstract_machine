@@ -1,4 +1,8 @@
 import json
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 
@@ -15,7 +19,10 @@ from experiments.ra_fetch_elevator_people.elevator_people import (
     TrackedPersons,
 )
 from experiments.tiago_room_request_demo.demo import TiagoRoomRequestDemonstration
-from experiments.tiago_room_request_demo.exceptions import NoRoomRequestedError
+from experiments.tiago_room_request_demo.exceptions import (
+    NoRoomRequestedError,
+    SaySkillNotServedError,
+)
 from experiments.tiago_room_request_demo.room_request import (
     MoveToIntentData,
     RawUserInputData,
@@ -48,7 +55,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.world import World
 
 from .intent_publisher import RepeatedIntent
-from .scripted_person import PersonAnswer, scripted_person
+from .scripted_person import PersonAnswer, ScriptedPerson, scripted_person
 
 # %% fixtures
 
@@ -242,10 +249,37 @@ def test_a_raw_user_input_naming_no_single_room_is_ignored_silently(
 # %% confirming a room
 
 
-def request_the_room_once(room_requests: RoomRequests) -> None:
+@contextmanager
+def person_asking_for_the_room(
+    room_requests: RoomRequests, scripted_person: ScriptedPerson
+) -> Iterator[None]:
     """
-    Let a person ask for the room once, the way the chatbot passes on what it heard.
+    Let a person keep asking for the room, the way the chatbot passes on what it heard,
+    until the robot asks to confirm it.
     """
+    stop = threading.Event()
+
+    def ask() -> None:
+        while not stop.is_set() and not scripted_person.confirmation_goals:
+            room_requests._hear(
+                Intent(
+                    intent=Intent.RAW_USER_INPUT,
+                    data=json.dumps({RawUserInputKey.SENTENCE: east_office_upstairs()}),
+                )
+            )
+            time.sleep(0.05)
+
+    person = threading.Thread(target=ask)
+    person.start()
+    yield
+    stop.set()
+    person.join()
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_the_robot_asks_which_room_to_go_to_before_anything_else(
+    room_requests, scripted_person
+):
     room_requests._hear(
         Intent(
             intent=Intent.RAW_USER_INPUT,
@@ -253,12 +287,34 @@ def request_the_room_once(room_requests: RoomRequests) -> None:
         )
     )
 
+    with person_asking_for_the_room(room_requests, scripted_person):
+        room_requests.wait_for_confirmed_room(timeout=5.0)
+
+    [asking, *_] = scripted_person.wait_for_sentences(1)
+    assert asking == RoomRequestAnnouncement.ASKING_FOR_ROOM
+
+
+def test_the_robot_does_not_name_a_room_when_it_asks_for_one():
+    """
+    The robot hearing itself name a room would take that for a request.
+    """
+    assert (
+        RoomRequestAnnouncement.ASKING_FOR_ROOM.verbalize(east_office_upstairs())
+        == RoomRequestAnnouncement.ASKING_FOR_ROOM
+    )
+
+
+def test_asking_for_a_room_when_the_robot_cannot_speak_raises(room_requests):
+    room_requests.server_timeout = 0.5
+
+    with pytest.raises(SaySkillNotServedError):
+        room_requests.wait_for_confirmed_room(timeout=0.5)
+
 
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 def test_a_room_counts_once_the_person_confirms_it(room_requests, scripted_person):
-    request_the_room_once(room_requests)
-
-    requested_room = room_requests.wait_for_confirmed_room(timeout=5.0)
+    with person_asking_for_the_room(room_requests, scripted_person):
+        requested_room = room_requests.wait_for_confirmed_room(timeout=5.0)
 
     assert requested_room.spoken_name == east_office_upstairs()
     [goal] = scripted_person.confirmation_goals
@@ -270,10 +326,9 @@ def test_a_room_counts_once_the_person_confirms_it(room_requests, scripted_perso
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 def test_a_refused_room_is_forgotten(room_requests, scripted_person):
     scripted_person.room_confirmations = [PersonAnswer.NO]
-    request_the_room_once(room_requests)
-
-    with pytest.raises(NoRoomRequestedError):
-        room_requests.wait_for_confirmed_room(timeout=1.0)
+    with person_asking_for_the_room(room_requests, scripted_person):
+        with pytest.raises(NoRoomRequestedError):
+            room_requests.wait_for_confirmed_room(timeout=1.0)
 
     assert len(scripted_person.confirmation_goals) == 1
 
@@ -283,12 +338,11 @@ def test_the_robot_says_that_it_stays_when_a_room_is_refused(
     room_requests, scripted_person
 ):
     scripted_person.room_confirmations = [PersonAnswer.NO]
-    request_the_room_once(room_requests)
+    with person_asking_for_the_room(room_requests, scripted_person):
+        with pytest.raises(NoRoomRequestedError):
+            room_requests.wait_for_confirmed_room(timeout=0.5)
 
-    with pytest.raises(NoRoomRequestedError):
-        room_requests.wait_for_confirmed_room(timeout=0.5)
-
-    [_, acknowledgement] = scripted_person.wait_for_sentences(2)
+    [_, _, acknowledgement] = scripted_person.wait_for_sentences(3)
     assert acknowledgement == RoomRequestAnnouncement.STAYING
 
 
@@ -351,7 +405,8 @@ def test_tiago_drives_to_the_room_it_was_told(scripted_person, repeated_intent):
     robot = world.get_semantic_annotations_by_type(Tiago)[0]
     target_room = world.get_semantic_annotation_by_name(office_room_upstairs().number)
     assert Floor.under(robot.root) is target_room.floor
-    [confirmation, heading_to, *_] = scripted_person.wait_for_sentences(2)
+    [asking, confirmation, heading_to, *_] = scripted_person.wait_for_sentences(3)
+    assert asking == RoomRequestAnnouncement.ASKING_FOR_ROOM
     assert confirmation == RoomRequestAnnouncement.CONFIRMING.verbalize(
         repeated_intent.spoken_text
     )
@@ -377,7 +432,8 @@ def test_tiago_asks_the_person_the_person_manager_tracks_at_the_elevator(
     assert goal.person_id == person_manager_tracking_someone_waiting
 
 
-def test_tiago_gives_up_when_nobody_tells_it_a_room(rclpy_node):
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_tiago_gives_up_when_nobody_tells_it_a_room(scripted_person):
     demonstration = TiagoRoomRequestDemonstration(
         used_robot=Tiago,
         room_request_timeout=0.2,

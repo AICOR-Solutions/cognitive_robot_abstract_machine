@@ -12,6 +12,7 @@ from rclpy.timer import Timer
 from semantic_digital_twin.robots.tiago import Tiago
 
 from experiments.tiago_room_request_demo.boarding_permission import BoardingQuestion
+from experiments.tiago_room_request_demo.room_request import RoomRequestAnnouncement
 from experiments.tiago_room_request_demo.yes_no_question import Ros4HriVoiceTopic
 
 from .speech_listener import SpeechListener
@@ -148,7 +149,9 @@ class ScriptedPerson(SpeechListener):
         """
         sentence = goal_handle.request.input
         if sentence != BoardingQuestion.ASKING_TO_BOARD:
-            if not sentence.endswith("?"):
+            if not sentence.startswith(
+                RoomRequestAnnouncement.CONFIRMING.split("{")[0]
+            ):
                 return super()._hear(goal_handle)
             confirmation = self.room_confirmations[
                 min(len(self.confirmation_goals), len(self.room_confirmations) - 1)
