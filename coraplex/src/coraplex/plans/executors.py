@@ -60,6 +60,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
 )
 from giskardpy.motion_statechart.graph_node import ConvergingTask, EndMotion
 from giskardpy.motion_statechart.monitors.progress_monitors import StillProgressing
+from giskardpy.motion_statechart.monitors.safety_monitors import SafetyEnvelope
 from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecutor
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
 from giskardpy.qp.qp_controller_config import QPControllerConfig
@@ -89,8 +90,8 @@ class PlanExecutor(Executor, ABC):
     serves one executor. :meth:`compile` adds what a plan runs with: the collision
     avoidance of the robot of :attr:`context` if asked for, one
     :class:`~giskardpy.motion_statechart.graph_node.EndMotion` once every plan node
-    succeeded or one of them ended without succeeding, and the stall detection.
-    Underspecified actions are grounded while it runs, see
+    succeeded or one of them ended without succeeding, the stall detection, and the
+    monitors of :attr:`safety`, which cancel the plan once it breaks one. Underspecified actions are grounded while it runs, see
     :class:`~coraplex.plans.underspecified.UnderspecifiedChildChooser`.
     """
 
@@ -108,6 +109,11 @@ class PlanExecutor(Executor, ABC):
     collision_avoidance: bool = field(default=False, kw_only=True)
     """
     Whether the robot avoids colliding with its surroundings and with itself.
+    """
+
+    safety: SafetyEnvelope = field(default_factory=SafetyEnvelope, kw_only=True)
+    """
+    The safety constraints every motion of the plan is held to.
     """
 
     debug: bool = field(default=False, kw_only=True)
@@ -208,6 +214,7 @@ class PlanExecutor(Executor, ABC):
             statechart.add_node(SelfCollisionAvoidance(robot=robot))
         self._add_end_of_plan(statechart)
         self._add_stall_detection(statechart)
+        statechart.add_nodes(self.safety.create_nodes())
 
     def _add_end_of_plan(self, statechart: Statechart) -> None:
         """
@@ -269,6 +276,8 @@ class PlanExecutor(Executor, ABC):
             than :attr:`SimulatedPlanExecutor.simulation_time_limit`.
         :raises MotionViolatedCollisionAvoidance: When the plan brings bodies closer to
             each other than collision avoidance allows.
+        :raises SafetyConstraintViolated: When the plan breaks a constraint of
+            :attr:`safety`, which is no failure to recover from.
         """
         if self.statechart is None:
             raise PlanNotCompiled()

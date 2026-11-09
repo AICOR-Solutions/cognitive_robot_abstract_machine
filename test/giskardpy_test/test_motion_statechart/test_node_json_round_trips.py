@@ -47,6 +47,16 @@ from giskardpy.motion_statechart.graph_node import (
     StructureCopyMotionStatechartNode,
     Task,
 )
+from giskardpy.motion_statechart.monitors.safety_monitors import (
+    CancelOnSafetyViolation,
+    JointVelocityExceeded,
+    MaximumJointVelocity,
+    SafetyEnvelope,
+    ToolOutsideWorkspace,
+    ToolVelocityExceeded,
+    MaximumToolVelocity,
+    WorkspaceBox,
+)
 from giskardpy.motion_statechart.monitors.cartesian_monitors import (
     DistanceToLine,
     InFieldOfView,
@@ -780,7 +790,44 @@ def _monitor_cases() -> list[NodeRoundTripCase]:
             _still_progressing_cancelling_the_motion,
             WorldFixture.PR2_WORLD,
         ),
+        *[
+            NodeRoundTripCase(node_type, _safety_envelope, WorldFixture.PR2_WORLD)
+            for node_type in (
+                ToolOutsideWorkspace,
+                JointVelocityExceeded,
+                ToolVelocityExceeded,
+                CancelOnSafetyViolation,
+            )
+        ],
     ]
+
+
+def _safety_envelope(world: World) -> list[StatechartNode]:
+    """
+    :return: The monitors of a workspace box and of joint and tool velocity limits, and
+        the node cancelling the motion on a violation of any.
+    """
+    return SafetyEnvelope(
+        constraints=[
+            WorkspaceBox(
+                constraint="workspace",
+                tool=_tip(world),
+                minimum=Point3(-1.0, -1.0, 0.0, reference_frame=_root(world)),
+                maximum=Point3(1.0, 1.0, 2.0, reference_frame=_root(world)),
+            ),
+            MaximumJointVelocity(
+                constraint="joint velocity",
+                connections=[_connection(world)],
+                maximum_velocity=0.5,
+            ),
+            MaximumToolVelocity(
+                constraint="tool velocity",
+                root_link=_root(world),
+                tool=_tip(world),
+                maximum_velocity=0.5,
+            ),
+        ]
+    ).create_nodes()
 
 
 def _joint_and_base_cases() -> list[NodeRoundTripCase]:

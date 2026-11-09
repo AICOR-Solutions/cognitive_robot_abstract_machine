@@ -1,0 +1,360 @@
+"""
+Monitors of the safety constraints a robot's motions are held to: a workspace box its
+tool stays inside, and how fast its joints and its tool may move.
+
+A motion breaking one
+is cancelled with a :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`
+naming it, which nothing recovers from by trying again.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+
+import numpy as np
+
+import krrood.symbolic_math.symbolic_math as sm
+from cramph.data_types import ObservationStateValues
+from cramph.node import CancelStatechart, EndedByOwner, NodeArtifacts, StatechartNode
+from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
+from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from krrood.symbolic_math.symbolic_math import Scalar
+from krrood_spatial_math.spatial_types import Point3
+from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
+from semantic_digital_twin.world_description.world_entity import Body
+
+# %% monitors
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class SafetyMonitor(EndedByOwner, MotionStatechartNode, ABC):
+    """
+    Observes ``True`` while the safety constraint it watches is violated.
+    """
+
+    constraint: str
+    """
+    The watched constraint, as a person reads it.
+    """
+
+    @abstractmethod
+    def describe_violation(self) -> str:
+        """
+        :return: What violates the constraint in the world as it is now, as a person
+            reads it.
+        """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class ToolOutsideWorkspace(SafetyMonitor):
+    """
+    Observes ``True`` while the origin of :attr:`tool` lies outside the axis-aligned box
+    spanned by :attr:`minimum` and :attr:`maximum` in the frame both are expressed in.
+    """
+
+    tool: Body
+    """
+    The body that is to stay inside the box.
+    """
+
+    minimum: Point3
+    """
+    The box's corner of the smallest coordinates.
+    """
+
+    maximum: Point3
+    """
+    The box's corner of the largest coordinates, in the frame of :attr:`minimum`.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        box_P_tool = self.context.world.compose_forward_kinematics_expression(
+            self.minimum.reference_frame, self.tool
+        ).position
+        return NodeArtifacts(
+            observation=sm.logic_or(
+                *[
+                    sm.logic_or(
+                        box_P_tool[axis] < self.minimum[axis],
+                        box_P_tool[axis] > self.maximum[axis],
+                    )
+                    for axis in range(3)
+                ]
+            )
+        )
+
+    def describe_violation(self) -> str:
+        box_P_tool = self.tool_position()
+        minimum = self.minimum.to_np()[:3]
+        maximum = self.maximum.to_np()[:3]
+        distance = np.linalg.norm(
+            np.maximum(0.0, np.maximum(minimum - box_P_tool, box_P_tool - maximum))
+        )
+        return (
+            f"{self.tool.name} at {np.round(box_P_tool, 3).tolist()} m is "
+            f"{distance:.3f} m outside the box from {minimum.tolist()} to "
+            f"{maximum.tolist()} m"
+        )
+
+    def tool_position(self) -> np.ndarray:
+        """
+        :return: Where the origin of :attr:`tool` lies now, in the frame of the box.
+        """
+        return self.context.world.compute_forward_kinematics_np(
+            self.minimum.reference_frame, self.tool
+        )[:3, 3]
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class JointVelocityExceeded(SafetyMonitor):
+    """
+    Observes ``True`` while any of :attr:`connections` moves faster than
+    :attr:`maximum_velocity`.
+    """
+
+    connections: list[ActiveConnection1DOF]
+    """
+    The joints whose velocities are watched.
+    """
+
+    maximum_velocity: float
+    """
+    The velocity no joint may exceed, in radians or metres per second.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        velocities = sm.Vector(
+            [connection.dof.variables.velocity for connection in self.connections]
+        )
+        return NodeArtifacts(
+            observation=sm.max(sm.abs(velocities)) > self.maximum_velocity
+        )
+
+    def describe_violation(self) -> str:
+        fastest = max(self.connections, key=self.joint_speed)
+        return (
+            f"{fastest.name} moved at {self.joint_speed(fastest):.3f}, faster than "
+            f"{self.maximum_velocity}"
+        )
+
+    def joint_speed(self, connection: ActiveConnection1DOF) -> float:
+        """
+        :param connection: One of :attr:`connections`.
+        :return: How fast it moves now.
+        """
+        return abs(float(self.context.world.state[connection.dof.id].velocity))
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class ToolVelocityExceeded(SafetyMonitor):
+    """
+    Observes ``True`` while the origin of :attr:`tool` moves faster than
+    :attr:`maximum_velocity` relative to :attr:`root_link`, as the joints' velocities
+    move it.
+    """
+
+    root_link: Body
+    """
+    The body the tool's velocity is measured against.
+    """
+
+    tool: Body
+    """
+    The body whose velocity is watched.
+    """
+
+    maximum_velocity: float
+    """
+    The speed the tool may not exceed, in metres per second.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        root_P_tool = self.context.world.compose_forward_kinematics_expression(
+            self.root_link, self.tool
+        ).position
+        degrees_of_freedom = self.context.world.active_degrees_of_freedom
+        tool_velocity = sm.Vector(
+            [root_P_tool.x, root_P_tool.y, root_P_tool.z]
+        ).total_derivative(
+            [dof.variables.position for dof in degrees_of_freedom],
+            [dof.variables.velocity for dof in degrees_of_freedom],
+        )
+        return NodeArtifacts(observation=tool_velocity.norm() > self.maximum_velocity)
+
+    def describe_violation(self) -> str:
+        return f"{self.tool.name} moved faster than {self.maximum_velocity} m/s"
+
+
+# %% cancelling the motion
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class CancelOnSafetyViolation(CancelStatechart):
+    """
+    Cancels the motion once one of :attr:`monitors` observes its constraint violated,
+    raising a :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`
+    naming it.
+    """
+
+    monitors: list[SafetyMonitor]
+    """
+    The monitors of the constraints the motion is held to.
+    """
+
+    exception: Exception = field(init=False, default=Exception)
+    """
+    Set to ``init=False``, because this class creates its own exception once it knows
+    which constraint is violated.
+    """
+
+    def build(self) -> NodeArtifacts:
+        self.start_condition = sm.logic_or(
+            Scalar.const_false(), *[monitor.observes_true for monitor in self.monitors]
+        )
+        return NodeArtifacts()
+
+    def create_exception(self) -> SafetyConstraintViolated:
+        """
+        :return: The violation of the first of :attr:`monitors` observing its
+            constraint violated when this node starts.
+        """
+        violated = next(
+            monitor
+            for monitor in self.monitors
+            if monitor.observation_state == ObservationStateValues.TRUE
+        )
+        return SafetyConstraintViolated(
+            constraint=violated.constraint, violation=violated.describe_violation()
+        )
+
+
+# %% the constraints a robot is held to
+
+
+@dataclass(frozen=True)
+class SafetyConstraint(ABC):
+    """
+    A constraint every motion of a robot is held to.
+    """
+
+    constraint: str
+    """
+    The constraint, as a person reads it.
+    """
+
+    @abstractmethod
+    def create_monitor(self) -> SafetyMonitor:
+        """
+        :return: A new monitor of this constraint, for one statechart.
+        """
+
+
+@dataclass(frozen=True)
+class WorkspaceBox(SafetyConstraint):
+    """
+    An axis-aligned box a tool stays inside.
+    """
+
+    tool: Body
+    """
+    The body that is to stay inside the box.
+    """
+
+    minimum: Point3
+    """
+    The box's corner of the smallest coordinates.
+    """
+
+    maximum: Point3
+    """
+    The box's corner of the largest coordinates, in the frame of :attr:`minimum`.
+    """
+
+    def create_monitor(self) -> ToolOutsideWorkspace:
+        return ToolOutsideWorkspace(
+            name=self.constraint,
+            constraint=self.constraint,
+            tool=self.tool,
+            minimum=self.minimum,
+            maximum=self.maximum,
+        )
+
+
+@dataclass(frozen=True)
+class MaximumJointVelocity(SafetyConstraint):
+    """
+    A velocity no joint of a group may exceed.
+    """
+
+    connections: list[ActiveConnection1DOF]
+    """
+    The joints held to the limit.
+    """
+
+    maximum_velocity: float
+    """
+    The velocity no joint may exceed, in radians or metres per second.
+    """
+
+    def create_monitor(self) -> JointVelocityExceeded:
+        return JointVelocityExceeded(
+            name=self.constraint,
+            constraint=self.constraint,
+            connections=self.connections,
+            maximum_velocity=self.maximum_velocity,
+        )
+
+
+@dataclass(frozen=True)
+class MaximumToolVelocity(SafetyConstraint):
+    """
+    A speed a tool may not exceed.
+    """
+
+    root_link: Body
+    """
+    The body the tool's velocity is measured against.
+    """
+
+    tool: Body
+    """
+    The body held to the limit.
+    """
+
+    maximum_velocity: float
+    """
+    The speed the tool may not exceed, in metres per second.
+    """
+
+    def create_monitor(self) -> ToolVelocityExceeded:
+        return ToolVelocityExceeded(
+            name=self.constraint,
+            constraint=self.constraint,
+            root_link=self.root_link,
+            tool=self.tool,
+            maximum_velocity=self.maximum_velocity,
+        )
+
+
+@dataclass
+class SafetyEnvelope:
+    """
+    The safety constraints every motion of a robot is held to.
+    """
+
+    constraints: list[SafetyConstraint] = field(default_factory=list)
+    """
+    The constraints.
+    """
+
+    def create_nodes(self) -> list[StatechartNode]:
+        """
+        :return: New nodes for one statechart: a monitor of every constraint, and the
+            node cancelling the motion once one of them observes a violation; none
+            without constraints.
+        """
+        if not self.constraints:
+            return []
+        monitors = [constraint.create_monitor() for constraint in self.constraints]
+        return [*monitors, CancelOnSafetyViolation(monitors=monitors)]

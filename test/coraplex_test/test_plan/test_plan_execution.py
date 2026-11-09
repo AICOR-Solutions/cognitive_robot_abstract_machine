@@ -44,7 +44,15 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
     SelfCollisionAvoidance,
 )
 from giskardpy.motion_statechart.graph_node import EndMotion
+from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
 from giskardpy.motion_statechart.monitors.progress_monitors import StillProgressing
+from giskardpy.motion_statechart.monitors.safety_monitors import (
+    CancelOnSafetyViolation,
+    JointVelocityExceeded,
+    MaximumJointVelocity,
+    SafetyEnvelope,
+)
+from cramph.exceptions import ExecutionFailure
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.robots.pr2 import PR2Joint
@@ -328,6 +336,64 @@ def test_a_plan_that_violates_collision_avoidance_fails_as_a_plan_failure(
         executor.execute()
 
     assert failure.value.violation is violation
+
+
+# %% holding the plan to safety constraints
+
+
+def _slow_torso(world: World) -> SafetyEnvelope:
+    """
+    :return: An envelope holding the PR2's torso to a velocity no lift reaches its goal
+        within.
+    """
+    return SafetyEnvelope(
+        constraints=[
+            MaximumJointVelocity(
+                constraint="torso velocity",
+                connections=[world.get_connection_by_name(PR2Joint.TORSO_LIFT)],
+                maximum_velocity=0.001,
+            )
+        ]
+    )
+
+
+def test_compiling_watches_the_plan_for_safety_violations(
+    pr2_apartment_context,
+) -> None:
+    world, robot_view, extensions = pr2_apartment_context
+    plan = MoveTorsoAction(torso_state=TorsoState.HIGH)
+    executor = simulated_executor(extensions, safety=_slow_torso(world))
+
+    executor.compile(statechart_of(executor, plan))
+
+    [monitor] = plan.statechart.get_nodes_by_type(JointVelocityExceeded)
+    [cancel] = plan.statechart.get_nodes_by_type(CancelOnSafetyViolation)
+    assert cancel.monitors == [monitor]
+
+
+def test_a_plan_breaking_a_safety_constraint_is_cancelled_and_no_failure(
+    pr2_apartment_context,
+) -> None:
+    """
+    A safety violation is not a failure a surrounding plan could recover from by trying
+    another candidate, so it is not raised as one.
+    """
+    world, robot_view, extensions = pr2_apartment_context
+    envelope = _slow_torso(world)
+    torso = world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
+    position_before = world.state[torso].position
+    executor = simulated_executor(extensions, safety=envelope)
+    executor.compile(
+        statechart_of(executor, MoveTorsoAction(torso_state=TorsoState.HIGH))
+    )
+
+    with pytest.raises(SafetyConstraintViolated) as violated:
+        executor.execute()
+
+    [constraint] = envelope.constraints
+    assert violated.value.constraint == constraint.constraint
+    assert not isinstance(violated.value, ExecutionFailure)
+    assert world.state[torso].position - position_before < 0.01
 
 
 # %% avoiding collisions in a world with several robots

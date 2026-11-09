@@ -382,3 +382,30 @@ class EmptyDebugExpressionTrajectoryError(MotionStatechartError):
 
     def suggest_correction(self) -> str:
         return "Call tick() at least once before plotting, or configure debug expressions to record."
+
+
+@dataclass
+class SafetyConstraintViolated(MotionStatechartError):
+    """
+    Raised when a motion broke one of the safety constraints it is held to, which
+    cancels it; unlike a motion failure, nothing may recover from it by trying again.
+    """
+
+    constraint: str
+    """
+    The violated constraint, as a person reads it.
+    """
+
+    violation: str
+    """
+    What broke the constraint, as a person reads it.
+    """
+
+    def error_message(self) -> str:
+        return f"Safety constraint violated: {self.constraint} ({self.violation})."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check why the motion left what the constraint allows, then start the task "
+            "again from its beginning once a person acknowledged the stop."
+        )
