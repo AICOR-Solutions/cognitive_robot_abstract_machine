@@ -40,7 +40,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 
-from ...plan_running import expand, run_plan, world_of
+from ...plan_running import context_of, expand, run_plan, world_of
 
 # %% Tiago standing in the lobby
 
@@ -307,6 +307,83 @@ def test_tiago_outside_the_target_room_fails_the_demonstration(
     with pytest.raises(TargetRoomNotReachedError):
         demonstration.conclude(world)
     demonstration.tear_down()
+
+
+# %% the demonstration
+
+
+@pytest.fixture
+def lobby_room_navigation(
+    arise_office, arise_office_world
+) -> Iterator[TiagoRoomNavigationDemonstration]:
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        target_room_name=arise_office.get_room(
+            arise_office_world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
+        ).name.name,
+    )
+    yield demonstration
+    demonstration.tear_down()
+
+
+def test_the_demonstration_drives_with_its_clearances(
+    lobby_room_navigation, lobby_extensions
+):
+    lobby_room_navigation.obstacle_clearance = 0.15
+    lobby_room_navigation.elevator_exit_clearance = 0.7
+
+    statechart = lobby_room_navigation.build_statechart(context_of(lobby_extensions))
+
+    (navigation,) = [
+        node for node in statechart.nodes if isinstance(node, NavigateToRoomAction)
+    ]
+    assert (navigation.obstacle_clearance, navigation.elevator_exit_clearance) == (
+        lobby_room_navigation.obstacle_clearance,
+        lobby_room_navigation.elevator_exit_clearance,
+    )
+
+
+def test_tiago_is_placed_in_the_middle_of_a_start_room_on_another_level(
+    arise_office, lobby_room_navigation
+):
+    world = lobby_room_navigation.build_simulated_world()
+    start_room = arise_office.get_room(world, FirstFloor, AriseOfficeRoom.EAST_OFFICE)
+    lobby_room_navigation.start_room_name = start_room.name.name
+
+    lobby_room_navigation.place_robot_in_start_room(world)
+
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    assert robot.root.global_transform.position.to_np()[:3] == pytest.approx(
+        lobby_room_navigation.start_pose(world).position.to_np()[:3]
+    )
+    assert Floor.under(robot.root) is start_room.floor
+
+
+def test_tiago_left_in_the_cabin_is_placed_back_on_the_map(
+    arise_office, lobby_room_navigation
+):
+    world = lobby_room_navigation.build_simulated_world()
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    lobby_room_navigation.start_room_name = arise_office.get_room(
+        world, GroundFloor, AriseOfficeRoom.LOBBY
+    ).name.name
+    world.move_branch(
+        robot.root, world.get_semantic_annotations_by_type(Elevator)[0].root
+    )
+
+    lobby_room_navigation.place_robot_in_start_room(world)
+
+    assert robot.root.parent_kinematic_structure_entity is world.root
+
+
+def test_tiago_without_a_start_room_stays_where_it_was_spawned(lobby_room_navigation):
+    world = lobby_room_navigation.build_simulated_world()
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    spawned_at = robot.root.global_transform.to_np()
+
+    lobby_room_navigation.place_robot_in_start_room(world)
+
+    assert robot.root.global_transform.to_np() == pytest.approx(spawned_at)
 
 
 # %% trials
