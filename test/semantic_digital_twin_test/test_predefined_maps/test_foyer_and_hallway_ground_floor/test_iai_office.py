@@ -63,6 +63,13 @@ def test_elevator_travels_no_higher_than_the_top_storey(iai_office_world):
     )
 
 
+def test_the_elevator_serves_the_storeys_from_the_ground_floor_up(iai_office_world):
+    world, levels = iai_office_world
+    (elevator,) = world.get_semantic_annotations_by_type(Elevator)
+
+    assert elevator.floors == levels
+
+
 def test_the_simulator_reports_the_drive_under_the_name_of_its_connection(
     iai_office_world,
 ):

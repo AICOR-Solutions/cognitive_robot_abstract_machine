@@ -772,6 +772,16 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
             raise MissingMovableJointError(self)
         self.movable_joint.position = self.drive_position_for_floor(floor)
 
+    @property
+    def floors(self) -> list[Level]:
+        """
+        The levels of this elevator's world, from the lowest up.
+        """
+        return sorted(
+            self._world.get_semantic_annotations_by_type(Level),
+            key=lambda level: float(level.floor_plane[0].z),
+        )
+
     def serve_floor(self, floor: Level) -> None:
         """
         Close the doors, drive the cabin to ``floor`` and open the doors there.
