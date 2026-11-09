@@ -413,7 +413,7 @@ class ActionTrial:
         """
         return self.executor.context.world
 
-    def succeeds(self, rebuild: SubtreeRebuild) -> bool:
+    def attempt(self, rebuild: SubtreeRebuild) -> ExecutionFailure | None:
         """
         Run what `rebuild` builds for a trial against the copy, see
         :meth:`SubtreeRebuild.build_for_trial`, and restore the copy afterwards.
@@ -425,8 +425,8 @@ class ActionTrial:
         each attempt undoes only its own modifications.
 
         :param rebuild: Builds what is tried.
-        :return: True if what `rebuild` builds runs to completion without raising an
-            :class:`~cramph.exceptions.ExecutionFailure`.
+        :return: The :class:`~cramph.exceptions.ExecutionFailure` that ended the trial,
+            or None if what `rebuild` builds ran to completion.
         """
         world = self._copy()
         version = world.get_world_model_manager().version
@@ -440,10 +440,10 @@ class ActionTrial:
                 rebuild.carry_over_conditions()
                 executor.compile(statechart)
                 executor.execute()
-                return True
+                return None
             except ExecutionFailure as failure:
                 logger.info(f"{rebuild} failed its trial: {failure}")
-                return False
+                return failure
             finally:
                 # Undo the model changes before leaving the reset context restores the
                 # state, which needs the degrees of freedom it was snapshotted with.
@@ -577,6 +577,15 @@ class UnderspecifiedChildChooser(PlanChildChooser[StatementNode]):
     of the world.
     """
 
+    rejections: dict[StatementNode, list[ExecutionFailure]] = field(
+        default_factory=dict, init=False
+    )
+    """
+    The failures of the candidates each statement discarded after their trial, in the
+    order they were tried; for statements grounded together, those of every combination
+    the statement took part in.
+    """
+
     def __post_init__(self) -> None:
         self.trial = ActionTrial(
             executor=self.executor, trial_executor_type=self.trial_executor_type
@@ -610,10 +619,12 @@ class UnderspecifiedChildChooser(PlanChildChooser[StatementNode]):
             grounding.query_backend, grounding.candidates_to_try
         )
         while candidate is not None:
-            if self.trial.succeeds(
+            failure = self.trial.attempt(
                 SubtreeRebuild.unfinished_nodes(root, {node: candidate})
-            ):
+            )
+            if failure is None:
                 return Sequence(name=f"{candidate.name}/steps", nodes=[candidate])
+            self.rejections.setdefault(node, []).append(failure)
             candidate = node.next_candidate(
                 grounding.query_backend, grounding.candidates_to_try
             )
@@ -643,9 +654,12 @@ class UnderspecifiedChildChooser(PlanChildChooser[StatementNode]):
             default_candidate_limit=grounding.candidates_to_try,
         )
         for combination in combinations:
-            if not self.trial.succeeds(
+            failure = self.trial.attempt(
                 SubtreeRebuild.unfinished_nodes(root, combination)
-            ):
+            )
+            if failure is not None:
+                for statement in statements:
+                    self.rejections.setdefault(statement, []).append(failure)
                 continue
             combinations.take(combination)
             for statement in statements:

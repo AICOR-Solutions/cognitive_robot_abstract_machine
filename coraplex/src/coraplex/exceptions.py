@@ -311,6 +311,25 @@ class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation):
 
 
 @dataclass
+class NothingPerceived(PerceptionExceptionWithSemanticAnnotation):
+    """
+    Raised when a detection reports no object matching its query in its region.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"No {self.semantic_annotation.__name__} matching the query was seen in "
+            f"its region."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "put the object into the region, or widen the region or the query so they "
+            "cover it."
+        )
+
+
+@dataclass
 class UnidentifiedDetections(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a perception source reports several candidates it cannot tell apart.

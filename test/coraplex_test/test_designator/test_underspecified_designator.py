@@ -993,7 +993,7 @@ def test_a_trial_tries_an_action_that_already_belongs_to_a_plan(
         executor=executor, trial_executor_type=KinematicallySimulatedPlanExecutor
     )
 
-    assert trial.succeeds(SubtreeRebuild(root=action, candidates={}))
+    assert trial.attempt(SubtreeRebuild(root=action, candidates={})) is None
     trial.discard()
 
 
@@ -1033,6 +1033,27 @@ def test_a_candidate_that_cannot_keep_its_clearance_is_discarded(
 
     assert plan.life_cycle_state == LifeCycleValues.SUCCEEDED
     assert plan.grounded_nodes[-1].fail_on_attempt_number is None
+
+
+def test_a_statement_keeps_why_each_discarded_candidate_failed_its_trial(
+    apartment_world_pr2_copy_with_context,
+):
+    """
+    A statement that ran out of candidates can say why: the failure of each candidate
+    its trial discarded is kept, in the order they were tried.
+    """
+    world, robot, extensions = apartment_world_pr2_copy_with_context
+    dof = world.degrees_of_freedom[0]
+    action = a(RecordingAction)(
+        probe_key=register_probe(),
+        dof_id=dof.id,
+        fail_on_attempt_number=variable_from([1, None]),
+    )
+    plan = StatementNode(statement=action)
+    run_plan(plan, extensions)
+
+    [rejected] = _child_chooser_of(plan).rejections[plan]
+    assert isinstance(rejected, MotionDidNotFinish)
 
 
 # %% which statements of a parallel are grounded together
