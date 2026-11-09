@@ -57,6 +57,18 @@ class NavigateToRoomAction(SequentialAction):
     Position error within which the elevator's drive counts as having arrived.
     """
 
+    obstacle_clearance: float = 0.0
+    """
+    How far the robot's base keeps from obstacles on top of its base radius on every
+    drive.
+    """
+
+    elevator_exit_clearance: float = ElevatorNavigation.exit_clearance
+    """
+    Distance the robot keeps from the elevator's opening after driving out of the cabin,
+    on top of half the cabin's depth.
+    """
+
     def create_steps(self) -> list[StatechartNode | Match]:
         """
         The drive into a room on another level lays its path out only once the robot
@@ -70,17 +82,26 @@ class NavigateToRoomAction(SequentialAction):
         if target_level is None:
             raise RoomOnNoLevelError(self.target_room.name.name)
         if Level.under(self.robot.root) is target_level:
-            return [PathPlanningNavigateAction(target=self.target_room.floor_centre)]
+            return [
+                PathPlanningNavigateAction(
+                    target=self.target_room.floor_centre,
+                    obstacle_clearance=self.obstacle_clearance,
+                )
+            ]
         elevators = self.world.get_semantic_annotations_by_type(Elevator)
         if not elevators:
             raise NoElevatorError(self.target_room.name.name)
         elevator = elevators[0]
         return [
             PathPlanningNavigateAction(
-                target=elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
+                target=elevator.pose_in_front_of_doors(self.elevator_waiting_distance),
+                obstacle_clearance=self.obstacle_clearance,
             ),
             *self._ride_elevator(elevator, target_level),
-            a(PathPlanningNavigateAction)(target=self.target_room.floor_centre),
+            a(PathPlanningNavigateAction)(
+                target=self.target_room.floor_centre,
+                obstacle_clearance=self.obstacle_clearance,
+            ),
         ]
 
     def _ride_elevator(
@@ -97,5 +118,6 @@ class NavigateToRoomAction(SequentialAction):
                 elevator=elevator,
                 target_floor=target_level,
                 arrival_threshold=self.elevator_arrival_threshold,
+                exit_clearance=self.elevator_exit_clearance,
             )
         ]

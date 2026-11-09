@@ -135,6 +135,42 @@ def test_the_drive_into_a_room_on_another_level_is_laid_out_over_that_level(
     }
 
 
+def test_every_drive_to_a_room_keeps_the_obstacle_clearance(
+    lobby_demonstration, lobby_extensions
+):
+    west_office = lobby_demonstration.office.get_room(
+        world_of(lobby_extensions), FirstFloor, AriseOfficeRoom.WEST_OFFICE
+    )
+    action = NavigateToRoomAction(target_room=west_office, obstacle_clearance=0.15)
+
+    executor = run_plan(action, lobby_extensions)
+
+    drives = [
+        node
+        for node in executor.statechart.nodes
+        if isinstance(node, PathPlanningNavigateAction)
+    ]
+    assert len(drives) == 2
+    assert {drive.obstacle_clearance for drive in drives} == {action.obstacle_clearance}
+
+
+def test_the_ride_to_a_room_keeps_the_elevator_exit_clearance(
+    lobby_demonstration, lobby_extensions
+):
+    west_office = lobby_demonstration.office.get_room(
+        world_of(lobby_extensions), FirstFloor, AriseOfficeRoom.WEST_OFFICE
+    )
+    action = NavigateToRoomAction(target_room=west_office, elevator_exit_clearance=0.7)
+
+    (ride,) = [
+        step
+        for step in planned_steps(action, lobby_extensions)
+        if isinstance(step, ElevatorNavigation)
+    ]
+
+    assert ride.exit_clearance == action.elevator_exit_clearance
+
+
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_extensions):
     world = world_of(lobby_extensions)
     basement_floor = Floor.get_annotation_specification(
