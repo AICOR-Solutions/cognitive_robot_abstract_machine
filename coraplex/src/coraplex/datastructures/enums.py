@@ -42,6 +42,23 @@ class PerceptionSource(Enum):
     """
 
 
+class DetectionGrounding(StrEnum):
+    """
+    Where the objects a detection reports while a plan is checked come from.
+    """
+
+    PERCEIVED = "perceived"
+    """
+    Seen by the robot's perception now, as the region is in its camera's view.
+    """
+
+    ASSUMED = "assumed"
+    """
+    Taken from the world model, as the region is out of the camera's view; the detection
+    is perceived again when the plan runs.
+    """
+
+
 class ActionTrialVisualization(StrEnum):
     """
     Where the world copy an action trial runs in is published while debugging, apart

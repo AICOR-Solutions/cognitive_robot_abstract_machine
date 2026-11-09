@@ -697,6 +697,31 @@ class Camera(Sensor, Generic[TCameraModel], SubClassSafeGeneric):
         """
         return self.root.global_transform @ self.optical_R_forward_view
 
+    def is_in_field_of_view(self, point: Point3) -> bool:
+        """
+        Whether a point lies inside the pyramid this camera's field of view spans within
+        its range; whatever might hide the point from the camera is not considered.
+
+        :param point: The point, in any reference frame of the camera's world.
+        """
+        root_P_point = self._world.transform(point, self.root)
+        x, y, depth = (
+            float(root_P_point.x),
+            float(root_P_point.y),
+            float(root_P_point.z),
+        )
+        if not (
+            self.camera_range.minimum_distance
+            <= depth
+            <= self.camera_range.maximum_distance
+        ):
+            return False
+        field_of_view = self.field_of_view
+        return (
+            abs(np.arctan2(x, depth)) <= field_of_view.horizontal_angle / 2
+            and abs(np.arctan2(y, depth)) <= field_of_view.vertical_angle / 2
+        )
+
 
 TCamera = TypeVar("TCamera", bound=Camera)
 """

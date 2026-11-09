@@ -1571,14 +1571,10 @@ class World(HasSimulatorProperties):
         world_entity_iterable: Iterable[GenericWorldEntity],
     ) -> list[GenericWorldEntity]:
         """
-        Retrieve a world entity by its name from an iterable of world entities.
+        Find the world entities of an iterable that a name names: a string names those
+        whose full name, prefix and name joined by a slash, is the string, else those
+        whose name without prefix is; a :class:`PrefixedName` those of that full name.
 
-        This iterable would, for example, be self.connections or
-        self.kinematic_structure_entities. This method accepts either a string or a
-        `PrefixedName` instance. It searches through the provided iterable and returns
-        the list of world entities that matches the given name. A string matches the
-        name without prefix, or the full name as it is written out, prefix and name
-        joined by a slash. A `PrefixedName` matches the full name including prefix.
         :param name: The name of the world entity to search for.
         :param world_entity_iterable: The iterable to search for the world entity, for
             example self.connections or self.kinematic_structure_entities.
@@ -1592,10 +1588,15 @@ class World(HasSimulatorProperties):
                     if world_entity.name == name
                 ]
             case str():
+                world_entities = list(world_entity_iterable)
                 return [
                     world_entity
-                    for world_entity in world_entity_iterable
-                    if name in (world_entity.name.name, str(world_entity.name))
+                    for world_entity in world_entities
+                    if str(world_entity.name) == name
+                ] or [
+                    world_entity
+                    for world_entity in world_entities
+                    if world_entity.name.name == name
                 ]
 
     def get_degree_of_freedom_by_id(self, id: UUID) -> DegreeOfFreedom:

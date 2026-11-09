@@ -1,7 +1,7 @@
 """
-Detecting an object by its color: a red, a yellow and a blue cube of one type stand on
-Tracy's table, and asking for the red one finds only it, from the world model and live
-through RoboKudo's cube localization.
+Detecting cubes of one type on Tracy's table by color, from the world model and live
+through RoboKudo; cubes the world does not hold yet become bodies of their own, and a
+region out of the camera's view is answered from the world model.
 """
 
 from __future__ import annotations
@@ -13,10 +13,14 @@ from importlib.util import find_spec
 import numpy as np
 import pytest
 
-from coraplex.datastructures.enums import DetectionTechnique
+from coraplex.datastructures.enums import DetectionGrounding, DetectionTechnique
+from coraplex.exceptions import PerceivedObjectNotInWorld
 from coraplex.perception import (
+    DetectedScene,
     Detection,
+    PerceptionInterface,
     PerceptionQuery,
+    ValidationPerception,
     WorldPerception,
 )
 from coraplex.robot_plans.actions.core.misc import DetectAction
@@ -318,3 +322,226 @@ def test_a_live_detect_action_for_red_succeeds_among_cubes_of_one_type(
     )
 
     assert detection.life_cycle_state == LifeCycleValues.SUCCEEDED
+
+
+# %% detecting cubes the world does not hold yet
+
+
+def cube_size(scene: CubesOnTheTable) -> Scale:
+    """
+    :return: The extent of a cube of the scene.
+    """
+    return Scale(*[scene.edge_length] * 3)
+
+
+def detection_at(
+    scene: CubesOnTheTable, color: ColorName, x: float, y: float
+) -> Detection:
+    """
+    :return: A detection of a cube of the scene's size and of ``color``, standing on the
+        table at ``x`` and ``y``.
+    """
+    return Detection(
+        semantic_annotation=Milk,
+        pose=Pose.from_xyz_rpy(
+            x=x,
+            y=y,
+            z=scene.tracy.table.top_z + scene.edge_length / 2,
+            reference_frame=scene.world.root,
+        ),
+        color=color,
+        size=cube_size(scene),
+    )
+
+
+def test_a_detection_matching_no_body_becomes_a_new_body(
+    table_without_cubes: CubesOnTheTable,
+):
+    """
+    A cube seen where the world holds none is added in the size and color seen.
+    """
+    detection = detection_at(table_without_cubes, ColorName.RED, x=0.6, y=0.1)
+
+    [annotation] = detection.apply_to(
+        table_without_cubes.world, region=table_without_cubes.table_region
+    )
+
+    assert type(annotation) is Milk
+    np.testing.assert_allclose(
+        position_of(annotation.root),
+        detection.pose.position.to_np().flatten()[:3],
+        atol=1e-9,
+    )
+    assert annotation.root.visual.color_names() == {ColorName.RED}
+    extent = (
+        annotation.root.collision.as_bounding_box_collection_in_frame(annotation.root)
+        .bounding_box()
+        .scale
+    )
+    expected = cube_size(table_without_cubes)
+    np.testing.assert_allclose(
+        [extent.x, extent.y, extent.z], [expected.x, expected.y, expected.z], atol=1e-6
+    )
+
+
+def test_a_detection_without_a_size_matching_no_body_is_rejected(
+    table_without_cubes: CubesOnTheTable,
+):
+    """
+    Without a size there is no shape to give a new body.
+    """
+    detection = detection_at(table_without_cubes, ColorName.RED, x=0.6, y=0.1)
+    detection.size = None
+
+    with pytest.raises(PerceivedObjectNotInWorld):
+        detection.apply_to(
+            table_without_cubes.world, region=table_without_cubes.table_region
+        )
+
+
+def test_a_scene_seen_on_an_empty_table_becomes_one_body_per_cube(
+    table_without_cubes: CubesOnTheTable,
+):
+    """
+    Every cube seen at once becomes a body of its own, in the color it was seen in.
+    """
+    scene = table_without_cubes
+    detections = [
+        detection_at(scene, color, x=0.6, y=y)
+        for color, y in [
+            (ColorName.RED, -0.15),
+            (ColorName.YELLOW, 0.0),
+            (ColorName.BLUE, 0.15),
+        ]
+    ]
+
+    bodies = DetectedScene(detections, scene.table_region).apply_to(scene.world)
+
+    assert len(set(bodies)) == len(detections)
+    for body, detection in zip(bodies, detections):
+        assert body.visual.color_names() == {detection.color}
+        np.testing.assert_allclose(
+            position_of(body),
+            detection.pose.position.to_np().flatten()[:3],
+            atol=1e-9,
+        )
+
+
+def test_a_scene_seen_again_moves_the_cubes_the_world_holds(
+    three_cubes: CubesOnTheTable,
+):
+    """
+    A scene seen again moves the bodies of the cubes the world already holds.
+    """
+    detections = [
+        detection_at(
+            three_cubes,
+            color,
+            x=position_of(cube)[0] + 0.02,
+            y=position_of(cube)[1] - 0.01,
+        )
+        for color, cube in three_cubes.cubes.items()
+    ]
+
+    bodies = DetectedScene(detections, three_cubes.table_region).apply_to(
+        three_cubes.world
+    )
+
+    assert bodies == list(three_cubes.cubes.values())
+
+
+def test_a_scene_seen_does_not_move_a_cube_of_another_color(
+    table_without_cubes: CubesOnTheTable,
+):
+    """
+    A scene shows everything at once, so a cube of a color nothing was seen in is not
+    the one that was seen in another color.
+    """
+    scene = table_without_cubes
+    red_cube = scene.add_cube(
+        "red_cube", Color.from_rgba(red=0.8, green=0.1, blue=0.1), x=0.6, y=-0.15
+    )
+    red_pose = red_cube.global_pose.to_np()
+
+    [yellow_body] = DetectedScene(
+        [detection_at(scene, ColorName.YELLOW, x=0.6, y=0.0)], scene.table_region
+    ).apply_to(scene.world)
+
+    assert yellow_body is not red_cube
+    np.testing.assert_allclose(red_cube.global_pose.to_np(), red_pose, atol=1e-9)
+
+
+# %% answering while a plan is checked
+
+
+@dataclass
+class FixedPerception(PerceptionInterface):
+    """
+    A perception source that reports the same detections for every query.
+    """
+
+    detections: list[Detection]
+    """
+    What it reports.
+    """
+
+    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+        return self.detections
+
+
+@pytest.fixture
+def region_out_of_view(three_cubes: CubesOnTheTable) -> VolumetricBoundingBox:
+    """
+    :return: A region at the side edge of Tracy's table, which its camera does not see,
+        holding a green cube.
+    """
+    top = three_cubes.tracy.table.top_z
+    three_cubes.cubes[ColorName.GREEN] = three_cubes.add_cube(
+        "green_cube", Color.from_rgba(red=0.1, green=0.8, blue=0.1), x=0.6, y=0.7
+    )
+    return VolumetricBoundingBox(
+        origin=HomogeneousTransformationMatrix(reference_frame=three_cubes.world.root),
+        min_x=0.5,
+        min_y=0.6,
+        min_z=top - 0.05,
+        max_x=0.7,
+        max_y=0.8,
+        max_z=top + 0.2,
+    )
+
+
+def test_a_query_of_a_region_in_view_is_perceived_while_a_plan_is_checked(
+    three_cubes: CubesOnTheTable,
+):
+    """
+    Where the camera sees the region, the robot's perception answers.
+    """
+    seen = [detection_at(three_cubes, ColorName.RED, x=0.6, y=-0.15)]
+
+    answer = ValidationPerception(FixedPerception(seen)).look_for(
+        three_cubes.query(ColorName.RED)
+    )
+
+    assert answer.grounding is DetectionGrounding.PERCEIVED
+    assert answer.detections == seen
+
+
+def test_a_query_of_a_region_out_of_view_is_assumed_from_the_world(
+    three_cubes: CubesOnTheTable, region_out_of_view: VolumetricBoundingBox
+):
+    """
+    Where the camera does not see the region, the world model answers, assumed.
+    """
+    query = PerceptionQuery(
+        Milk, region_out_of_view, three_cubes.tracy, three_cubes.world
+    )
+
+    answer = ValidationPerception(FixedPerception([])).look_for(query)
+
+    assert answer.grounding is DetectionGrounding.ASSUMED
+    [assumed] = answer.detections
+    np.testing.assert_allclose(
+        assumed.pose.position.to_np().flatten()[:3],
+        position_of(three_cubes.cubes[ColorName.GREEN]),
+        atol=1e-9,
+    )

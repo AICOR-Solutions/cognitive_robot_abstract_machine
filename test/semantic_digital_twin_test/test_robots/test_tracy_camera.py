@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.tracy import Tracy
@@ -93,3 +93,63 @@ def test_tracys_camera_sees_a_block_on_its_table_past_its_own_housing(
         world.kinematic_structure[index] for index in np.unique(frame.segmentation)
     }
     assert block in seen_bodies
+
+
+# %% what lies in the camera's field of view
+
+
+def test_the_middle_of_tracys_table_lies_in_its_cameras_field_of_view(
+    tracy: Tracy,
+) -> None:
+    """
+    Tracy's camera looks down at the middle of its table.
+    """
+    camera = tracy.get_default_camera()
+    table_middle = Point3(
+        0.55, 0.0, tracy.table.top_z, reference_frame=tracy._world.root
+    )
+
+    assert camera.is_in_field_of_view(table_middle)
+
+
+def test_the_side_edge_of_tracys_table_lies_outside_its_cameras_field_of_view(
+    tracy: Tracy,
+) -> None:
+    """
+    The side edge of the table lies beyond the camera's horizontal angle.
+    """
+    camera = tracy.get_default_camera()
+    side_edge = Point3(0.6, 0.75, tracy.table.top_z, reference_frame=tracy._world.root)
+
+    assert not camera.is_in_field_of_view(side_edge)
+
+
+def test_a_point_behind_tracys_camera_lies_outside_its_field_of_view(
+    tracy: Tracy,
+) -> None:
+    """
+    A point behind the optical frame is never in view.
+    """
+    camera = tracy.get_default_camera()
+    behind = tracy._world.transform(
+        Point3(0.0, 0.0, -0.5, reference_frame=camera.root), tracy._world.root
+    )
+
+    assert not camera.is_in_field_of_view(behind)
+
+
+def test_a_point_nearer_than_its_range_lies_outside_tracys_cameras_field_of_view(
+    tracy: Tracy,
+) -> None:
+    """
+    A point nearer than the camera's minimum distance is not in view.
+    """
+    camera = tracy.get_default_camera()
+    too_near = Point3(
+        0.0,
+        0.0,
+        camera.camera_range.minimum_distance / 2,
+        reference_frame=camera.root,
+    )
+
+    assert not camera.is_in_field_of_view(too_near)

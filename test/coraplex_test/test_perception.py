@@ -66,7 +66,10 @@ from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, P
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.color_names import ColorName
-from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.geometry import (
+    Scale,
+    VolumetricBoundingBox,
+)
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
 from ..plan_running import run_plan
@@ -546,6 +549,11 @@ class ReportedObject:
     not tell colors.
     """
 
+    size: Scale | None = None
+    """
+    The extent of the box around it to report, None for a pipeline that measures none.
+    """
+
 
 class RecordedQueryServer:
     """
@@ -578,7 +586,8 @@ class RecordedQueryServer:
     def execute_callback(self, goal_handle):
         from geometry_msgs.msg import PoseStamped
         from robokudo_msgs.action import Query
-        from robokudo_msgs.msg import ObjectDesignator
+        from geometry_msgs.msg import Vector3
+        from robokudo_msgs.msg import ObjectDesignator, ShapeSize
         from std_msgs.msg import Header
 
         self.received_types.append(goal_handle.request.obj.type)
@@ -599,6 +608,17 @@ class RecordedQueryServer:
                     type=report.class_label,
                     pose=[pose_stamped],
                     color=report.color_names,
+                    shape_size=(
+                        []
+                        if report.size is None
+                        else [
+                            ShapeSize(
+                                dimensions=Vector3(
+                                    x=report.size.x, y=report.size.y, z=report.size.z
+                                )
+                            )
+                        ]
+                    ),
                 )
             )
         return Query.Result(res=designators)
@@ -685,6 +705,24 @@ def test_robokudo_detection_moves_the_body_in_the_world(
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )
+
+
+def test_robokudo_detection_carries_the_size_the_pipeline_measured(
+    pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
+):
+    """
+    The extent of the box RoboKudo reports around an object is the detection's size.
+    """
+    world, view, extensions = pr2_apartment_context
+    measured = Scale(0.05, 0.06, 0.07)
+    query_server_reporting(
+        [ReportedObject("Milk", PERCEIVED_MILK_POSITION, size=measured)]
+    )
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    assert detection.size == measured
 
 
 # %% pipelines that localize without recognizing

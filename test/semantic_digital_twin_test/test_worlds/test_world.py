@@ -2844,6 +2844,21 @@ def test_an_entity_is_found_by_its_name_written_out_with_its_prefix():
     assert world.get_kinematic_structure_entity_by_name(str(body.name)) is body
 
 
+def test_an_unprefixed_entity_is_found_by_its_name_beside_a_prefixed_namesake():
+    """
+    The frame id written for an entity without a prefix is its bare name, which also
+    names every prefixed entity of that name; it names the entity it was written for.
+    """
+    world = World()
+    root = Body(name=PrefixedName("map"))
+    namesake = Body(name=PrefixedName("map", prefix="tracy"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(root)
+        world.add_connection(FixedConnection(parent=root, child=namesake))
+
+    assert world.get_kinematic_structure_entity_by_name(str(root.name)) is root
+
+
 # %% moving a branch keeps both worlds replayable
 
 

@@ -20,7 +20,13 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 )
 from semantic_digital_twin.reasoning.robot_predicates import VisibleTo
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
+from semantic_digital_twin.semantic_annotations.mixins import (
+    HasRootBody,
+    IsPerceivable,
+)
+from semantic_digital_twin.specifications.connections import (
+    Connection6DoFSpecification,
+)
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
@@ -28,14 +34,17 @@ from krrood_spatial_math.spatial_types import (
 from krrood_spatial_math.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.color_names import ColorName
-from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.geometry import (
+    Scale,
+    VolumetricBoundingBox,
+)
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
 )
 from typing_extensions import Any, Self, TYPE_CHECKING
 
-from coraplex.datastructures.enums import PerceptionSource
+from coraplex.datastructures.enums import DetectionGrounding, PerceptionSource
 from coraplex.exceptions import (
     AmbiguousDetection,
     PerceivedObjectNotInWorld,
@@ -102,13 +111,14 @@ class PerceptionQuery(SubclassJSONSerializer):
     source; only a perception source answers them, the world model does not.
     """
 
-    def from_world(self) -> list[Body]:
+    def candidates(self) -> list[Body]:
         """
-        Answer this query from the world model alone.
+        Answer this query from the world model alone, whether or not the robot's camera
+        sees the bodies.
 
-        :return: The bodies of the queried annotation that lie inside the region, show
-            the queried color and are visible to the robot's camera. A body several
-            matching annotations describe is one object, so it is reported once.
+        :return: The bodies of the queried annotation that lie inside the region and
+            show the queried color. A body several matching annotations describe is one
+            object, so it is reported once.
         """
         bodies = dict.fromkeys(
             body
@@ -117,19 +127,32 @@ class PerceptionQuery(SubclassJSONSerializer):
             )
             for body in semantic_annotation.bodies
         )
-        region_bodies = [
+        return [
             body
             for body in bodies
             if self.region.contains(body.global_transform.position)
             and (self.color is None or self.color in body.visual.color_names())
         ]
 
+    def from_world(self) -> list[Body]:
+        """
+        Answer this query from the world model alone.
+
+        :return: The :meth:`candidates` that are visible to the robot's camera.
+        """
         robot_camera = self.robot.get_default_camera()
         return [
             body
-            for body in region_bodies
+            for body in self.candidates()
             if VisibleTo(entity=body, camera=robot_camera)()
         ]
+
+    def is_region_in_view(self) -> bool:
+        """
+        :return: Whether the centre of the region lies in the field of view of the
+            robot's camera now, so the camera can look for the object there.
+        """
+        return self.robot.get_default_camera().is_in_field_of_view(self.region.center)
 
     def to_json(self, **kwargs) -> dict[str, Any]:
         result = super().to_json(**kwargs)
@@ -179,6 +202,12 @@ class Detection:
     The color the perception source saw the object in, None when it named none.
     """
 
+    size: Scale | None = None
+    """
+    The extent of the box around the object in the frame of :attr:`pose`, None when the
+    perception source measured none.
+    """
+
     def apply_to(
         self,
         world: World,
@@ -188,6 +217,7 @@ class Detection:
         """
         Write this detection into ``world``, moving the perceived body to where it was
         seen and giving it the color it was seen in unless it shows that color already.
+        A detection the world holds no body for becomes a new body, see :meth:`add_to`.
 
         :param world: The world holding the annotations this detection refers to.
         :param trust_orientation: Whether to also apply the detected orientation. When
@@ -197,12 +227,46 @@ class Detection:
         :param region: The region the object was looked for in, see
             :meth:`resolve_annotations`.
         :return: The annotations that were updated.
-        :raises PerceivedObjectNotInWorld: If the world holds no such annotation.
+        :raises PerceivedObjectNotInWorld: If the world holds no such annotation and
+            none can be added for the detection.
         :raises AmbiguousDetection: If the annotation describes more than one body.
         """
-        matching_annotations = self.resolve_annotations(world, region)
-        matching_annotation = matching_annotations[0]
-        body = matching_annotation.root
+        matching_annotations = self.resolve_annotations(world, region) or [
+            self.add_to(world)
+        ]
+        self.write_into(matching_annotations[0].root, world, trust_orientation)
+        return matching_annotations
+
+    def add_to(self, world: World) -> HasRootBody:
+        """
+        Add the object this detection saw to ``world`` as a new free body: a box of
+        :attr:`size` annotated with the detected annotation, at the detected pose.
+
+        :param world: The world that holds no body for this detection.
+        :return: The new body's annotation.
+        :raises PerceivedObjectNotInWorld: If the detection measured no size, or its
+            annotation cannot be created around a body of its own.
+        """
+        if self.size is None or not issubclass(self.semantic_annotation, HasRootBody):
+            raise PerceivedObjectNotInWorld(self.semantic_annotation)
+        return self.semantic_annotation.create_with_new_body_in_world(
+            name=f"{self.semantic_annotation.__name__.lower()}_{len(world.bodies)}",
+            world=world,
+            world_root_T_self=world.transform(self.pose, world.root).homogeneous_matrix,
+            parent_connection_specification=Connection6DoFSpecification(),
+            scale=self.size,
+        )
+
+    def write_into(self, body: Body, world: World, trust_orientation: bool) -> None:
+        """
+        Move ``body`` to where this detection saw it and give it the detected color
+        unless it shows that color already.
+
+        :param body: The body that was seen.
+        :param world: The world holding the body.
+        :param trust_orientation: Whether to also apply the detected orientation, see
+            :meth:`apply_to`.
+        """
         robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
         # Foundation Pose may return a upside down pose. this detects and fixes it by rotation around x by 180 degree
@@ -229,7 +293,6 @@ class Detection:
         if self.color is not None and self.color not in body.visual.color_names():
             with world.modify_world():
                 body.update_visual_color(self.color.representative_color)
-        return matching_annotations
 
     @staticmethod
     def _with_z_up_and_x_towards(
@@ -269,9 +332,8 @@ class Detection:
 
         :param world: The world to search.
         :param region: The region the object was looked for in.
-        :return: The matching annotations, all sharing one root body.
-        :raises PerceivedObjectNotInWorld: If the world holds no instance of the
-            annotation.
+        :return: The matching annotations, all sharing one root body; empty when the
+            world holds no instance of the annotation there.
         :raises AmbiguousDetection: If the matching annotations sit on different bodies.
         """
         candidates = [
@@ -283,7 +345,7 @@ class Detection:
             or region.contains(annotation.root.global_transform.position)
         ]
         if not candidates:
-            raise PerceivedObjectNotInWorld(self.semantic_annotation)
+            return []
         candidates = [
             annotation
             for annotation in candidates
@@ -293,6 +355,77 @@ class Detection:
         if len(bodies) > 1:
             raise AmbiguousDetection(self.semantic_annotation, len(bodies))
         return candidates
+
+
+@dataclass
+class DetectedScene:
+    """
+    The objects a perception source saw in a region at once, each detection a different
+    object.
+    """
+
+    detections: list[Detection]
+    """
+    What the perception source saw.
+    """
+
+    region: VolumetricBoundingBox
+    """
+    The region the objects were looked for in.
+    """
+
+    def apply_to(self, world: World, trust_orientation: bool = True) -> list[Body]:
+        """
+        Write every detection into ``world``: each moves the body nearest to it that
+        carries its annotation, lies in the region, shows its color and was taken by no
+        earlier detection, or becomes a new body, see :meth:`Detection.add_to`.
+
+        :param world: The world the objects are written into.
+        :param trust_orientation: Whether to also apply the detected orientations, see
+            :meth:`Detection.apply_to`.
+        :return: The body of each detection, in the order of :attr:`detections`.
+        :raises PerceivedObjectNotInWorld: If a detection matches no body and none can
+            be added for it.
+        """
+        bodies: list[Body] = []
+        for detection in self.detections:
+            body = self.nearest_free_body(detection, world, bodies)
+            if body is None:
+                body = detection.add_to(world).root
+            detection.write_into(body, world, trust_orientation)
+            bodies.append(body)
+        return bodies
+
+    def nearest_free_body(
+        self, detection: Detection, world: World, taken: list[Body]
+    ) -> Body | None:
+        """
+        :param detection: One detection of the scene.
+        :param world: The world the objects are written into.
+        :param taken: The bodies earlier detections of the scene moved.
+        :return: The body nearest to the detection that carries its annotation, lies in
+            the region, shows its color and is not taken, None when there is none.
+        """
+        detected_position = world.transform(detection.pose, world.root).position
+        candidates = [
+            annotation.root
+            for annotation in world.get_semantic_annotations_by_type(
+                detection.semantic_annotation
+            )
+            if annotation.root not in taken
+            and self.region.contains(annotation.root.global_transform.position)
+            and (
+                detection.color is None
+                or detection.color in annotation.root.visual.color_names()
+            )
+        ]
+        return min(
+            candidates,
+            key=lambda body: float(
+                body.global_transform.position.euclidean_distance(detected_position)
+            ),
+            default=None,
+        )
 
 
 # %% perception sources
@@ -360,22 +493,75 @@ class WorldPerception(PerceptionInterface):
     already holds.
     """
 
+    reports_unseen_bodies: bool = False
+    """
+    Whether it also reports the bodies the robot's camera does not see now, as the world
+    model alone believes them to be.
+    """
+
     def look_for(self, query: PerceptionQuery) -> list[Detection]:
         annotation_by_body = {}
         for annotation in query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
         ):
             annotation_by_body.setdefault(annotation.root, type(annotation))
-
+        bodies = (
+            query.candidates() if self.reports_unseen_bodies else query.from_world()
+        )
         return [
             Detection(
                 semantic_annotation=annotation_by_body[body],
                 pose=body.global_pose,
                 color=query.color,
             )
-            for body in query.from_world()
+            for body in bodies
             if body in annotation_by_body
         ]
+
+
+@dataclass
+class GroundedDetections:
+    """
+    The objects a detection reports while a plan is checked, and where they come from.
+    """
+
+    detections: list[Detection]
+    """
+    The objects reported.
+    """
+
+    grounding: DetectionGrounding
+    """
+    Whether they were perceived now or assumed from the world model.
+    """
+
+
+@dataclass
+class ValidationPerception:
+    """
+    Answers perception queries while a plan is checked, before it runs: through the
+    robot's perception where its camera sees the region now, else from the world model,
+    whose answer is assumed until the plan runs and perceives it.
+    """
+
+    live: PerceptionInterface
+    """
+    The robot's perception.
+    """
+
+    def look_for(self, query: PerceptionQuery) -> GroundedDetections:
+        """
+        :param query: What to look for and where.
+        :return: Every object reported for the query, and where they come from.
+        """
+        if query.is_region_in_view():
+            return GroundedDetections(
+                self.live.look_for(query), DetectionGrounding.PERCEIVED
+            )
+        return GroundedDetections(
+            WorldPerception(reports_unseen_bodies=True).look_for(query),
+            DetectionGrounding.ASSUMED,
+        )
 
 
 @dataclass
@@ -462,21 +648,22 @@ class RoboKudoPerception(PerceptionInterface):
         self, designator: ObjectDesignator, query: PerceptionQuery
     ) -> Detection:
         """
-        Convert one RoboKudo object designator into a detection.
-
-        The detection is identified as the queried annotation: a pipeline that classifies
-        has already been narrowed to it by :meth:`_can_be_requested_object`, and one that
-        only localizes answered where the queried object is. Its color is the first, most
-        dominant, color reported that has a :class:`ColorName`.
+        Convert one RoboKudo object designator into a detection of the queried
+        annotation, which :meth:`_can_be_requested_object` narrowed it to, in the first,
+        most dominant, color reported that has a :class:`ColorName` and of the first
+        shape size reported.
 
         :param designator: The designator RoboKudo reported.
-        :param query: The query it was answering, supplying the annotation and the frame.
+        :param query: The query it was answering, supplying the annotation and the
+            frame.
         :return: The detection carrying the queried annotation and the reported pose.
         """
         world = query.world
         pose_stamped = designator.pose[0]
+        extent = designator.shape_size[0].dimensions if designator.shape_size else None
         return Detection(
             semantic_annotation=query.semantic_annotation,
+            size=None if extent is None else Scale(extent.x, extent.y, extent.z),
             color=next(
                 (ColorName(color) for color in designator.color if color in ColorName),
                 None,
