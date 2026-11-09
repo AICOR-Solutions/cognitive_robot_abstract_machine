@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
+import numpy as np
+
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.binding_policy import (
     ForwardKinematicsBinding,
@@ -20,6 +22,7 @@ from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
 )
 from krrood_spatial_math.spatial_types import SpatialType
+from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -259,6 +262,61 @@ class PointingAt(EndedByOwner, MotionStatechartNode):
             line_point=root_P_tip, line_direction=root_V_pointing_axis
         )
         return NodeArtifacts(observation=sm.abs(distance) < self.threshold)
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class InFieldOfView(EndedByOwner, MotionStatechartNode):
+    """
+    Observes ``True`` while the origin of :attr:`target` lies inside the pyramid the
+    field of view of :attr:`camera` spans within its range, at least :attr:`margin`
+    inside each of its edges; what might hide the target is not considered, as in
+    :meth:`~semantic_digital_twin.robots.robot_parts.Camera.is_in_field_of_view`.
+    """
+
+    camera: Camera
+    """
+    The camera whose field of view is observed.
+    """
+
+    target: Body
+    """
+    The body that is to stay in view.
+    """
+
+    margin: float = 0.0
+    """
+    The angle in radians the target keeps from every edge of the field of view.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        camera_P_target = self.context.world.compose_forward_kinematics_expression(
+            self.camera.root, self.target
+        ).position
+        depth = camera_P_target.z
+        field_of_view = self.camera.field_of_view
+        horizontal_slope = np.tan(field_of_view.horizontal_angle / 2 - self.margin)
+        vertical_slope = np.tan(field_of_view.vertical_angle / 2 - self.margin)
+        camera_range = self.camera.camera_range
+        return NodeArtifacts(
+            observation=sm.logic_and(
+                depth >= camera_range.minimum_distance,
+                depth <= camera_range.maximum_distance,
+                sm.abs(camera_P_target.x) <= depth * horizontal_slope,
+                sm.abs(camera_P_target.y) <= depth * vertical_slope,
+            )
+        )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class OutOfFieldOfView(InFieldOfView):
+    """
+    Observes ``True`` while the target lies outside what :class:`InFieldOfView` counts
+    as in view, so a monitored composite node can give up once the target leaves it.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        in_view = super().build_artifacts()
+        return NodeArtifacts(observation=sm.logic_not(in_view.observation))
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

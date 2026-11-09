@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
@@ -10,6 +11,8 @@ from giskardpy.motion_statechart.monitors.cartesian_monitors import (
     PointingAt,
     VectorsAligned,
     DistanceToLine,
+    InFieldOfView,
+    OutOfFieldOfView,
 )
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
@@ -26,7 +29,11 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
     RotationMatrix,
 )
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import Connection6DoF
+from semantic_digital_twin.world_description.world_entity import Body
 from giskardpy.motion_control import MotionControl
 from cramph.context import StatechartContext
 from cramph.executor import StatechartExecutor
@@ -239,3 +246,88 @@ def test_distance_to_line(pr2_world_state_reset: World):
     _run(executor, statechart)
 
     assert monitor.observation_state == ObservationStateValues.TRUE
+
+
+# %% field of view
+
+
+@pytest.fixture
+def camera_and_target(pr2_world_copy: World) -> tuple[Camera, Body]:
+    """
+    :return: The PR2's camera and a free body to put somewhere in its view.
+    """
+    world = pr2_world_copy
+    target = Body(name=PrefixedName("target"))
+    with world.modify_world():
+        world.add_connection(
+            Connection6DoF.create_with_dofs(
+                world=world, parent=world.root, child=target
+            )
+        )
+    [camera] = world.get_semantic_annotations_by_type(Camera)
+    return camera, target
+
+
+def _observe_at(monitor: InFieldOfView, camera_P_target: Point3) -> float:
+    """
+    Put the target of `monitor` at a point of its camera and let it observe it.
+
+    :return: What `monitor` observes then.
+    """
+    world = monitor.camera._world
+    root_P_target = world.transform(camera_P_target, world.root)
+    monitor.target.parent_connection.origin = (
+        HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=root_P_target.x,
+            y=root_P_target.y,
+            z=root_P_target.z,
+            reference_frame=world.root,
+        )
+    )
+    executor = _create_executor(world)
+    statechart = Statechart(context=executor.context)
+    statechart.add_node(monitor)
+    executor.compile(statechart=statechart)
+    executor.tick()
+    return monitor.observation_state
+
+
+@pytest.mark.parametrize(
+    "x, y, depth",
+    [(0.0, 0.0, 1.0), (0.3, -0.2, 1.0), (2.0, 0.0, 1.0), (0.0, 0.0, -1.0)],
+)
+def test_in_field_of_view_agrees_with_the_camera(camera_and_target, x, y, depth):
+    camera, target = camera_and_target
+    point = Point3(x, y, depth, reference_frame=camera.root)
+
+    observed = _observe_at(InFieldOfView(camera=camera, target=target), point)
+
+    expected = camera.is_in_field_of_view(point)
+    assert observed == (
+        ObservationStateValues.TRUE if expected else ObservationStateValues.FALSE
+    )
+
+
+def test_a_target_within_the_margin_of_an_edge_is_out_of_view(camera_and_target):
+    camera, target = camera_and_target
+    half_angle = camera.field_of_view.horizontal_angle / 2
+    margin = 0.1
+    near_the_edge = Point3(
+        np.tan(half_angle - margin / 2), 0.0, 1.0, reference_frame=camera.root
+    )
+
+    observed = _observe_at(
+        InFieldOfView(camera=camera, target=target, margin=margin), near_the_edge
+    )
+
+    assert camera.is_in_field_of_view(near_the_edge)
+    assert observed == ObservationStateValues.FALSE
+
+
+def test_out_of_field_of_view_observes_a_target_outside(camera_and_target):
+    camera, target = camera_and_target
+    beside = Point3(2.0, 0.0, 1.0, reference_frame=camera.root)
+
+    observed = _observe_at(OutOfFieldOfView(camera=camera, target=target), beside)
+
+    assert observed == ObservationStateValues.TRUE

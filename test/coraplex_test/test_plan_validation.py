@@ -19,6 +19,7 @@ from coraplex.plans.failures import (
     MotionViolatedCollisionAvoidance,
     PlanFailure,
     RobotInCollision,
+    TargetLeftFieldOfView,
 )
 from coraplex.plans.validation import FailureCause, PlanValidation, ValidationVerdict
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
@@ -29,10 +30,12 @@ from cramph.context import ContextExtension
 from giskardpy.motion_statechart.exceptions import CollisionViolatedError
 from krrood.entity_query_language.factories import a, variable
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from semantic_digital_twin.datastructures.camera_model import FieldOfViewCameraModel
 from semantic_digital_twin.datastructures.definitions import StaticJointState
+from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
-from semantic_digital_twin.robots.robot_parts import Arm
+from semantic_digital_twin.robots.robot_parts import Arm, Camera
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from semantic_digital_twin.world import World
@@ -185,6 +188,20 @@ def joint_positions(world: World) -> np.ndarray:
         (RobotInCollision(), FailureCause.COLLISION),
         (NothingPerceived(HasGraspCandidates), FailureCause.NOT_PERCEIVED),
         (UnidentifiedDetections(HasGraspCandidates, 2), FailureCause.AMBIGUOUS),
+        (
+            TargetLeftFieldOfView(
+                camera=Camera(
+                    root=Body(name=PrefixedName("optical_frame")),
+                    camera_model=FieldOfViewCameraModel(
+                        angular_extent=FieldOfView(
+                            horizontal_angle=1.0, vertical_angle=0.8
+                        )
+                    ),
+                ),
+                target=Body(name=PrefixedName("cube")),
+            ),
+            FailureCause.OUT_OF_VIEW,
+        ),
         (PlanFailure(), FailureCause.UNSUCCESSFUL),
     ],
 )

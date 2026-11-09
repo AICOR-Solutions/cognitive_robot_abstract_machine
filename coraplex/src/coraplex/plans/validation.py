@@ -28,6 +28,7 @@ from coraplex.plans.failures import (
     MotionViolatedCollisionAvoidance,
     NavigationGoalNotReachedError,
     RobotInCollision,
+    TargetLeftFieldOfView,
 )
 from coraplex.robot_plans.actions.base import Action
 from cramph.composites import StatementNode
@@ -88,6 +89,11 @@ class FailureCause(StrEnum):
     Several objects matched the detection and none of them could be told apart.
     """
 
+    OUT_OF_VIEW = "out_of_view"
+    """
+    An object the step was to keep in view lay outside the camera's field of view.
+    """
+
     UNSUCCESSFUL = "unsuccessful"
     """
     The step failed for another reason, which the failure itself names.
@@ -112,6 +118,8 @@ class FailureCause(StrEnum):
                 return cls.NOT_PERCEIVED
             case UnidentifiedDetections():
                 return cls.AMBIGUOUS
+            case TargetLeftFieldOfView():
+                return cls.OUT_OF_VIEW
         return cls.UNSUCCESSFUL
 
 

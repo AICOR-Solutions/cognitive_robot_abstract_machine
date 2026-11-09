@@ -10,7 +10,7 @@ from giskardpy.motion_statechart.exceptions import (
     NoProgressError,
 )
 from cramph.exceptions import ExecutionFailure
-from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
+from semantic_digital_twin.robots.robot_parts import Arm, Camera, EndEffector
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -114,6 +114,79 @@ class MotionViolatedCollisionAvoidance(PlanFailure):
 
 
 @dataclass
+class TargetLeftFieldOfView(PlanFailure):
+    """
+    Raised when a body a step is to keep in view lies outside the field of view of the
+    camera watching it, whether it left during the step or was outside when it began.
+
+    Like :class:`MotionMadeNoProgress`, this says the attempt did not work rather than
+    that the plan cannot go on: the target may be found again and the step retried.
+    """
+
+    camera: Camera
+    """
+    The camera that lost sight of the target.
+    """
+
+    target: Body
+    """
+    The body that is outside the camera's field of view.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.target.name.name} is outside the field of view of "
+            f"{self.camera.name.name}."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Detect the target again and ground the step anew, or keep the target "
+            "where the camera sees it."
+        )
+
+
+@dataclass
+class BodyDisplacement:
+    """
+    How far a body lies from where a step expected it.
+    """
+
+    body: Body
+    """
+    The body.
+    """
+
+    distance: float
+    """
+    How far, in metres, it lies from where it was expected.
+    """
+
+
+@dataclass
+class BodiesMovedSinceGrounding(PlanFailure):
+    """
+    Raised when bodies a step acts on lie farther from where the plan was grounded with
+    them than a step accepts, so the step would act on a world that no longer holds.
+    """
+
+    displacements: list[BodyDisplacement]
+    """
+    The bodies that moved, and how far.
+    """
+
+    def error_message(self) -> str:
+        moved = ", ".join(
+            f"{displacement.body.name.name} lies {displacement.distance * 100:.1f} cm"
+            for displacement in self.displacements
+        )
+        return f"{moved} from where the plan was grounded."
+
+    def suggest_correction(self) -> str:
+        return "Perceive the bodies again and ground the rest of the plan anew."
+
+
+@dataclass
 class EmptyUnderspecified(PlanFailure):
     """
     Raised when an underspecified statement yields no action that succeeds.
@@ -179,6 +252,7 @@ class NavigationGoalNotReachedError(PlanFailure):
     """
     The current pose of the robot.
     """
+
     goal_pose: Pose
     """
     The goal pose of the robot.

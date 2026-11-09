@@ -49,7 +49,9 @@ from giskardpy.motion_statechart.graph_node import (
 )
 from giskardpy.motion_statechart.monitors.cartesian_monitors import (
     DistanceToLine,
+    InFieldOfView,
     OrientationReached,
+    OutOfFieldOfView,
     PointingAt,
     PoseReached,
     PositionReached,
@@ -122,7 +124,11 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 )
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.datastructures.joint_state import JointState
-from semantic_digital_twin.robots.robot_parts import AbstractRobot, EndEffector
+from semantic_digital_twin.robots.robot_parts import (
+    AbstractRobot,
+    Camera,
+    EndEffector,
+)
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -168,6 +174,13 @@ def _connection(world: World) -> ActiveConnection1DOF:
 
 def _robot(world: World) -> AbstractRobot:
     return world.get_semantic_annotations_by_type(AbstractRobot)[0]
+
+
+def _camera(world: World) -> Camera:
+    """
+    :return: The camera of the PR2.
+    """
+    return world.get_semantic_annotations_by_type(Camera)[0]
 
 
 def _point(world: World) -> Point3:
@@ -673,6 +686,16 @@ def _monitor_cases() -> list[NodeRoundTripCase]:
             ],
             WorldFixture.PR2_WORLD,
         ),
+        *[
+            NodeRoundTripCase(
+                node_type,
+                lambda world, node_type=node_type: [
+                    node_type(camera=_camera(world), target=_tip(world), margin=0.1)
+                ],
+                WorldFixture.PR2_WORLD,
+            )
+            for node_type in (InFieldOfView, OutOfFieldOfView)
+        ],
         NodeRoundTripCase(
             VectorsAligned,
             lambda world: [
