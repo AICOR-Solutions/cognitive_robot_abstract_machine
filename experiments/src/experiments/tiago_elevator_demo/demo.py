@@ -34,6 +34,7 @@ from coraplex.robot_plans.actions.core.navigation import (
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
+from experiments.tiago_arise_gazebo.elevator_operator import SimulatedElevatorOperator
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
@@ -211,6 +212,12 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
     in a real run.
     """
 
+    elevator_operator_parameter_service: str | None = None
+    """
+    The service through which a real run tells the simulator's elevator operator the
+    destination floor, or None where a person operates the elevator.
+    """
+
     elevator_operator: ElevatorOperator | None = field(init=False, default=None)
     """
     The operator of the elevator in a kinematic simulation.
@@ -280,6 +287,11 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
         if self.runs_on_a_real_robot:
+            if self.elevator_operator_parameter_service is not None:
+                SimulatedElevatorOperator(
+                    node=self.ros_node,
+                    parameter_service_name=self.elevator_operator_parameter_service,
+                ).set_destination_floor(self.destination_floor_index(world))
             if self.elevator_inputs is None:
                 self._follow_elevator_drive(elevator)
             return [
@@ -319,6 +331,15 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         :return: The level of ``world`` Tiago rides the elevator to, the first floor.
         """
         return world.get_semantic_annotations_by_type(FirstFloor)[0]
+
+    def destination_floor_index(self, world: World) -> int:
+        """
+        :return: The position of :meth:`destination_level` among the floors of the
+            elevator of ``world``, counted from the lowest.
+        """
+        return world.get_semantic_annotations_by_type(Elevator)[0].floors.index(
+            self.destination_level(world)
+        )
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
