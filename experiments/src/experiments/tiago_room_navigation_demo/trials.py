@@ -1,7 +1,8 @@
 """
 Repeated trials of :class:`TiagoRoomNavigationDemonstration` to target rooms sampled
 from the rooms annotated in the ARISE office, with an overview of how many succeeded and
-why the others failed.
+why the others failed, and trips between rooms on different levels drawn from an
+elevator building.
 """
 
 from __future__ import annotations
@@ -21,12 +22,99 @@ from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.demo import (
     TiagoRoomNavigationDemonstration,
 )
+from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
+    Level,
     Room,
 )
+from semantic_digital_twin.world import World
+
+# %% trips between levels
+
+
+@dataclass(frozen=True)
+class RoomTrip:
+    """
+    A drive from one room to another.
+    """
+
+    start_room_name: str
+    """
+    The name of the room annotation the robot starts in.
+    """
+
+    target_room_name: str
+    """
+    The name of the room annotation the robot drives to.
+    """
+
+
+@dataclass
+class RoomTripDraw:
+    """
+    Draws trips between the rooms of an elevator building a robot may be sent into, each
+    to a room on another level than the one it starts on.
+
+    Only rooms annotated as nothing more specific than a
+    :class:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Room` are
+    drawn.
+    """
+
+    office: ElevatorBuilding
+    """
+    The building the rooms are drawn from.
+    """
+
+    number_of_trips: int = 50
+    """
+    How many trips to draw.
+    """
+
+    seed: int | None = None
+    """
+    Seed of the draw, or None to draw differently each time.
+    """
+
+    def room_levels(self, world: World) -> dict[str, str]:
+        """
+        :param world: The world the building was spawned into.
+        :return: The name of the level each room that may be drawn lies on, by the
+            room's name.
+        """
+        return {
+            room.name.name: Level.under(room.floor.root).name.name
+            for room in self.office.rooms_by_spoken_name(world).values()
+            if type(room) is Room
+        }
+
+    def trips(self, world: World) -> list[RoomTrip]:
+        """
+        :param world: The world the building was spawned into.
+        :return: :attr:`number_of_trips` trips, each starting in a room drawn uniformly
+            from every room and ending in a room drawn uniformly from the rooms on the
+            other levels. A seed draws the same trips from the same rooms.
+        """
+        room_levels = self.room_levels(world)
+        room_names = sorted(
+            room_levels, key=lambda room_name: (room_levels[room_name], room_name)
+        )
+        sampler = random.Random(self.seed)
+        trips = []
+        for _ in range(self.number_of_trips):
+            start_room_name = sampler.choice(room_names)
+            target_room_name = sampler.choice(
+                [
+                    room_name
+                    for room_name in room_names
+                    if room_levels[room_name] != room_levels[start_room_name]
+                ]
+            )
+            trips.append(RoomTrip(start_room_name, target_room_name))
+        return trips
+
 
 # %% outcomes
 
