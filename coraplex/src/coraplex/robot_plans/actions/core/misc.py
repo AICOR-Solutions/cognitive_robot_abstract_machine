@@ -23,6 +23,7 @@ from krrood_spatial_math.spatial_types import (
 )
 from krrood_spatial_math.spatial_types import Pose, Point3, Pose2D
 from semantic_digital_twin.robots.robot_parts import EndEffector
+from semantic_digital_twin.world_description.color_names import ColorName
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -80,6 +81,17 @@ class DetectAction(SequentialAction):
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
+    color: ColorName | None = None
+    """
+    The color the object is seen in, None for any color.
+    """
+
+    attributes: list[str] = field(default_factory=list)
+    """
+    Further qualities the object has, see
+    :attr:`~coraplex.perception.PerceptionQuery.attributes`.
+    """
+
     perception_source: PerceptionSource = field(
         default=PerceptionSource.WORLD_MODEL, init=False
     )
@@ -123,6 +135,8 @@ class DetectAction(SequentialAction):
             self.robot,
             self.world,
             trust_detected_orientation=self.trust_detected_orientation,
+            color=self.color,
+            attributes=self.attributes,
         )
 
     def _box_around_robot(self) -> VolumetricBoundingBox:

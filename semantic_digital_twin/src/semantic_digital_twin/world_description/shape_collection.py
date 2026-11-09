@@ -23,6 +23,7 @@ from semantic_digital_twin.world_description.geometry import (
     VolumetricBoundingBox,
     Color,
 )
+from semantic_digital_twin.world_description.color_names import ColorName
 
 BoxT = TypeVar("BoxT", bound=AxisAlignedBox)
 """
@@ -73,6 +74,12 @@ class ShapeCollection(SubclassJSONSerializer):
         """
         for shape in self.shapes:
             shape.color = color
+
+    def color_names(self) -> set[ColorName]:
+        """
+        :return: The names of the colors the shapes of this collection show.
+        """
+        return {ColorName.from_color(shape.color) for shape in self.shapes}
 
     def transform_all_shapes_to_own_frame(self):
         """
@@ -204,8 +211,8 @@ class ShapeCollection(SubclassJSONSerializer):
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         """
-        The collection belongs to the frame all its shapes are expressed in, which is the
-        entity it was written from, such as a body whose shapes are replaced.
+        The collection belongs to the frame all its shapes are expressed in, which is
+        the entity it was written from, such as a body whose shapes are replaced.
         """
         shapes = [from_json(d, **kwargs) for d in data["shapes"]]
         frames = {

@@ -13,7 +13,7 @@ import inspect
 import json
 import threading
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
@@ -65,6 +65,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.color_names import ColorName
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
@@ -539,6 +540,12 @@ class ReportedObject:
     Where to report it.
     """
 
+    color_names: list[str] = field(default_factory=list)
+    """
+    The colors to report it in, the dominant one first; empty for a pipeline that does
+    not tell colors.
+    """
+
 
 class RecordedQueryServer:
     """
@@ -558,6 +565,7 @@ class RecordedQueryServer:
 
         self.reports = reports
         self.received_types = []
+        self.received_requests = []
         self.node = rclpy.create_node(node_name)
         self.server = ActionServer(self.node, Query, action_name, self.execute_callback)
         self.executor = SingleThreadedExecutor()
@@ -574,6 +582,7 @@ class RecordedQueryServer:
         from std_msgs.msg import Header
 
         self.received_types.append(goal_handle.request.obj.type)
+        self.received_requests.append(goal_handle.request.obj)
         goal_handle.succeed()
 
         designators = []
@@ -586,7 +595,11 @@ class RecordedQueryServer:
             ) = report.position
             pose_stamped.pose.orientation.w = 1.0
             designators.append(
-                ObjectDesignator(type=report.class_label, pose=[pose_stamped])
+                ObjectDesignator(
+                    type=report.class_label,
+                    pose=[pose_stamped],
+                    color=report.color_names,
+                )
             )
         return Query.Result(res=designators)
 
@@ -813,6 +826,103 @@ def test_labelled_candidates_are_narrowed_to_the_requested_type(
     detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
 
     assert detection.semantic_annotation is Milk
+
+
+# %% asking robokudo for a color
+
+
+def test_robokudo_is_asked_for_the_color_and_attributes_of_the_query(
+    pr2_apartment_context, whole_scene_region, rclpy_node, robokudo_query_server
+):
+    """
+    The pipeline's own matcher narrows its answer, so what the query asks for beyond the
+    type has to reach it.
+    """
+    world, view, extensions = pr2_apartment_context
+    attributes = ["wooden"]
+    query = PerceptionQuery(
+        Milk,
+        whole_scene_region,
+        view,
+        world,
+        color=ColorName.RED,
+        attributes=attributes,
+    )
+
+    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+
+    [request] = robokudo_query_server.received_requests
+    assert list(request.color) == [ColorName.RED.value]
+    assert list(request.attribute) == attributes
+
+
+def test_a_query_without_a_color_asks_robokudo_for_none(
+    pr2_apartment_context, whole_scene_region, rclpy_node, robokudo_query_server
+):
+    world, view, extensions = pr2_apartment_context
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+
+    [request] = robokudo_query_server.received_requests
+    assert list(request.color) == []
+
+
+def test_candidates_reported_in_another_color_are_not_the_requested_object(
+    pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
+):
+    """
+    A pipeline that does not filter by the query still names the colors it saw, so a
+    candidate of another color is discarded instead of reported as ambiguous.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting(
+        [
+            ReportedObject("", (1.0, 1.0, 1.0), [ColorName.BLUE.value]),
+            ReportedObject("", PERCEIVED_MILK_POSITION, [ColorName.RED.value]),
+        ]
+    )
+    query = PerceptionQuery(Milk, whole_scene_region, view, world, color=ColorName.RED)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    np.testing.assert_allclose(
+        detection.pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_a_robokudo_detection_carries_the_dominant_color_reported(
+    pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting(
+        [
+            ReportedObject(
+                "",
+                PERCEIVED_MILK_POSITION,
+                [ColorName.RED.value, ColorName.GREY.value],
+            )
+        ]
+    )
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    assert detection.color is ColorName.RED
+
+
+def test_a_robokudo_detection_without_a_known_color_carries_none(
+    pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([ReportedObject("", PERCEIVED_MILK_POSITION, ["mauve"])])
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    assert detection.color is None
 
 
 # %% perception inside the motion chart
@@ -1247,3 +1357,44 @@ def test_a_detection_needs_an_object_type_or_a_box(pr2_apartment_context) -> Non
 
     with pytest.raises(DetectionTargetMissing):
         motion_nodes_of(DetectAction(technique=DetectionTechnique.TYPES), extensions)
+
+
+def test_a_query_keeps_its_color_and_attributes_through_json(
+    pr2_apartment_context, whole_scene_region
+):
+    world, view, extensions = pr2_apartment_context
+    receiving_world = deepcopy(world)
+    attributes = ["wooden"]
+    query = PerceptionQuery(
+        Milk,
+        whole_scene_region,
+        view,
+        world,
+        color=ColorName.RED,
+        attributes=attributes,
+    )
+
+    restored = from_json(to_json(query), **receiving_world_kwargs(receiving_world))
+
+    assert restored.color is ColorName.RED
+    assert restored.attributes == attributes
+
+
+def test_detect_action_asks_for_its_color_and_attributes(pr2_apartment_context):
+    world, view, extensions = pr2_apartment_context
+    attributes = ["wooden"]
+    plan = DetectAction(
+        technique=DetectionTechnique.TYPES,
+        object_sem_annotation=Milk,
+        color=ColorName.RED,
+        attributes=attributes,
+    )
+
+    [task] = [
+        node
+        for node in motion_nodes_of(plan, extensions)
+        if isinstance(node, PerceptionTask)
+    ]
+
+    assert task.query.color is ColorName.RED
+    assert task.query.attributes == attributes

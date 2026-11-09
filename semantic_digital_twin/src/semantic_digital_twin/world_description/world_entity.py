@@ -52,7 +52,7 @@ from krrood_spatial_math.spatial_types import (
     Pose,
 )
 from semantic_digital_twin.utils import camel_case_split
-from semantic_digital_twin.world_description.geometry import Mesh
+from semantic_digital_twin.world_description.geometry import Color, Mesh
 from semantic_digital_twin.world_description.inertial_properties import Inertial
 from semantic_digital_twin.world_description.shape_collection import (
     ShapeCollection,
@@ -598,6 +598,17 @@ class Body(KinematicStructureEntity):
             shapes.transform_all_shapes_to_own_frame()
         self.visual = visual
         self.collision = collision
+
+    def update_visual_color(self, color: Color) -> None:
+        """
+        Give every visual shape of this body ``color``, recorded in the world's
+        modification history like :meth:`update_shapes`.
+
+        :param color: The color the body is shown in.
+        """
+        visual = self.visual.copy_without_reference_frame()
+        visual.dye_shapes(color)
+        self.update_shapes(visual=visual, collision=self.collision)
 
     @property
     def combined_mesh(self) -> trimesh.Trimesh | None:

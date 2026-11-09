@@ -41,7 +41,15 @@ class ObjectHypothesisQueryMatcher:
     Match ObjectHypotheses against requested ObjectDesignator attributes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, unclassified_objects_match_every_type: bool = False) -> None:
+        """
+        :param unclassified_objects_match_every_type: Whether a hypothesis without a
+            classification matches whatever type is requested, as the hypotheses of a
+            pipeline that localizes without classifying.
+        """
+        self.unclassified_objects_match_every_type = (
+            unclassified_objects_match_every_type
+        )
         self.query_matchers = [
             QueryAttributeMatcher(
                 requested_values=lambda requested_object: requested_object.uid,
@@ -186,6 +194,8 @@ class ObjectHypothesisQueryMatcher:
             for annotation in object_hypothesis.annotations
             if isinstance(annotation, Classification)
         ]
+        if not candidate_values and self.unclassified_objects_match_every_type:
+            return True
         return self.any_requested_value_matches(requested_values, candidate_values)
 
     def matches_shape(

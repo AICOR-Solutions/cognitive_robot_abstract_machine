@@ -2,8 +2,10 @@
 Analysis engine localizing the cubes on Tracy's table through Tracy's fixed camera.
 
 It answers queries with one object designator per cube: its pose in the world frame,
-upright with its yaw known up to a quarter turn, and its semantic color. Only existing
-annotators are used: plane, cluster extraction, cluster color and bounding-box pose.
+upright with its yaw known up to a quarter turn, and its semantic color. A query naming
+a color is answered with the cubes of that color only, whatever type it names. Only
+existing annotators are used: plane, cluster extraction, cluster color and bounding-box
+pose.
 """
 
 from __future__ import annotations
@@ -90,11 +92,22 @@ class AnalysisEngine(AnalysisEngineInterface):
                 pipeline_init(),
                 QueryAnnotator(),
                 *self.perception_annotators(),
-                GenerateQueryResult(),
+                GenerateQueryResult(descriptor=self.query_result()),
                 ActionServerCheck(),
             ]
         )
         return pipeline
+
+    @staticmethod
+    def query_result() -> GenerateQueryResult.Descriptor:
+        """
+        :return: The configuration of the answer: the cubes matching the query, each
+            matching every type since the cubes are not classified.
+        """
+        descriptor = GenerateQueryResult.Descriptor()
+        descriptor.parameters.filter_by_query = True
+        descriptor.parameters.unclassified_objects_match_every_type = True
+        return descriptor
 
     def perception_annotators(self) -> list[Behaviour]:
         """

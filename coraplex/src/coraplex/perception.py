@@ -27,6 +27,7 @@ from krrood_spatial_math.spatial_types import (
 )
 from krrood_spatial_math.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.color_names import ColorName
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
@@ -90,13 +91,24 @@ class PerceptionQuery(SubclassJSONSerializer):
     existing orientation is kept. See :meth:`Detection.apply_to`.
     """
 
+    color: ColorName | None = None
+    """
+    The color the object is seen in, None for any color.
+    """
+
+    attributes: list[str] = field(default_factory=list)
+    """
+    Further qualities the object has, such as ``wooden``, in the words of the perception
+    source; only a perception source answers them, the world model does not.
+    """
+
     def from_world(self) -> list[Body]:
         """
         Answer this query from the world model alone.
 
-        :return: The bodies of the queried annotation that lie inside the region and are
-            visible to the robot's camera. A body several matching annotations describe
-            is one object, so it is reported once.
+        :return: The bodies of the queried annotation that lie inside the region, show
+            the queried color and are visible to the robot's camera. A body several
+            matching annotations describe is one object, so it is reported once.
         """
         bodies = dict.fromkeys(
             body
@@ -109,6 +121,7 @@ class PerceptionQuery(SubclassJSONSerializer):
             body
             for body in bodies
             if self.region.contains(body.global_transform.position)
+            and (self.color is None or self.color in body.visual.color_names())
         ]
 
         robot_camera = self.robot.get_default_camera()
@@ -124,6 +137,8 @@ class PerceptionQuery(SubclassJSONSerializer):
         result["region"] = to_json(self.region, **kwargs)
         result["robot_id"] = to_json(self.robot.id, **kwargs)
         result["trust_detected_orientation"] = self.trust_detected_orientation
+        result["color"] = to_json(self.color, **kwargs)
+        result["attributes"] = to_json(self.attributes, **kwargs)
         return result
 
     @classmethod
@@ -135,6 +150,8 @@ class PerceptionQuery(SubclassJSONSerializer):
             robot=tracker.get(from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
+            color=from_json(data.get("color"), **kwargs),
+            attributes=from_json(data.get("attributes", []), **kwargs),
         )
 
 
@@ -157,6 +174,11 @@ class Detection:
     Where the perception source saw the object.
     """
 
+    color: ColorName | None = None
+    """
+    The color the perception source saw the object in, None when it named none.
+    """
+
     def apply_to(
         self,
         world: World,
@@ -165,7 +187,7 @@ class Detection:
     ) -> list[IsPerceivable]:
         """
         Write this detection into ``world``, moving the perceived body to where it was
-        seen.
+        seen and giving it the color it was seen in unless it shows that color already.
 
         :param world: The world holding the annotations this detection refers to.
         :param trust_orientation: Whether to also apply the detected orientation. When
@@ -204,6 +226,9 @@ class Detection:
                     reference_frame=body.parent_connection.parent,
                 )
             )
+        if self.color is not None and self.color not in body.visual.color_names():
+            with world.modify_world():
+                body.update_visual_color(self.color.representative_color)
         return matching_annotations
 
     @staticmethod
@@ -239,7 +264,8 @@ class Detection:
 
         Several annotations may describe the same body, which is not ambiguous; only an
         annotation describing more than one body is. Given a region, only the bodies the
-        world holds inside it are candidates.
+        world holds inside it are candidates, and of those the ones showing
+        :attr:`color`, unless none does.
 
         :param world: The world to search.
         :param region: The region the object was looked for in.
@@ -258,6 +284,11 @@ class Detection:
         ]
         if not candidates:
             raise PerceivedObjectNotInWorld(self.semantic_annotation)
+        candidates = [
+            annotation
+            for annotation in candidates
+            if self.color in annotation.root.visual.color_names()
+        ] or candidates
         bodies = {annotation.root for annotation in candidates}
         if len(bodies) > 1:
             raise AmbiguousDetection(self.semantic_annotation, len(bodies))
@@ -338,7 +369,9 @@ class WorldPerception(PerceptionInterface):
 
         return [
             Detection(
-                semantic_annotation=annotation_by_body[body], pose=body.global_pose
+                semantic_annotation=annotation_by_body[body],
+                pose=body.global_pose,
+                color=query.color,
             )
             for body in query.from_world()
             if body in annotation_by_body
@@ -379,7 +412,11 @@ class RoboKudoPerception(PerceptionInterface):
             raise PerceptionSourceUnavailable(self.action_name)
 
         goal = Query.Goal(
-            obj=ObjectDesignator(type=query.semantic_annotation.__name__.lower())
+            obj=ObjectDesignator(
+                type=query.semantic_annotation.__name__.lower(),
+                color=[] if query.color is None else [query.color.value],
+                attribute=query.attributes,
+            )
         )
         result = client.send_goal(goal).result
         detections = [
@@ -402,12 +439,18 @@ class RoboKudoPerception(PerceptionInterface):
 
         A pipeline that only localizes reports no class label, and every object it found
         is then a candidate. One that classifies lets the objects that were not asked
-        for be discarded here.
+        for be discarded here, and one that names colors those of another color.
 
         :param designator: The designator the pipeline reported.
         :param query: The query it was answering.
         :return: True if the designator is a candidate for the requested object.
         """
+        if (
+            query.color is not None
+            and designator.color
+            and query.color.value not in designator.color
+        ):
+            return False
         if not designator.type:
             return True
         return (
@@ -423,7 +466,8 @@ class RoboKudoPerception(PerceptionInterface):
 
         The detection is identified as the queried annotation: a pipeline that classifies
         has already been narrowed to it by :meth:`_can_be_requested_object`, and one that
-        only localizes answered where the queried object is.
+        only localizes answered where the queried object is. Its color is the first, most
+        dominant, color reported that has a :class:`ColorName`.
 
         :param designator: The designator RoboKudo reported.
         :param query: The query it was answering, supplying the annotation and the frame.
@@ -433,6 +477,10 @@ class RoboKudoPerception(PerceptionInterface):
         pose_stamped = designator.pose[0]
         return Detection(
             semantic_annotation=query.semantic_annotation,
+            color=next(
+                (ColorName(color) for color in designator.color if color in ColorName),
+                None,
+            ),
             pose=Pose.from_xyz_quaternion(
                 pose_stamped.pose.position.x,
                 pose_stamped.pose.position.y,

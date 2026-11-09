@@ -303,12 +303,12 @@ def query_service(cube_scene: CubeScene) -> QueryService:
     service.stop()
 
 
-def ask_for_objects(node) -> list:
+def ask_for_objects(node, requested_object=None) -> list:
     """
-    Send one query for any object to RoboKudo's query action, as a perception client
-    does.
+    Send one query to RoboKudo's query action, as a perception client does.
 
     :param node: The node the client is created on.
+    :param requested_object: The object designator asked for, None for any object.
     :return: The object designators of the answer.
     """
     query_messages = pytest.importorskip("robokudo_msgs.action")
@@ -316,7 +316,10 @@ def ask_for_objects(node) -> list:
     executor = SingleThreadedExecutor(context=node.context)
     executor.add_node(node)
     assert client.wait_for_server(timeout_sec=10.0)
-    goal_handle_future = client.send_goal_async(query_messages.Query.Goal())
+    goal = query_messages.Query.Goal()
+    if requested_object is not None:
+        goal.obj = requested_object
+    goal_handle_future = client.send_goal_async(goal)
     executor.spin_until_future_complete(goal_handle_future, timeout_sec=30.0)
     result_future = goal_handle_future.result().get_result_async()
     executor.spin_until_future_complete(result_future, timeout_sec=30.0)
@@ -343,3 +346,26 @@ def test_a_query_is_answered_with_the_cubes_in_the_world_frame(
         assert frame is cube_scene.world.root
         position = pose.pose.position
         assert math.dist((position.x, position.y), (cube.x, cube.y)) < 0.01
+
+
+def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(
+    node, cube_scene: CubeScene, query_service: QueryService
+) -> None:
+    """
+    The cube localization classifies nothing, so a query naming a type as well is still
+    answered, narrowed by the color alone.
+    """
+    designator_messages = pytest.importorskip("robokudo_msgs.msg")
+    red = SemanticColorName.RED.name.lower()
+
+    designators = ask_for_objects(
+        node, designator_messages.ObjectDesignator(type="milk", color=[red])
+    )
+
+    [red_cube] = [
+        cube for cube in cube_scene.cubes if cube.color_name.name.lower() == red
+    ]
+    [designator] = designators
+    assert red in designator.color
+    position = designator.pose[0].pose.position
+    assert math.dist((position.x, position.y), (red_cube.x, red_cube.y)) < 0.01

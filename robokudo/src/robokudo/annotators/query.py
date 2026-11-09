@@ -136,9 +136,9 @@ class QueryAnnotator(BaseAnnotator):
         """
         self.rk_logger.debug(f"{self.__class__.__name__}.update()")
 
-        assert (
-            self.action_server is not None
-        ), "Action server should be initialized by now."
+        assert self.action_server is not None, (
+            "Action server should be initialized by now."
+        )
         query = self.action_server.new_query
         self.rk_logger.debug(f"self.action_server.new_query: {query}")
 
@@ -294,6 +294,11 @@ class GenerateQueryResult(BaseAnnotator):
             def __init__(self) -> None:
                 self.filter_by_query: bool = False
                 """Only return ObjectHypotheses matching requested query attributes."""
+                self.unclassified_objects_match_every_type: bool = False
+                """
+                Let an ObjectHypothesis without a classification match every requested
+                type, for a pipeline that localizes without classifying.
+                """
 
         parameters = Parameters()
 
@@ -335,9 +340,10 @@ class GenerateQueryResult(BaseAnnotator):
             BoundingBox3D: self.bb_size_converter,
             BoundingBox3DAnnotation: self.bb_size_converter,
         }
-        self.query_matcher = ObjectHypothesisQueryMatcher()
-
         super().__init__(name=name, descriptor=descriptor)
+        self.query_matcher = ObjectHypothesisQueryMatcher(
+            unclassified_objects_match_every_type=self.descriptor.parameters.unclassified_objects_match_every_type
+        )
 
     def update(self) -> Status:
         """
