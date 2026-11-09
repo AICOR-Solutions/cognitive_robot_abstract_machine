@@ -131,6 +131,33 @@ def test_cabin_area_enters_the_world_once_on_first_access(arise_office_world, el
     assert list(arise_office_world.regions) == regions_before + [cabin_area]
 
 
+# %% serving a floor
+
+
+def test_serving_a_floor_brings_the_cabin_there_and_opens_its_doors(
+    elevator, first_floor
+):
+    elevator.serve_floor(first_floor)
+
+    assert elevator.movable_joint.position == pytest.approx(
+        elevator.drive_position_for_floor(first_floor)
+    )
+    assert [door.movable_joint.position for door in elevator.doors] == [
+        door.movable_joint.dof.limits.upper.position for door in elevator.doors
+    ]
+
+
+def test_the_cabin_is_at_the_floor_it_was_driven_to_and_no_other(
+    elevator, ground_floor, first_floor
+):
+    elevator.drive_to_floor(first_floor)
+
+    assert (elevator.is_at_floor(first_floor), elevator.is_at_floor(ground_floor)) == (
+        True,
+        False,
+    )
+
+
 # %% waiting area
 
 

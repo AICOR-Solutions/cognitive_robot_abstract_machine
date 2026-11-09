@@ -772,6 +772,32 @@ class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
             raise MissingMovableJointError(self)
         self.movable_joint.position = self.drive_position_for_floor(floor)
 
+    def serve_floor(self, floor: Level) -> None:
+        """
+        Close the doors, drive the cabin to ``floor`` and open the doors there.
+        """
+        self.close()
+        self.drive_to_floor(floor)
+        self.open()
+
+    def is_at_floor(self, floor: Level, tolerance: float = 1e-6) -> bool:
+        """
+        :param floor: The floor to test.
+        :param tolerance: How far the cabin's drive may stand from ``floor``'s drive
+            position.
+        :return: Whether the cabin stands at ``floor``.
+        """
+        if self.movable_joint is None:
+            raise MissingMovableJointError(self)
+        return bool(
+            np.isclose(
+                self.movable_joint.position,
+                self.drive_position_for_floor(floor),
+                rtol=0.0,
+                atol=tolerance,
+            )
+        )
+
     @property
     def doorway_pose(self) -> Pose:
         """
