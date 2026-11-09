@@ -181,6 +181,33 @@ def test_tiago_reaches_the_target_room(
     assert result.failure is None
 
 
+@pytest.mark.parametrize(
+    "level_type, room",
+    [
+        (GroundFloor, AriseOfficeRoom.EAST_OFFICE),
+        (FirstFloor, AriseOfficeRoom.WEST_OFFICE),
+    ],
+)
+def test_the_elevator_operator_takes_tiago_to_the_target_rooms_level(
+    arise_office, arise_office_world, level_type, room
+):
+    demonstration = TiagoRoomNavigationDemonstration(
+        used_robot=Tiago,
+        target_room_name=arise_office.get_room(
+            arise_office_world, level_type, room
+        ).name.name,
+    )
+    world = demonstration.build_simulated_world()
+
+    demonstration.build_context_extensions(world)
+
+    assert (
+        demonstration.elevator_operator.floor
+        is world.get_semantic_annotations_by_type(level_type)[0]
+    )
+    demonstration.tear_down()
+
+
 def test_tiago_outside_the_target_room_fails_the_demonstration(
     arise_office, arise_office_world
 ):

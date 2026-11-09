@@ -4,7 +4,7 @@ when the room lies on the first floor.
 
 In a kinematic simulation an
 :class:`~experiments.tiago_elevator_demo.demo.ElevatorOperator` sends the elevator to the
-first floor once Tiago boards it.
+target room's level once Tiago boards it.
 """
 
 from __future__ import annotations
@@ -15,12 +15,16 @@ from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.exceptions import (
+    RoomOnNoLevelError,
     TargetRoomNotReachedError,
 )
 from experiments.tiago_room_navigation_demo.room_navigation import (
     NavigateToRoomAction,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
+    Level,
+)
 from semantic_digital_twin.world import World
 
 # %% demonstration
@@ -53,6 +57,17 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
             )
         )
         return statechart
+
+    def destination_level(self, world: World) -> Level:
+        """
+        :return: The level the target room lies on.
+        :raises RoomOnNoLevelError: If the target room lies on no level.
+        """
+        target_room = world.get_semantic_annotation_by_name(self.target_room_name)
+        level = Level.under(target_room.floor.root)
+        if level is None:
+            raise RoomOnNoLevelError(self.target_room_name)
+        return level
 
     def conclude(self, world: World) -> None:
         """
