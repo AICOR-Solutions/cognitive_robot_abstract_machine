@@ -1,3 +1,4 @@
+import math
 from collections import Counter
 
 import pytest
@@ -11,6 +12,7 @@ from coraplex.robot_plans.actions.core.navigation import (
 )
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.demo import (
+    TiagoIAIOfficeRoomNavigationDemonstration,
     TiagoRoomNavigationDemonstration,
 )
 from experiments.tiago_room_navigation_demo.exceptions import (
@@ -25,6 +27,7 @@ from experiments.tiago_room_navigation_demo.trials import (
     RoomNavigationTrialResult,
     RoomNavigationTrials,
     RoomNavigationTrialSummary,
+    RoomTripDraw,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import WorldEntityNotFoundError
@@ -35,9 +38,18 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     FirstFloor,
     Floor,
     GroundFloor,
+    Level,
     Room,
 )
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point2,
+    Point3,
+)
+from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
+    IAIOffice,
+)
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
 
 from ...plan_running import context_of, expand, run_plan, world_of
@@ -460,3 +472,127 @@ def test_report_names_each_failed_trial_with_why_it_failed(summary_with_one_fail
         f"#2 to landing: {TargetRoomNotReachedError.__name__}"
         in summary_with_one_failure.report()
     )
+
+
+# %% drawing trips
+
+
+@pytest.fixture(scope="module")
+def iai_office_world() -> World:
+    return IAIOffice().create_world()
+
+
+@pytest.fixture
+def iai_office_trip_draw() -> RoomTripDraw:
+    return RoomTripDraw(office=IAIOffice(), number_of_trips=50, seed=0)
+
+
+def test_a_trip_ends_on_another_level_than_it_starts_on(
+    iai_office_world, iai_office_trip_draw
+):
+    trips = iai_office_trip_draw.trips(iai_office_world)
+
+    levels_of_trips = [
+        [
+            Level.under(
+                iai_office_world.get_semantic_annotation_by_name(room_name).floor.root
+            )
+            for room_name in (trip.start_room_name, trip.target_room_name)
+        ]
+        for trip in trips
+    ]
+    assert len(trips) == iai_office_trip_draw.number_of_trips
+    assert all(start is not target for start, target in levels_of_trips)
+
+
+def test_the_same_seed_draws_the_same_trips(iai_office_world, iai_office_trip_draw):
+    assert iai_office_trip_draw.trips(iai_office_world) == iai_office_trip_draw.trips(
+        iai_office_world
+    )
+
+
+def test_only_plain_rooms_a_robot_may_be_sent_into_are_drawn(
+    iai_office_world, iai_office_trip_draw
+):
+    drawn_room_names = {
+        room_name
+        for trip in iai_office_trip_draw.trips(iai_office_world)
+        for room_name in (trip.start_room_name, trip.target_room_name)
+    }
+
+    assert drawn_room_names <= {
+        room.name.name
+        for room in iai_office_trip_draw.office.rooms_by_spoken_name(
+            iai_office_world
+        ).values()
+        if type(room) is Room
+    }
+
+
+@pytest.fixture
+def iai_office_room_navigation() -> Iterator[TiagoIAIOfficeRoomNavigationDemonstration]:
+    demonstration = TiagoIAIOfficeRoomNavigationDemonstration(used_robot=Tiago)
+    yield demonstration
+    demonstration.tear_down()
+
+
+def test_tiago_finds_a_way_between_the_elevator_and_every_room_trips_are_drawn_from(
+    iai_office_room_navigation,
+):
+    world = iai_office_room_navigation.build_simulated_world()
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    base_radius = robot.mobile_base.base_radius
+    robot_height = (
+        robot.as_bounding_box_collection_in_frame(robot.root).bounding_box().scale.z
+    )
+    footprint_offsets = [(0.0, 0.0)] + [
+        (base_radius * math.cos(angle), base_radius * math.sin(angle))
+        for angle in (index * math.pi / 4 for index in range(8))
+    ]
+    rooms = [
+        world.get_semantic_annotation_by_name(room_name)
+        for room_name in RoomTripDraw(
+            office=iai_office_room_navigation.office
+        ).room_levels(world)
+    ]
+    rooms_off_their_floor = []
+    rooms_without_a_way = []
+    for level in elevator.floors:
+        elevator.drive_to_floor(level)
+        free_space = level.planar_free_space(
+            max_height=robot_height,
+            bloat_obstacles=base_radius + iai_office_room_navigation.obstacle_clearance,
+        )
+        waiting_spot = Point2.from_pose(
+            world.transform(
+                elevator.pose_in_front_of_doors(
+                    NavigateToRoomAction.elevator_waiting_distance
+                ),
+                world.root,
+            )
+        )
+        for room in rooms:
+            if Level.under(room.floor.root) is not level:
+                continue
+            centre = room.floor_centre
+            if not all(
+                room.floor.covers(
+                    Point3(
+                        float(centre.x) + x,
+                        float(centre.y) + y,
+                        float(centre.z),
+                        reference_frame=world.root,
+                    )
+                )
+                for x, y in footprint_offsets
+            ):
+                rooms_off_their_floor.append(room.name.name)
+            room_spot = Point2.from_pose(centre)
+            if (
+                free_space.path_from_to(waiting_spot, room_spot) is None
+                or free_space.path_from_to(room_spot, waiting_spot) is None
+            ):
+                rooms_without_a_way.append(room.name.name)
+
+    assert (rooms_off_their_floor, rooms_without_a_way) == ([], [])
