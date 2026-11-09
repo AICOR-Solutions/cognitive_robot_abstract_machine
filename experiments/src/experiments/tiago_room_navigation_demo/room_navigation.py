@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from krrood.entity_query_language.factories import a
+from krrood.entity_query_language.query.match import Match
+
 from coraplex.robot_plans.actions.base import SequentialAction
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
@@ -54,18 +57,20 @@ class NavigateToRoomAction(SequentialAction):
     Position error within which the elevator's drive counts as having arrived.
     """
 
-    def create_steps(self) -> list[StatechartNode]:
+    def create_steps(self) -> list[StatechartNode | Match]:
         """
+        The drive into a room on another level lays its path out only once the robot
+        left the elevator on that level.
+
         :raises RoomOnNoLevelError: If the target room lies on no level.
-        :raises NoElevatorError: If the target room lies on another level than the
-            robot and the world holds no elevator.
+        :raises NoElevatorError: If the target room lies on another level than the robot
+            and the world holds no elevator.
         """
         target_level = Level.under(self.target_room.floor.root)
         if target_level is None:
             raise RoomOnNoLevelError(self.target_room.name.name)
-        drive_to_room = PathPlanningNavigateAction(target=self.target_room.floor_centre)
         if Level.under(self.robot.root) is target_level:
-            return [drive_to_room]
+            return [PathPlanningNavigateAction(target=self.target_room.floor_centre)]
         elevators = self.world.get_semantic_annotations_by_type(Elevator)
         if not elevators:
             raise NoElevatorError(self.target_room.name.name)
@@ -75,7 +80,7 @@ class NavigateToRoomAction(SequentialAction):
                 target=elevator.pose_in_front_of_doors(self.elevator_waiting_distance)
             ),
             *self._ride_elevator(elevator, target_level),
-            drive_to_room,
+            a(PathPlanningNavigateAction)(target=self.target_room.floor_centre),
         ]
 
     def _ride_elevator(

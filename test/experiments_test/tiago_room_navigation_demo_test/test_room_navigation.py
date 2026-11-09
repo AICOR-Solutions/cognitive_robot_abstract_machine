@@ -3,6 +3,7 @@ from collections import Counter
 import pytest
 from typing_extensions import Iterator
 
+from cramph.composites import StatementNode
 from cramph.context import ContextExtension
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
@@ -39,7 +40,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import Scale
 
-from ...plan_running import expand, world_of
+from ...plan_running import expand, run_plan, world_of
 
 # %% Tiago standing in the lobby
 
@@ -101,16 +102,37 @@ def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
     assert [type(step) for step in steps] == [
         PathPlanningNavigateAction,
         ElevatorNavigation,
-        PathPlanningNavigateAction,
+        StatementNode,
     ]
-    drive_to_elevator, ride, drive_to_room = steps
+    drive_to_elevator, ride, _ = steps
     assert drive_to_elevator.target.to_np() == pytest.approx(
         elevator.pose_in_front_of_doors(action.elevator_waiting_distance).to_np()
     )
     assert ride.target_floor is world.get_semantic_annotations_by_type(FirstFloor)[0]
-    assert drive_to_room.target.to_np() == pytest.approx(
-        west_office.floor_centre.to_np()
+
+
+def test_the_drive_into_a_room_on_another_level_is_laid_out_over_that_level(
+    lobby_demonstration, lobby_extensions
+):
+    world = world_of(lobby_extensions)
+    west_office = lobby_demonstration.office.get_room(
+        world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
     )
+    first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
+
+    executor = run_plan(NavigateToRoomAction(target_room=west_office), lobby_extensions)
+
+    (drive_to_room,) = [
+        node
+        for node in executor.statechart.nodes
+        if isinstance(node, PathPlanningNavigateAction)
+        and node.target.to_np() == pytest.approx(west_office.floor_centre.to_np())
+    ]
+    waypoint_legs = drive_to_room.nodes[:-1]
+    assert waypoint_legs
+    assert {leg.goal_pose.reference_frame for leg in waypoint_legs} == {
+        first_floor.root
+    }
 
 
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_extensions):
