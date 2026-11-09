@@ -37,7 +37,7 @@ class BodyColorAssignment:
 
     color: Color
     """
-    Collision geometry color assigned to the bodies.
+    Geometry color assigned to the bodies.
     """
 
     bodies: list[Body]
@@ -105,7 +105,7 @@ class BodyColorRenderingMode(ColorRenderingMode):
             body = world.kinematic_structure[int(body_index)]
             body_rgb = self.get_body_color(body)
             color_rgb[segmentation == body_index] = body_rgb
-            color = body.collision[0].color
+            color = self.shape_color(body)
             body_colors.setdefault(
                 color, BodyColorAssignment(color=color, bodies=[])
             ).bodies.append(body)
@@ -114,19 +114,44 @@ class BodyColorRenderingMode(ColorRenderingMode):
             body_colors=list(body_colors.values()),
         )
 
-    @staticmethod
-    def get_body_color(body: Body) -> npt.NDArray[np.uint8]:
+    @classmethod
+    def shape_color(cls, body: Body) -> Color:
         """
-        Return the first collision geometry's unsigned-byte RGB color.
+        :param body: A body hit by the camera.
+        :return: The color the whole body is rendered in: its first collision
+            geometry's.
+        """
+        return body.collision[0].color
 
-        :param body: Body with collision geometry supplying the color.
+    @classmethod
+    def get_body_color(cls, body: Body) -> npt.NDArray[np.uint8]:
+        """
+        Return the unsigned-byte RGB channels of :meth:`shape_color`.
+
+        :param body: Body whose geometry supplies the color.
         :return: Unsigned-byte RGB channels for the selected body color.
         """
-        color = body.collision[0].color
+        color = cls.shape_color(body)
         channel_maximum = np.iinfo(np.uint8).max
         return np.clip(
             np.round(np.asarray(color.to_rgb()) * channel_maximum), 0, channel_maximum
         ).astype(np.uint8)
+
+
+@dataclass(frozen=True)
+class VisualColorRenderingMode(BodyColorRenderingMode):
+    """
+    Color each visible body uniformly with its first visual geometry color, the color a
+    camera sees it in.
+    """
+
+    @classmethod
+    def shape_color(cls, body: Body) -> Color:
+        """
+        Differs from :meth:`BodyColorRenderingMode.shape_color` in taking the first
+        visual geometry's color.
+        """
+        return body.visual[0].color
 
 
 @dataclass(frozen=True)

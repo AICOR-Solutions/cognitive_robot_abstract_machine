@@ -85,6 +85,9 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.world_entity import Body
 from ..conftest import left_or_only_arm, physically_simulated_executor
 from ..test_transporting import pick_and_place_of_the_milk
@@ -616,6 +619,63 @@ def test_the_detection_asks_for_the_object_being_reached_for(pr2_apartment_conte
 
     [detection] = detect_actions_of(plan)
     assert detection.object_sem_annotation is type(milk)
+
+
+def test_the_perception_looks_for_the_object_around_where_the_world_holds_it(
+    pr2_apartment_context,
+):
+    """
+    The detection before a grasp relocates the object the reach is aimed at, so it looks
+    only near that object and not at others of its kind.
+    """
+    world, view, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    transformation = DetectBeforeGrasp()
+
+    plan = rewritten(reach_action(milk, view), extensions, [transformation])
+
+    [detection] = detect_actions_of(plan)
+    distance = transformation.search_distance
+    assert (
+        detection.detection_box
+        == milk.root.collision.as_bounding_box_collection_in_frame(milk.root)
+        .bounding_box()
+        .bloat(distance, distance, distance)
+    )
+
+
+def test_a_robot_that_cannot_turn_its_camera_detects_without_looking(
+    tracy_context,
+) -> None:
+    """
+    A camera fixed to the robot sees what it sees; there is nothing to point at the
+    object before the detection.
+    """
+    world, tracy, extensions = tracy_context
+    block = Body(
+        name=PrefixedName("block"),
+        collision=ShapeCollection([Box(scale=Scale(0.05, 0.05, 0.05))]),
+    )
+    with world.modify_world():
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=block,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.55, z=tracy.table.top_z + 0.025, reference_frame=world.root
+                ),
+            )
+        )
+        milk = Milk(root=block)
+        world.add_semantic_annotation(milk)
+
+    plan = rewritten(
+        ReachAction(grasp=GraspCandidate.from_body_origin(milk), arm=tracy.left_arm),
+        extensions,
+        [DetectBeforeGrasp()],
+    )
+
+    assert kinds_of_the_steps_of(plan) == [CartesianPose, DetectAction, CartesianPose]
 
 
 def test_the_perception_precedes_the_final_approach(pr2_apartment_context):

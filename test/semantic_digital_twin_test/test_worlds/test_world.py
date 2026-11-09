@@ -2831,6 +2831,19 @@ def test_is_kinematic_structure_entity_in_world_by_name(world_setup):
     assert not world.is_kinematic_structure_entity_in_world_by_name("nonexistent")
 
 
+def test_an_entity_is_found_by_its_name_written_out_with_its_prefix():
+    """
+    A frame id written for an entity, such as in a ROS message header, names the entity
+    it was written for.
+    """
+    world = World()
+    body = Body(name=PrefixedName("map", prefix="tracy"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body)
+
+    assert world.get_kinematic_structure_entity_by_name(str(body.name)) is body
+
+
 # %% moving a branch keeps both worlds replayable
 
 

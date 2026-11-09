@@ -31,6 +31,7 @@ from semantic_digital_twin.datastructures.camera_rendering import (
     BodyColorRenderingMode,
     BodyColorAssignment,
     TexturedColorRenderingMode,
+    VisualColorRenderingMode,
 )
 from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
@@ -40,7 +41,8 @@ from semantic_digital_twin.spatial_computations.exceptions import (
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.testing import ray_test_world
-from semantic_digital_twin.world_description.geometry import Color
+from semantic_digital_twin.world_description.geometry import Box, Color, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.world import World
 
@@ -535,3 +537,30 @@ def test_textured_render_rejects_incompatible_projection(
     with pytest.raises(UnsupportedCameraProjection):
         fixture.ray_tracer.render(fixture.camera, rgb_mode=TexturedColorRenderingMode())
     fixture.query.assert_not_called()
+
+
+def test_visual_color_mode_renders_a_body_in_its_visual_color(
+    camera_intersections: CameraIntersections,
+) -> None:
+    """
+    A camera sees a body in the color of its visual geometry, not of its collision
+    geometry.
+    """
+    fixture = camera_intersections
+    visual_color = Color.from_rgba(red=0.0, green=0.0, blue=1.0)
+    fixture.body.visual = ShapeCollection(
+        [Box(scale=Scale(0.25, 0.25, 0.25), color=visual_color)]
+    )
+    fixture.body.collision[0].color = Color.from_rgba(red=1.0, green=0.0, blue=0.0)
+
+    frame = fixture.ray_tracer.render(
+        fixture.camera, rgb_mode=VisualColorRenderingMode()
+    )
+
+    np.testing.assert_array_equal(
+        frame.color_bgr[0, 0],
+        VisualColorRenderingMode.get_body_color(fixture.body)[::-1],
+    )
+    assert frame.body_colors == [
+        BodyColorAssignment(color=visual_color, bodies=[fixture.body])
+    ]

@@ -78,6 +78,15 @@ class DetectBeforeGrasp(SequentialInsertion[ReachAction]):
     """
     Looks at the object and detects it before a reach makes its final approach, so that
     the approach acts on a freshly perceived pose instead of the one the world holds.
+
+    A robot without a torso to turn its camera from, such as one with a camera fixed
+    above its table, detects without looking.
+    """
+
+    search_distance: float = 0.05
+    """
+    How far beyond its own bounding box, in metres, the object is looked for around
+    where the world holds it.
     """
 
     @property
@@ -125,11 +134,24 @@ class DetectBeforeGrasp(SequentialInsertion[ReachAction]):
         approached_pose = plan_node.grasp_pose_sequence(
             plan_node.grasp.grasp_pose, plan_node.arm.end_effector, plan_node.grasp
         ).grasp
+        graspable_body = plan_node.grasp.graspable.root
+        looks = (
+            [LookAtAction(target=approached_pose)]
+            if plan_node.robot.get_torso_if_specified() is not None
+            else []
+        )
         return [
-            LookAtAction(target=approached_pose),
+            *looks,
             DetectAction(
                 technique=DetectionTechnique.TYPES,
                 object_sem_annotation=type(plan_node.grasp.graspable),
+                detection_box=graspable_body.collision.as_bounding_box_collection_in_frame(
+                    graspable_body
+                )
+                .bounding_box()
+                .bloat(
+                    self.search_distance, self.search_distance, self.search_distance
+                ),
                 accept_first_if_multiple=True,
             ),
         ]

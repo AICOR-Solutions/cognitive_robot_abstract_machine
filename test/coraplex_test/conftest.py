@@ -47,6 +47,7 @@ except ModuleNotFoundError:
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
+from semantic_digital_twin.robots.tracy import Tracy
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 
@@ -148,6 +149,18 @@ def hsr_apartment_context(hsr_apartment_world):
     snapshot = WorldSnapshot.capture(world)
     robot = world.get_semantic_annotations_by_type(HSRB)[0]
     yield world, robot, robot_extensions(robot)
+    snapshot.restore()
+
+
+@pytest.fixture(scope="function")
+def tracy_context(tracy_world):
+    """
+    The shared Tracy world, its robot and the context extensions of its plans, returned
+    to its initial model and state after the test.
+    """
+    snapshot = WorldSnapshot.capture(tracy_world)
+    robot = tracy_world.get_semantic_annotations_by_type(Tracy)[0]
+    yield tracy_world, robot, robot_extensions(robot)
     snapshot.restore()
 
 

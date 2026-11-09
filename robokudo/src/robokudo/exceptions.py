@@ -522,8 +522,7 @@ class WorldDescriptorLoadError(WorldDescriptorError, RuntimeError):
 
     def error_message(self) -> str:
         return (
-            f"Failed to load world descriptor "
-            f"'{self.ros_package}.{self.module_name}'."
+            f"Failed to load world descriptor '{self.ros_package}.{self.module_name}'."
         )
 
     def suggest_correction(self) -> str:
@@ -649,3 +648,24 @@ class ParentPipelineMissing(RoboKudoError, RuntimeError):
 
     def suggest_correction(self) -> str:
         return "add the behaviour as a descendant of a Pipeline."
+
+
+@dataclass
+class QueryServiceAlreadyRunning(RoboKudoError, RuntimeError):
+    """
+    Raised when a query service is started while it runs already.
+    """
+
+    analysis_engine_name: str
+    """
+    Name of the analysis engine the service runs.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The query service of analysis engine {self.analysis_engine_name!r} "
+            f"runs already."
+        )
+
+    def suggest_correction(self) -> str:
+        return "stop the service before starting it again."

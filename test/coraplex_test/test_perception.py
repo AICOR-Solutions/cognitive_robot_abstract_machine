@@ -65,6 +65,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
 from ..plan_running import run_plan
@@ -169,6 +170,43 @@ def test_detection_matching_several_bodies_is_rejected(pr2_apartment_context):
         Detection(
             semantic_annotation=Milk, pose=Pose(reference_frame=world.root)
         ).apply_to(world)
+
+
+def test_a_region_tells_apart_the_bodies_an_annotation_describes(
+    pr2_apartment_context,
+):
+    """
+    Where the annotation sits on several bodies, the one the world holds inside the
+    region looked in is the one that was seen.
+    """
+    world, view, extensions = pr2_apartment_context
+    milk_body = world.get_body_by_name("milk.stl")
+    spoon_body = world.get_body_by_name("spoon.stl")
+    with world.modify_world():
+        world.add_semantic_annotation(Milk(root=spoon_body))
+    around_the_milk = VolumetricBoundingBox(
+        origin=HomogeneousTransformationMatrix(reference_frame=milk_body),
+        min_x=-0.1,
+        min_y=-0.1,
+        min_z=-0.1,
+        max_x=0.1,
+        max_y=0.1,
+        max_z=0.1,
+    )
+    spoon_pose = spoon_body.global_pose.to_np()
+
+    [annotation] = Detection(
+        semantic_annotation=Milk,
+        pose=Pose.from_xyz_rpy(*PERCEIVED_MILK_POSITION, reference_frame=world.root),
+    ).apply_to(world, region=around_the_milk)
+
+    assert annotation.root is milk_body
+    np.testing.assert_allclose(
+        milk_body.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+    np.testing.assert_allclose(spoon_body.global_pose.to_np(), spoon_pose, atol=1e-9)
 
 
 def test_several_annotations_on_one_body_are_not_ambiguous(pr2_apartment_context):
@@ -722,6 +760,40 @@ def test_a_caller_that_accepts_any_candidate_gets_one_of_them(
     )
 
 
+def test_objects_reported_outside_the_region_are_not_candidates(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    The pipeline reports everything it sees; only what lies in the region the query
+    looks in can be the object asked for.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting(
+        [
+            ReportedObject("", PERCEIVED_MILK_POSITION),
+            ReportedObject("", (1.0, 1.0, 1.0)),
+        ]
+    )
+    around_the_perceived_milk = VolumetricBoundingBox(
+        origin=HomogeneousTransformationMatrix(reference_frame=world.root),
+        min_x=PERCEIVED_MILK_POSITION[0] - 0.1,
+        min_y=PERCEIVED_MILK_POSITION[1] - 0.1,
+        min_z=PERCEIVED_MILK_POSITION[2] - 0.1,
+        max_x=PERCEIVED_MILK_POSITION[0] + 0.1,
+        max_y=PERCEIVED_MILK_POSITION[1] + 0.1,
+        max_z=PERCEIVED_MILK_POSITION[2] + 0.1,
+    )
+    query = PerceptionQuery(Milk, around_the_perceived_milk, view, world)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    np.testing.assert_allclose(
+        detection.pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
 def test_labelled_candidates_are_narrowed_to_the_requested_type(
     pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
 ):
@@ -1111,6 +1183,34 @@ def test_a_detection_looks_only_inside_the_box_it_is_given(
         run_plan(detection, extensions)
 
     assert detection.life_cycle_state == LifeCycleValues.FAILED
+
+
+def test_a_detection_in_a_box_moves_the_body_inside_it(pr2_apartment_context) -> None:
+    """
+    Where the type looked for sits on several bodies, a box around one of them says
+    which one the detection is about.
+    """
+    world, view, extensions = pr2_apartment_context
+    milk_body = world.get_body_by_name("milk.stl")
+    with world.modify_world():
+        world.add_semantic_annotation(Milk(root=world.get_body_by_name("spoon.stl")))
+    detection = DetectAction(
+        technique=DetectionTechnique.TYPES,
+        object_sem_annotation=Milk,
+        detection_box=VolumetricBoundingBox(
+            origin=HomogeneousTransformationMatrix(reference_frame=milk_body),
+            min_x=-0.1,
+            min_y=-0.1,
+            min_z=-0.1,
+            max_x=0.1,
+            max_y=0.1,
+            max_z=0.1,
+        ),
+    )
+
+    run_plan(detection, extensions)
+
+    assert detection.life_cycle_state == LifeCycleValues.SUCCEEDED
 
 
 def test_a_detection_without_a_box_looks_as_far_to_every_side_of_the_robot(

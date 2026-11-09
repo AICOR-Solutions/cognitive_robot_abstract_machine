@@ -1576,9 +1576,9 @@ class World(HasSimulatorProperties):
         This iterable would, for example, be self.connections or
         self.kinematic_structure_entities. This method accepts either a string or a
         `PrefixedName` instance. It searches through the provided iterable and returns
-        the list of world entities that matches the given name. If only a string was
-        provided, it matches against the name without prefix. If a `PrefixedName` was
-        provided, it matches against the full name including prefix.
+        the list of world entities that matches the given name. A string matches the
+        name without prefix, or the full name as it is written out, prefix and name
+        joined by a slash. A `PrefixedName` matches the full name including prefix.
         :param name: The name of the world entity to search for.
         :param world_entity_iterable: The iterable to search for the world entity, for
             example self.connections or self.kinematic_structure_entities.
@@ -1595,7 +1595,7 @@ class World(HasSimulatorProperties):
                 return [
                     world_entity
                     for world_entity in world_entity_iterable
-                    if world_entity.name.name == name
+                    if name in (world_entity.name.name, str(world_entity.name))
                 ]
 
     def get_degree_of_freedom_by_id(self, id: UUID) -> DegreeOfFreedom:

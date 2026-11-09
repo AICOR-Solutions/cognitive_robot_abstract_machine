@@ -158,7 +158,10 @@ class Detection:
     """
 
     def apply_to(
-        self, world: World, trust_orientation: bool = True
+        self,
+        world: World,
+        trust_orientation: bool = True,
+        region: VolumetricBoundingBox | None = None,
     ) -> list[IsPerceivable]:
         """
         Write this detection into ``world``, moving the perceived body to where it was
@@ -169,11 +172,13 @@ class Detection:
             False, only the detected position is applied and the body keeps its existing
             orientation; useful while a perception source's orientation estimate is not
             yet reliable enough for grasp planning.
+        :param region: The region the object was looked for in, see
+            :meth:`resolve_annotations`.
         :return: The annotations that were updated.
         :raises PerceivedObjectNotInWorld: If the world holds no such annotation.
         :raises AmbiguousDetection: If the annotation describes more than one body.
         """
-        matching_annotations = self.resolve_annotations(world)
+        matching_annotations = self.resolve_annotations(world, region)
         matching_annotation = matching_annotations[0]
         body = matching_annotation.root
         robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
@@ -226,20 +231,31 @@ class Detection:
             yaw=np.pi if flip_x and not flip_z else 0,
         )
 
-    def resolve_annotations(self, world: World) -> list[IsPerceivable]:
+    def resolve_annotations(
+        self, world: World, region: VolumetricBoundingBox | None = None
+    ) -> list[IsPerceivable]:
         """
         Find the annotations in ``world`` that this detection identified.
 
         Several annotations may describe the same body, which is not ambiguous; only an
-        annotation describing more than one body is.
+        annotation describing more than one body is. Given a region, only the bodies the
+        world holds inside it are candidates.
 
         :param world: The world to search.
+        :param region: The region the object was looked for in.
         :return: The matching annotations, all sharing one root body.
         :raises PerceivedObjectNotInWorld: If the world holds no instance of the
             annotation.
         :raises AmbiguousDetection: If the matching annotations sit on different bodies.
         """
-        candidates = world.get_semantic_annotations_by_type(self.semantic_annotation)
+        candidates = [
+            annotation
+            for annotation in world.get_semantic_annotations_by_type(
+                self.semantic_annotation
+            )
+            if region is None
+            or region.contains(annotation.root.global_transform.position)
+        ]
         if not candidates:
             raise PerceivedObjectNotInWorld(self.semantic_annotation)
         bodies = {annotation.root for annotation in candidates}
@@ -332,7 +348,8 @@ class WorldPerception(PerceptionInterface):
 @dataclass
 class RoboKudoPerception(PerceptionInterface):
     """
-    Source that asks a running RoboKudo pipeline over its query action.
+    Source that asks a running RoboKudo pipeline over its query action, reporting the
+    objects it sees inside the queried region.
     """
 
     ros_node: Node
@@ -365,10 +382,15 @@ class RoboKudoPerception(PerceptionInterface):
             obj=ObjectDesignator(type=query.semantic_annotation.__name__.lower())
         )
         result = client.send_goal(goal).result
-        return [
+        detections = [
             self._to_detection(designator, query)
             for designator in result.res
             if designator.pose and self._can_be_requested_object(designator, query)
+        ]
+        return [
+            detection
+            for detection in detections
+            if query.region.contains(detection.pose.position)
         ]
 
     @staticmethod
@@ -511,6 +533,8 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
         if detection is None:
             return ObservationStateValues.FALSE
         detection.apply_to(
-            self.query.world, trust_orientation=self.query.trust_detected_orientation
+            self.query.world,
+            trust_orientation=self.query.trust_detected_orientation,
+            region=self.query.region,
         )
         return ObservationStateValues.TRUE

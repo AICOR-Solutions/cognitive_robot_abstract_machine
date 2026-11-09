@@ -37,11 +37,18 @@ from semantic_digital_twin.robots.robot_parts import (
     EndEffector,
     Finger,
 )
-from semantic_digital_twin.datastructures.camera_model import FieldOfViewCameraModel
+from semantic_digital_twin.datastructures.camera_model import (
+    CameraRange,
+    FieldOfViewCameraModel,
+)
 from semantic_digital_twin.robots.robotiq_85_gripper import Robotiq85Gripper
 from semantic_digital_twin.robots.ur10e_arm import UR10eArm
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
-from krrood_spatial_math.spatial_types import Vector3
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    RotationMatrix,
+    Vector3,
+)
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
@@ -403,8 +410,19 @@ class TracyRightArm(UR10eArm[TracyRightGripper]):
 @dataclass(eq=False)
 class TracyCamera(RobotCamera[FieldOfViewCameraModel]):
     """
-    Tracy's fixed camera rooted at its calibrated camera link.
+    Tracy's fixed camera, rooted at an optical frame on its calibrated camera link.
+
+    The camera link points its x-axis along the view, as a ROS body frame does, and its
+    own housing encloses the link's origin.
     """
+
+    @classproperty
+    def housing_clearance(cls) -> float:
+        """
+        :return: How far, in metres, the housing around the camera link reaches along
+            the view; nothing nearer is seen.
+        """
+        return 0.1
 
     def setup_hardware_interfaces(self) -> None:
         pass
@@ -417,12 +435,18 @@ class TracyCamera(RobotCamera[FieldOfViewCameraModel]):
         cls, robot_root: KinematicStructureEntity
     ) -> Self:
         return cls(
-            root=robot_root._world.get_body_in_branch_by_name(
-                robot_root, "camera_link"
+            root=cls.create_optical_body(
+                robot_root._world.get_body_in_branch_by_name(robot_root, "camera_link"),
+                HomogeneousTransformationMatrix(
+                    data=RotationMatrix.from_vectors(
+                        x=-Vector3.Y(), y=-Vector3.Z(), z=Vector3.X()
+                    )
+                ),
             ),
             camera_model=FieldOfViewCameraModel(
                 angular_extent=FieldOfView(horizontal_angle=1.047, vertical_angle=0.785)
             ),
+            camera_range=CameraRange(minimum_distance=cls.housing_clearance),
             minimal_height=0.8,
             maximal_height=1.7,
             default_camera=True,
