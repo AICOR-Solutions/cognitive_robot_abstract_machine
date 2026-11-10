@@ -55,6 +55,7 @@ from giskardpy.motion_statechart.monitors.safety_monitors import (
     ToolOutsideWorkspace,
     ToolVelocityExceeded,
     MaximumToolVelocity,
+    ToolSpeedLimit,
     WorkspaceBox,
 )
 from giskardpy.motion_statechart.monitors.cartesian_monitors import (
@@ -812,6 +813,7 @@ def _monitor_cases() -> list[NodeRoundTripCase]:
                 ToolOutsideWorkspace,
                 JointVelocityExceeded,
                 ToolVelocityExceeded,
+                ToolSpeedLimit,
                 CancelOnSafetyViolation,
             )
         ],
@@ -820,8 +822,9 @@ def _monitor_cases() -> list[NodeRoundTripCase]:
 
 def _safety_envelope(world: World) -> list[StatechartNode]:
     """
-    :return: The monitors of a workspace box and of joint and tool velocity limits, and
-        the node cancelling the motion on a violation of any.
+    :return: The monitors of a workspace box and of joint and tool velocity limits, the
+        task holding the tool below its limit, and the node cancelling the motion on a
+        violation of any.
     """
     return SafetyEnvelope(
         constraints=[

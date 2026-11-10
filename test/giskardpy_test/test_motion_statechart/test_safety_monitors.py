@@ -172,3 +172,30 @@ def test_a_motion_leaving_the_box_is_cancelled_at_its_boundary(pr2_world_state_r
     assert violated.value.constraint == box.constraint
     assert 0.0 < overshoot < BOUNDARY_TOLERANCE
     assert np.allclose(stopped[1:], start[1:], atol=0.01)
+
+
+def test_a_motion_is_held_below_its_tools_velocity_limit(pr2_world_state_reset):
+    world = pr2_world_state_reset
+    tool = _tool(world)
+    start = world.compute_forward_kinematics_np(world.root, tool)[:3, 3]
+    goal = Point3(*(start + [0.3, 0.0, 0.0]), reference_frame=world.root)
+    limit = MaximumToolVelocity(
+        constraint="right tool velocity",
+        root_link=world.root,
+        tool=tool,
+        maximum_velocity=0.05,
+    )
+    executor = StatechartExecutor(
+        context=StatechartContext(world=world), extensions=[MotionControl()]
+    )
+    statechart = Statechart(context=executor.context)
+    reach = CartesianPosition(root_link=world.root, tip_link=tool, goal_point=goal)
+    statechart.add_node(reach)
+    statechart.add_node(EndMotion.when_true(reach))
+    statechart.add_nodes(SafetyEnvelope(constraints=[limit]).create_nodes())
+    executor.compile(statechart=statechart)
+
+    executor.tick_until_end()
+
+    reached = world.compute_forward_kinematics_np(world.root, tool)[:3, 3]
+    assert np.allclose(reached, goal.to_np()[:3], atol=0.01)

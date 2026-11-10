@@ -1325,6 +1325,14 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
             return False
 
     @classproperty
+    def maximum_safe_joint_velocity(cls) -> float | None:
+        """
+        :return: The velocity, in radians or metres per second, no joint of an arm may
+            exceed before a motion is stopped as unsafe; None where the robot sets none.
+        """
+        return None
+
+    @classproperty
     def uses_visual_as_collision_backup(cls) -> bool:
         """
         :return: Whether links of this robot's description that carry no collision

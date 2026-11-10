@@ -18,7 +18,12 @@ import krrood.symbolic_math.symbolic_math as sm
 from cramph.data_types import ObservationStateValues
 from cramph.node import CancelStatechart, EndedByOwner, NodeArtifacts, StatechartNode
 from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from giskardpy.motion_statechart.graph_node import (
+    MotionNodeArtifacts,
+    MotionStatechartNode,
+    Task,
+)
+from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
 from krrood.symbolic_math.symbolic_math import Scalar
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
@@ -229,6 +234,55 @@ class CancelOnSafetyViolation(CancelStatechart):
         )
 
 
+# %% holding motions inside the constraints
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class ToolSpeedLimit(Task):
+    """
+    Keeps a tool slower than :attr:`maximum_velocity` relative to :attr:`root_link` as
+    a hard constraint of the controller: each axis of its velocity is held to
+    :attr:`maximum_velocity` divided by the square root of three.
+    """
+
+    root_link: Body
+    """
+    The body the tool's velocity is measured against.
+    """
+
+    tool: Body
+    """
+    The body held to the limit.
+    """
+
+    maximum_velocity: float
+    """
+    The speed the tool stays below, in metres per second.
+    """
+
+    def build_artifacts(self) -> MotionNodeArtifacts:
+        artifacts = MotionNodeArtifacts()
+        root_P_tool = self.context.world.compose_forward_kinematics_expression(
+            self.root_link, self.tool
+        ).position
+        axis_velocity = self.maximum_velocity / np.sqrt(3.0)
+        for axis, coordinate in zip(
+            "xyz", (root_P_tool.x, root_P_tool.y, root_P_tool.z)
+        ):
+            artifacts.constraints.add_velocity_constraint(
+                lower_velocity_limit=-axis_velocity,
+                upper_velocity_limit=axis_velocity,
+                quadratic_weight=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE,
+                task_expression=coordinate,
+                velocity_scale=VelocityScale.TRANSLATION,
+                name=f"{self.name}/{axis}",
+                lower_slack_limit=0.0,
+                upper_slack_limit=0.0,
+            )
+        artifacts.observation = sm.Scalar.const_true()
+        return artifacts
+
+
 # %% the constraints a robot is held to
 
 
@@ -248,6 +302,14 @@ class SafetyConstraint(ABC):
         """
         :return: A new monitor of this constraint, for one statechart.
         """
+
+    def create_motion_limits(self) -> list[MotionStatechartNode]:
+        """
+        :return: New tasks keeping every motion of one statechart inside this
+            constraint, so that its monitor only observes a motion leaving it
+            unexpectedly; none for a constraint only watched.
+        """
+        return []
 
 
 @dataclass(frozen=True)
@@ -327,6 +389,25 @@ class MaximumToolVelocity(SafetyConstraint):
     The speed the tool may not exceed, in metres per second.
     """
 
+    held_fraction: float = 0.8
+    """
+    The share of :attr:`maximum_velocity` every motion holds the tool's speed to.
+    """
+
+    def create_motion_limits(self) -> list[MotionStatechartNode]:
+        """
+        :return: A task holding the tool's speed to :attr:`held_fraction` of
+            :attr:`maximum_velocity`.
+        """
+        return [
+            ToolSpeedLimit(
+                name=f"{self.constraint} held",
+                root_link=self.root_link,
+                tool=self.tool,
+                maximum_velocity=self.maximum_velocity * self.held_fraction,
+            )
+        ]
+
     def create_monitor(self) -> ToolVelocityExceeded:
         return ToolVelocityExceeded(
             name=self.constraint,
@@ -350,11 +431,16 @@ class SafetyEnvelope:
 
     def create_nodes(self) -> list[StatechartNode]:
         """
-        :return: New nodes for one statechart: a monitor of every constraint, and the
-            node cancelling the motion once one of them observes a violation; none
-            without constraints.
+        :return: New nodes for one statechart: the tasks keeping motions inside the
+            constraints, a monitor of every constraint, and the node cancelling the
+            motion once one of them observes a violation; none without constraints.
         """
         if not self.constraints:
             return []
+        limits = [
+            limit
+            for constraint in self.constraints
+            for limit in constraint.create_motion_limits()
+        ]
         monitors = [constraint.create_monitor() for constraint in self.constraints]
-        return [*monitors, CancelOnSafetyViolation(monitors=monitors)]
+        return [*limits, *monitors, CancelOnSafetyViolation(monitors=monitors)]
