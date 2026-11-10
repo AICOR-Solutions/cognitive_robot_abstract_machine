@@ -2019,15 +2019,18 @@ class World(HasSimulatorProperties):
         with self.modify_world():
             self.add_connection(new_connection)
             self.remove_connection(old_connection)
+            if isinstance(old_connection, Connection6DoF):
+                # Written inside the block, so the model change it announces already
+                # finds the branch at its world pose; the old parent's motion is dropped.
+                new_connection.write_origin_to_degrees_of_freedom(
+                    new_parent_T_branch_root
+                )
+                for degree_of_freedom in new_connection.passive_dofs:
+                    self.state[degree_of_freedom.id].velocity = 0
+                    self.state[degree_of_freedom.id].acceleration = 0
+                    self.state[degree_of_freedom.id].jerk = 0
 
         if isinstance(old_connection, Connection6DoF):
-            new_connection.origin = new_parent_T_branch_root
-            # The re-used degrees of freedom describe the pose relative to the old parent,
-            # so any motion they still carry is meaningless under the new one.
-            for degree_of_freedom in new_connection.passive_dofs:
-                self.state[degree_of_freedom.id].velocity = 0
-                self.state[degree_of_freedom.id].acceleration = 0
-                self.state[degree_of_freedom.id].jerk = 0
             self.notify_state_change()
 
     def move_branch_to_new_world(self, new_root: KinematicStructureEntity) -> World:

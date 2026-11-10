@@ -652,20 +652,31 @@ class Connection6DoF(Connection):
             spatial types (e.g. ``Pose``) must be converted with their own
             ``homogeneous_matrix`` before being assigned here.
         """
-        local_kinematics = self._calculate_local_kinematics(
-            self._world.transform(transformation, self.parent)
-        )
+        parent_T_child = self._world.transform(transformation, self.parent)
+        with self._world._world_lock:
+            self.write_origin_to_degrees_of_freedom(parent_T_child)
+            self._world.notify_state_change()
+
+    def write_origin_to_degrees_of_freedom(
+        self, parent_T_child: HomogeneousTransformationMatrix
+    ) -> None:
+        """
+        Write the degrees of freedom so that the origin becomes ``parent_T_child``,
+        without notifying the world of the state change.
+
+        :param parent_T_child: The desired origin, already expressed in the parent
+            frame.
+        """
+        local_kinematics = self._calculate_local_kinematics(parent_T_child)
         position = local_kinematics.position
         orientation = local_kinematics.rotation_matrix.quaternion
-        with self._world._world_lock:
-            self._world.state[self.x.id].position = position[0]
-            self._world.state[self.y.id].position = position[1]
-            self._world.state[self.z.id].position = position[2]
-            self._world.state[self.qx.id].position = orientation[0]
-            self._world.state[self.qy.id].position = orientation[1]
-            self._world.state[self.qz.id].position = orientation[2]
-            self._world.state[self.qw.id].position = orientation[3]
-            self._world.notify_state_change()
+        self._world.state[self.x.id].position = position[0]
+        self._world.state[self.y.id].position = position[1]
+        self._world.state[self.z.id].position = position[2]
+        self._world.state[self.qx.id].position = orientation[0]
+        self._world.state[self.qy.id].position = orientation[1]
+        self._world.state[self.qz.id].position = orientation[2]
+        self._world.state[self.qw.id].position = orientation[3]
 
     def copy_for_world(self, world: World) -> Connection6DoF:
         """

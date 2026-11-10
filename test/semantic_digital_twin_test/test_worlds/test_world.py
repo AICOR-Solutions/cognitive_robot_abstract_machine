@@ -2125,6 +2125,68 @@ def test_move_branch_preserves_connection_type_and_pose():
     assert np.allclose(free_child.global_transform, free_child_pose)
 
 
+@dataclass(eq=False)
+class BranchPoseOnModelChange(ModelChangeCallback):
+    """
+    Records where a body stands whenever the model changes.
+    """
+
+    body: Body = field(kw_only=True)
+    """
+    The body whose world pose is recorded.
+    """
+
+    poses: list = field(default_factory=list, init=False)
+    """
+    The body's world pose at each model change.
+    """
+
+    def on_model_change(self, **kwargs):
+        self.poses.append(
+            self._world.compute_forward_kinematics_np(self._world.root, self.body)
+        )
+
+
+def test_a_moved_free_branch_stands_where_it_stood_when_the_model_change_is_announced():
+    """
+    The model change a move announces already finds the branch at its world pose, so an
+    observer reading poses then, such as a viewer, never sees the branch's old offset
+    applied below its new parent.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    gripper = Body(name=PrefixedName("gripper"))
+    cube = Body(name=PrefixedName("cube"))
+    with world.modify_world():
+        for body in [root, gripper, cube]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=gripper,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.5, y=-0.3, z=1.2, roll=np.pi
+                ),
+            )
+        )
+        cube_connection = Connection6DoF.create_with_dofs(
+            parent=root, child=cube, world=world
+        )
+        world.add_connection(cube_connection)
+    cube_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=1.0, y=0.1, z=0.9, reference_frame=root
+    )
+    standing = cube.global_transform
+    observer = BranchPoseOnModelChange(_world=world, body=cube)
+
+    world.move_branch(cube, gripper)
+
+    observer.stop()
+    assert len(observer.poses) == 1
+    assert np.allclose(observer.poses[0], standing)
+    assert np.allclose(cube.global_transform, standing)
+
+
 def test_memoization_clears_only_last_modification_block():
     world = World()
     b1 = Body(name=PrefixedName("b1"))
