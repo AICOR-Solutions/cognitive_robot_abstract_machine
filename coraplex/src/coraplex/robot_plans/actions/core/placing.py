@@ -95,6 +95,7 @@ class PlaceAction(
                 poses.grasp,
                 arm,
                 max_linear_velocity=self.placing_linear_velocity,
+                near_the_object=True,
             ),
             Parallel(
                 nodes=[
@@ -129,6 +130,7 @@ class PlaceAction(
                 retract_pose,
                 arm,
                 max_linear_velocity=self.retract_linear_velocity,
+                near_the_object=True,
             ),
         ]
 

@@ -8,6 +8,7 @@ from coraplex.robot_plans.actions.base import Action
 from cramph.node import StatechartNode
 from cramph.world_modification_nodes import MoveBranch
 from cramph.composites import Parallel
+from giskardpy.motion_statechart.goals.cartesian_goals import CartesianPoseStraight
 from giskardpy.motion_statechart.goals.gripper import (
     MoveFingers,
     MovesGripperToConfiguration,
@@ -199,18 +200,28 @@ class MovesToolCenterPoint(Action, ABC):
     Rotation threshold in rad for goal achievement.
     """
 
+    moves_straight_near_the_object: bool = field(default=False, init=False)
+    """
+    Whether the tool center point comes onto the object it acts on, and leaves it, along
+    a straight line, as set by the plan transformations configuring the action.
+    """
+
     def tool_center_point_goal(
         self,
         target: Pose,
         arm: Arm,
         max_linear_velocity: float | None = None,
         max_angular_velocity: float | None = None,
+        near_the_object: bool = False,
     ) -> MotionStatechartNode:
         """
         :param target: Where the tool center point should end up.
         :param arm: The arm whose tool center point is moved.
         :param max_linear_velocity: Cap on the speed of the tool center point, in m/s.
         :param max_angular_velocity: Cap on how fast it turns, in rad/s.
+        :param near_the_object: Whether the motion comes onto the object or leaves it,
+            which follows a straight line where the action
+            :attr:`moves_straight_near_the_object`.
         :return: The goal moving the tool center point there, together with whatever
             speed caps were asked for, and the task keeping the base still, see :meth:`~coraplex.robot_plans.actions.base.Action.keep_base_still`.
             A goal that is a parallel of its tasks holds them itself; any other is put in
@@ -222,7 +233,9 @@ class MovesToolCenterPoint(Action, ABC):
             root, tip, max_linear_velocity, max_angular_velocity
         )
         accompanying.extend(self.keep_base_still())
-        goal = self._reach_target(target, root, tip)
+        goal = self._reach_target(
+            target, root, tip, near_the_object and self.moves_straight_near_the_object
+        )
         if not accompanying:
             return goal
         if isinstance(goal, Parallel):
@@ -236,11 +249,14 @@ class MovesToolCenterPoint(Action, ABC):
         target: Pose,
         root: KinematicStructureEntity,
         tip: KinematicStructureEntity,
+        straight: bool,
     ) -> MotionStatechartNode:
         """
+        :param straight: Whether `tip` moves along a straight line.
         :return: The task that brings `tip` to `target`.
         """
-        return CartesianPose(
+        pose_goal_type = CartesianPoseStraight if straight else CartesianPose
+        return pose_goal_type(
             root_link=root,
             tip_link=tip,
             goal_pose=target,

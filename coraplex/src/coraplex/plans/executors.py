@@ -28,6 +28,7 @@ from coraplex.robot_plans.plan_transformations import (
     CloseFingersToObjectWidth,
     DetectWithRoboKudo,
     LetContactCarryTheBodies,
+    MoveStraightNearTheObject,
     WriteTheOdometryInsteadOfCommandingAPose,
 )
 from coraplex.robot_plans.robot_specific_plan_transformations import (
@@ -501,7 +502,10 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
     """
 
     plan_adaptations: list[PlanTransformation] = field(
-        default_factory=lambda: [LetContactCarryTheBodies()],
+        default_factory=lambda: [
+            MoveStraightNearTheObject(),
+            LetContactCarryTheBodies(),
+        ],
         kw_only=True,
     )
     """

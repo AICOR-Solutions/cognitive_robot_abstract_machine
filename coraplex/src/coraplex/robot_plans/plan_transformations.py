@@ -43,7 +43,7 @@ from coraplex.robot_plans.actions.core.robot_body import (
     MoveFingersToWidthAction,
     ParkArmsAction,
 )
-from coraplex.robot_plans.mixins import ReattachesBranches
+from coraplex.robot_plans.mixins import MovesToolCenterPoint, ReattachesBranches
 from cramph.composites import Sequence, StatementNode
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.goals.base_pose_goals import HolonomicBaseGoal
@@ -566,3 +566,21 @@ class LetContactCarryTheBodies(ConfigurationTransformation[ReattachesBranches]):
 
     def apply(self, plan_node: ReattachesBranches) -> None:
         plan_node.reattaches_in_world_model = False
+
+
+# %% moving straight near the object
+
+
+@dataclass
+class MoveStraightNearTheObject(ConfigurationTransformation[MovesToolCenterPoint]):
+    """
+    Brings the gripper onto the object an action acts on, and away from it, along a
+    straight line, where a running physics carries the motion out and a gripper swinging
+    off that line pushes the object away.
+    """
+
+    def is_applicable(self, plan_node: MovesToolCenterPoint) -> bool:
+        return True
+
+    def apply(self, plan_node: MovesToolCenterPoint) -> None:
+        plan_node.moves_straight_near_the_object = True

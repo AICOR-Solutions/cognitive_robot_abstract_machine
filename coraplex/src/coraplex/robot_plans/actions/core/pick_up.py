@@ -122,6 +122,7 @@ class ReachAction(
                 poses.grasp,
                 self.arm,
                 max_linear_velocity=self.final_approach_linear_velocity,
+                near_the_object=True,
             )
         )
         return children
@@ -215,6 +216,7 @@ class PickUpAction(
                 lift_to_pose,
                 self.arm,
                 max_linear_velocity=self.lift_linear_velocity,
+                near_the_object=True,
             ),
         ]
 

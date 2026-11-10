@@ -15,6 +15,7 @@ from coraplex.robot_plans.actions.core.pick_up import (
     PickUpAction,
 )
 from coraplex.robot_plans.actions.core.placing import PlaceAction
+from coraplex.robot_plans.plan_transformations import DetectBeforeGrasp
 from coraplex.robot_plans.actions.core.robot_body import (
     ParkArmsAction,
     SetGripperAction,
@@ -23,6 +24,7 @@ from coraplex.robot_plans.actions.core.robot_body import (
 from coraplex.testing import _make_sine_scan_poses
 from cramph.composites import Sequence, StatementNode
 from cramph.data_types import LifeCycleValues
+from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from cramph.node import StatechartNode
 from cramph.threaded_nodes import FunctionCall
 from giskardpy.utils.utils_for_tests import compare_axis_angle, compare_orientations
@@ -372,7 +374,16 @@ def test_move_tcp_follows_sine_waypoints(stationary_block_context, anchor_positi
 
 
 @pytest.fixture
-def physically_simulated_block_context(stationary_block_context):
+def box_spot() -> Point3:
+    """
+    Where on the table the box of :func:`physically_simulated_block_context` stands, by
+    its x and y in the world's root frame.
+    """
+    return Point3(0.8, 0.3, 0.0)
+
+
+@pytest.fixture
+def physically_simulated_block_context(stationary_block_context, box_spot):
     """
     The block world with a box narrow enough for the gripper standing on the table, and
     its physics running, so a plan performed in it is carried out by the robot's own
@@ -398,7 +409,7 @@ def physically_simulated_block_context(stationary_block_context):
                 child=narrow_box,
                 name=PrefixedName("narrow_box_connection"),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    0.8, 0.3, view.table.top_z + edge / 2
+                    box_spot.x, box_spot.y, view.table.top_z + edge / 2
                 ),
             )
         )
@@ -498,6 +509,86 @@ def test_a_place_in_physics_leaves_the_box_to_the_release(
         target.to_np().flatten()[:3],
         atol=0.01,
     )
+
+
+# %% the path of the tool onto the box in physics
+
+
+@dataclass
+class FinalApproachPath(TickingExecutorExtension):
+    """
+    Records where the tool frame of a plan's reach stands after every tick of the
+    reach's final approach onto its grasp.
+    """
+
+    final_approach: StatechartNode | None = field(default=None, init=False)
+    """
+    The step of the reach bringing the gripper onto the grasp, once the plan compiled.
+    """
+
+    tool_frame: Body | None = field(default=None, init=False)
+    """
+    The tool frame of the reaching arm, once the plan compiled.
+    """
+
+    positions: list[np.ndarray] = field(default_factory=list, init=False)
+    """
+    The tool frame's positions in the world's root frame, in the order of the ticks.
+    """
+
+    def after_compile(self, executor: StatechartExecutor) -> None:
+        [reach] = executor.statechart.get_nodes_by_type(ReachAction)
+        self.final_approach = DetectBeforeGrasp().final_approach(reach)
+        self.tool_frame = reach.arm.end_effector.tool_frame
+
+    def after_tick(self, executor: StatechartExecutor) -> None:
+        if self.final_approach.life_cycle_state is not LifeCycleValues.RUNNING:
+            return
+        self.positions.append(self.tool_frame.global_pose.position.to_np()[:3])
+
+    def largest_distance_off_the_line(self) -> float:
+        """
+        :return: How far, in metres, the tool strayed from the straight line between
+            where the final approach started and where it ended.
+        """
+        path = np.array(self.positions)
+        start, end = path[0], path[-1]
+        direction = (end - start) / np.linalg.norm(end - start)
+        from_start = path - start
+        along = np.outer(from_start @ direction, direction)
+        return float(np.linalg.norm(from_start - along, axis=1).max())
+
+
+@pytest.mark.skipif(
+    not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
+)
+@pytest.mark.parametrize("box_spot", [Point3(0.55, 0.35, 0.0)])
+def test_a_pick_in_physics_comes_down_onto_the_box_in_a_straight_line(
+    physically_simulated_block_context,
+):
+    """
+    The open pads clear the box by little more than a centimetre on either side, so a
+    final approach swinging off its line lands a pad on the box and pushes it away.
+    """
+    world, view, extensions, simulation, box = physically_simulated_block_context
+    path = FinalApproachPath()
+    plan = Sequence(
+        nodes=[
+            ParkArmsAction(arms=view.all_arms),
+            PickUpAction(
+                grasp=grasp_near_the_top(world, box), arm=left_or_only_arm(view)
+            ),
+        ]
+    )
+
+    perform_in_physics(plan, extensions, simulation, executor_extensions=(path,))
+
+    # Tracy's Robotiq 2F-85 grippers open 85 mm wide.
+    box_width = float(
+        box.collision.max_point.to_np()[0] - box.collision.min_point.to_np()[0]
+    )
+    pad_clearance = (0.085 - box_width) / 2
+    assert path.largest_distance_off_the_line() < pad_clearance
 
 
 # %% a pick-up failing after its grasp
