@@ -136,9 +136,9 @@ class QueryAnnotator(BaseAnnotator):
         """
         self.rk_logger.debug(f"{self.__class__.__name__}.update()")
 
-        assert self.action_server is not None, (
-            "Action server should be initialized by now."
-        )
+        assert (
+            self.action_server is not None
+        ), "Action server should be initialized by now."
         query = self.action_server.new_query
         self.rk_logger.debug(f"self.action_server.new_query: {query}")
 
@@ -433,6 +433,10 @@ class QueryActionServer(Node):
         action_type: type = Query,
     ) -> None:
         super().__init__(name, namespace="robokudo")
+        self.answering_stopped: Event = Event()
+        """
+        Set once queries are no longer answered, which aborts the query in progress.
+        """
         self._action_name = name
         """
         Name of the ROS action.
@@ -508,9 +512,19 @@ class QueryActionServer(Node):
         """
         Check if query is being processed.
 
-        :return: True if query active, False otherwise
+        A query that has arrived but that the tree has not taken up yet is not being
+        processed, so that a tree finishing the previous query moves on to take it up
+        instead of waiting for it to be answered.
+
+        :return: True if the tree has taken up a query that is not answered yet
         """
-        return self.query is not None
+        return self.query is not None and self.new_query is None
+
+    def stop_answering(self) -> None:
+        """
+        Stop answering queries, aborting the query in progress.
+        """
+        self.answering_stopped.set()
 
     async def execute_cb(self, goal_handle: ServerGoalHandle) -> Query.Result | None:
         """
@@ -535,7 +549,7 @@ class QueryActionServer(Node):
         feedback_queue = Blackboard().get(BBIdentifier.QUERY_FEEDBACK)
         self.logger.info("Start watching")
 
-        while rclpy.ok():
+        while rclpy.ok() and not self.answering_stopped.is_set():
             time.sleep(1.0 / 50.0)
 
             # At least one node in the Tree has to acknowledge the preempt request. This allows the tree
@@ -579,8 +593,12 @@ class QueryActionServer(Node):
                 self.reset_bookkeeping_vars()
                 return answer
 
+        self.logger.error("Aborting since queries are no longer answered")
         goal_handle.abort()
-        return None
+        abort_result = Query.Result()
+        abort_result.text_result = "Aborted"
+        self.reset_bookkeeping_vars()
+        return abort_result
 
     def destroy(self) -> None:
         """

@@ -23,15 +23,18 @@ import numpy as np
 import pytest
 import rclpy
 from geometry_msgs.msg import TransformStamped
+from action_msgs.msg import GoalStatus
 from rclpy.action import ActionClient
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.task import Future
 from rclpy.publisher import Publisher
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
 from tf2_ros import StaticTransformBroadcaster
+from typing_extensions import Any
 
 from robokudo.annotators.cluster_color import Color as SemanticColorName
 from robokudo.descriptors.analysis_engines.tracy_cubes import TracyCubesSettings
@@ -141,10 +144,12 @@ def cube_scene() -> CubeScene:
 
 
 @pytest.fixture(scope="module")
-def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[None]:
+def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[CameraStream]:
     """
     Publish what Tracy's camera sees of the scene as the camera's driver does, with the
     optical frame below Tracy's camera link on TF, and Tracy's description.
+
+    :return: The stream of the camera's frame.
     """
     settings = TracyCubesSettings.from_file(settings_file)
     world = cube_scene.world
@@ -190,7 +195,9 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[None]:
         transform.transform.rotation.y,
         transform.transform.rotation.z,
         transform.transform.rotation.w,
-    ) = Rotation.from_matrix(link_T_optical[:3, :3]).as_quat().tolist()
+    ) = (
+        Rotation.from_matrix(link_T_optical[:3, :3]).as_quat().tolist()
+    )
     StaticTransformBroadcaster(node).sendTransform(transform)
     node.create_publisher(
         String,
@@ -202,7 +209,7 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[None]:
     executor.add_node(node)
     spinner = Thread(target=executor.spin, daemon=True)
     spinner.start()
-    yield
+    yield stream
     executor.shutdown()
     spinner.join()
     node.destroy_node()
@@ -224,10 +231,21 @@ class PerceptionClient:
     The client of RoboKudo's query action.
     """
 
+    process: subprocess.Popen
+    """
+    The perception process answering the client.
+    """
+
+
+stopping_time = 5.0
+"""
+How long the perception process may take to stop once it receives SIGTERM, in seconds.
+"""
+
 
 @pytest.fixture
 def perception_process(
-    request: pytest.FixtureRequest, settings_file: Path, camera_driver: None
+    request: pytest.FixtureRequest, settings_file: Path, camera_driver: CameraStream
 ) -> Iterator[PerceptionClient]:
     """
     Run Tracy's cube localization through the real camera in a process of its own, one
@@ -252,9 +270,9 @@ def perception_process(
     while not client.wait_for_server(timeout_sec=1.0):
         assert process.poll() is None, "the perception process ended"
         assert time.monotonic() - started < 180.0
-    yield PerceptionClient(node=node, client=client)
+    yield PerceptionClient(node=node, client=client, process=process)
     process.terminate()
-    assert process.wait(timeout=60.0) == 0
+    assert process.wait(timeout=stopping_time) == 0
     client.destroy()
     node.destroy_node()
 
@@ -312,3 +330,121 @@ def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(
     assert red in designator.color
     position = designator.pose[0].pose.position
     assert math.dist((position.x, position.y), (red_cube.x, red_cube.y)) < 0.01
+
+
+def send_query(perception: PerceptionClient) -> Future:
+    """
+    Send a query for any object and wait until the perception process accepts it.
+
+    :param perception: The client of the perception process.
+    :return: The future of the query's result.
+    """
+    executor = SingleThreadedExecutor(context=perception.node.context)
+    executor.add_node(perception.node)
+    goal_handle_future = perception.client.send_goal_async(query_messages.Query.Goal())
+    executor.spin_until_future_complete(goal_handle_future, timeout_sec=10.0)
+    executor.remove_node(perception.node)
+    goal_handle = goal_handle_future.result()
+    assert goal_handle is not None and goal_handle.accepted
+    return goal_handle.get_result_async()
+
+
+def wait_for_result(perception: PerceptionClient, result_future: Future) -> Any:
+    """
+    :param perception: The client of the perception process.
+    :param result_future: The future of a query's result.
+    :return: The query's result with its status, once it arrives within ten seconds.
+    """
+    executor = SingleThreadedExecutor(context=perception.node.context)
+    executor.add_node(perception.node)
+    executor.spin_until_future_complete(result_future, timeout_sec=10.0)
+    executor.remove_node(perception.node)
+    assert result_future.done(), "the query was not answered"
+    return result_future.result()
+
+
+def assert_every_cube_is_answered(cube_scene: CubeScene, result: Any) -> None:
+    """
+    :param cube_scene: The scene the camera sees.
+    :param result: The answer to a query for any object.
+    """
+    colors = {color for designator in result.res for color in designator.color}
+    for cube in cube_scene.cubes:
+        assert cube.color_name.name.lower() in colors
+
+
+def test_a_query_sent_right_after_an_answer_is_answered(
+    cube_scene: CubeScene, perception_process: PerceptionClient
+) -> None:
+    first = wait_for_result(perception_process, send_query(perception_process))
+    second = wait_for_result(perception_process, send_query(perception_process))
+
+    for result in (first, second):
+        assert result.status == GoalStatus.STATUS_SUCCEEDED
+        assert_every_cube_is_answered(cube_scene, result.result)
+
+
+def test_sigterm_stops_the_process_while_a_query_is_answered(
+    perception_process: PerceptionClient,
+) -> None:
+    send_query(perception_process)
+    perception_process.process.terminate()
+
+    assert perception_process.process.wait(timeout=stopping_time) == 0
+
+
+def show_depth(
+    camera_driver: CameraStream, perception: PerceptionClient, depth: Image
+) -> None:
+    """
+    Let the camera's driver publish a depth image from now on, and wait until it has
+    been published twice, so that the perception process holds no earlier frame.
+
+    :param camera_driver: The stream of the camera's frame.
+    :param perception: The client of the perception process, whose node listens.
+    :param depth: The depth image to publish.
+    """
+    received = []
+    subscription = perception.node.create_subscription(
+        Image,
+        camera_driver.settings.real_camera.topic_depth,
+        lambda message: received.append(bytes(message.data) == bytes(depth.data)),
+        10,
+    )
+    camera_driver.depth = depth
+    executor = SingleThreadedExecutor(context=perception.node.context)
+    executor.add_node(perception.node)
+    started = time.monotonic()
+    while received.count(True) < 2:
+        assert time.monotonic() - started < 10.0, "the depth image was not published"
+        executor.spin_once(timeout_sec=0.5)
+    executor.remove_node(perception.node)
+    perception.node.destroy_subscription(subscription)
+
+
+def test_a_query_failing_on_a_frame_fails_and_the_next_query_is_answered(
+    cube_scene: CubeScene,
+    camera_driver: CameraStream,
+    perception_process: PerceptionClient,
+) -> None:
+    depth = camera_driver.depth
+    show_depth(
+        camera_driver,
+        perception_process,
+        Image(
+            header=depth.header,
+            height=depth.height,
+            width=depth.width,
+            encoding=depth.encoding,
+            is_bigendian=depth.is_bigendian,
+            step=depth.step,
+            data=bytes(len(depth.data)),
+        ),
+    )
+    failed = wait_for_result(perception_process, send_query(perception_process))
+    show_depth(camera_driver, perception_process, depth)
+    answered = wait_for_result(perception_process, send_query(perception_process))
+
+    assert failed.status == GoalStatus.STATUS_ABORTED
+    assert answered.status == GoalStatus.STATUS_SUCCEEDED
+    assert_every_cube_is_answered(cube_scene, answered.result)

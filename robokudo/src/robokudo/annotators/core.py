@@ -44,6 +44,7 @@ from robokudo.cas import CAS, CASViews
 from robokudo.defs import PACKAGE_NAME
 from robokudo.types.core import Annotation
 from robokudo.utils.tree import find_parent_of_type
+from robokudo.utils.error_handling import raise_to_blackboard
 
 """
 This module contains superclasses for annotators.  the two main superclasses are Base- and ThreadedAnnotator.
@@ -552,7 +553,11 @@ class ThreadedAnnotator(BaseAnnotator):
 
         self.compute_worker_thread.join()
         self.compute_worker_started = False
-        # exc = self.compute_worker.future.exception()
+        exception = self.compute_worker.future.exception()
+        if exception is not None:
+            self.rk_logger.error(f"{self.name} failed to compute", exc_info=exception)
+            raise_to_blackboard(exception)
+            return Status.FAILURE
         result = self.compute_worker.future.result()
 
         if result is None:

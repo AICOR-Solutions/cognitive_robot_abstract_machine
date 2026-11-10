@@ -122,6 +122,7 @@ class QueryService:
         if self._node is None:
             return
         self._stopped.set()
+        Blackboard().get(BBIdentifier.QUERY_SERVER).stop_answering()
         self._executor.shutdown()
         for thread in self._threads:
             thread.join()
