@@ -631,6 +631,61 @@ def test_live_reader_creates_isolated_camera_mount_for_tf_pose(
     )
 
 
+def test_live_reader_places_a_camera_sampled_below_a_robot_link_in_the_world(
+    runtime_world: World,
+    camera_info: CameraInfo,
+) -> None:
+    """
+    A TF pose sampled relative to a link below the world root still places optical-frame
+    points in the world.
+    """
+    root = Body(name=PrefixedName(name="map"))
+    camera_link = Body(name=PrefixedName(name="camera_link"))
+    with runtime_world.modify_world():
+        runtime_world.add_body(root)
+        runtime_world.add_body(camera_link)
+        runtime_world.add_connection(
+            Connection6DoF.create_with_dofs(
+                parent=root, child=camera_link, world=runtime_world
+            )
+        )
+    camera_link.parent_connection.origin = (
+        HomogeneousTransformationMatrix.from_xyz_quaternion(
+            pos_x=0.3, pos_y=0.0, pos_z=1.2, reference_frame=root
+        )
+    )
+    interface = object.__new__(KinectCameraInterface)
+    interface.camera_config = SynchronizedImageConfiguration()
+    interface._has_new_data = True
+    interface.lookup_viewpoint = True
+    interface.tf_from = "color_optical_frame"
+    interface.tf_to = "camera_link"
+    interface._world_T_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
+        pos_x=0.0, pos_y=0.05, pos_z=0.0
+    )
+    interface.color = np.zeros(
+        (camera_info.height, camera_info.width, 3), dtype=np.uint8
+    )
+    interface.depth = np.zeros((camera_info.height, camera_info.width), dtype=np.uint16)
+    interface.camera_info = camera_info
+    interface.timestamp = Time(sec=10, nanosec=20)
+    interface.lock = Lock()
+    cas = CAS()
+
+    interface.set_data(cas)
+
+    observation = cas.require_camera_observation()
+    assert observation.world_T_camera.reference_frame is root
+    assert observation.world_T_camera.child_frame is observation.camera.root
+    np.testing.assert_allclose(
+        observation.world_T_camera.to_np(),
+        (
+            camera_link.parent_connection.origin.to_np()
+            @ interface._world_T_camera.to_np()
+        ),
+    )
+
+
 def test_rgbd_reader_stores_camera_observation(
     runtime_world: World,
     camera_info: CameraInfo,

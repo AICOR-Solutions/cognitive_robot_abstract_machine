@@ -1,0 +1,10 @@
+# Tracy's cube localization through the Orbbec Femto Bolt on the orbbec_camera
+# driver's default topics and frames, with the default thresholds.
+real_camera:
+  topic_color: /camera/color/image_raw
+  color_hints: raw
+  topic_depth: /camera/depth/image_raw
+  depth_hints: raw
+  topic_camera_info: /camera/color/camera_info
+  tf_from: camera_color_optical_frame
+  tf_to: camera_link

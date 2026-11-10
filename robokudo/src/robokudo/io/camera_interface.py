@@ -446,7 +446,8 @@ class ROSCameraInterface(CameraInterface):
         self, timestamp: builtin_interfaces.msg.Time
     ) -> HomogeneousTransformationMatrix | None:
         """
-        Return the sampled TF camera pose bound to the runtime world.
+        Return the sampled TF camera pose bound to the runtime world, relative to the
+        world's root even when :attr:`tf_to` is a frame below it.
 
         :param timestamp: Acquisition time associated with the cached TF sample.
         :return: Bound camera pose, or ``None`` when TF lookup is disabled.
@@ -455,10 +456,16 @@ class ROSCameraInterface(CameraInterface):
             return None
         if self._world_T_camera is None:
             raise CameraPoseMissing()
-        return self.bind_world_T_camera(
+        reference_T_camera = self.bind_world_T_camera(
             world_frame=self.tf_to,
             camera_frame=self.tf_from,
             world_T_camera=self._world_T_camera,
+        )
+        world = world_instance()
+        return HomogeneousTransformationMatrix(
+            data=world.transform(reference_T_camera, world.root),
+            reference_frame=world.root,
+            child_frame=reference_T_camera.child_frame,
         )
 
     def validate_camera_frame_for_tf(self, camera_frame: str) -> None:

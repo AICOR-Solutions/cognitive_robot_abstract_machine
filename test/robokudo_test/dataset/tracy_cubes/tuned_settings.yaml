@@ -1,0 +1,27 @@
+# Tracy's cube localization tuned away from every default.
+table_top:
+  lowest_height: 0.75
+  highest_height: 1.05
+  plane_distance_threshold: 0.012
+clusters:
+  minimum_cluster_size: 250
+colors:
+  hue_upper_bounds:
+    red: 18
+    yellow: 70
+    green: 110
+    cyan: 140
+    blue: 200
+    magenta: 230
+  minimum_saturation: 80
+  minimum_value: 50
+  maximum_value_black: 40
+  minimum_value_white: 150
+  minimum_color_share: 0.3
+real_camera:
+  topic_color: /tracy_camera/color/image_raw
+  color_hints: raw
+  topic_depth: /tracy_camera/depth/image_raw
+  topic_camera_info: /tracy_camera/color/camera_info
+  tf_from: tracy_camera_color_optical_frame
+  tf_to: camera_link

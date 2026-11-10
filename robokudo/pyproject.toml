@@ -41,6 +41,9 @@ dependencies = [
     "ultralytics"
 ]
 
+[project.scripts]
+robokudo-tracy-cubes = "robokudo.scripts.perceive_tracy_cubes:main"
+
 [project.urls]
 "Source" = "https://github.com/cram2/cognitive_robot_abstract_machine"
 "Bug Tracker" = "https://github.com/cram2/cognitive_robot_abstract_machine/issues"

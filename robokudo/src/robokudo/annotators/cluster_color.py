@@ -99,6 +99,12 @@ class ClusterColorAnnotator(BaseAnnotator):
                 self.min_value_white: int = 120
                 self.ratio_annotation_threshold: float = 0.2
                 self.analysis_scope: type = AnalyzableAnnotation
+                self.hue_upper_bounds: dict[Color, float] | None = None
+                """
+                Per chromatic color, the hue on OpenCV's full scale (0 to 255) a pixel
+                lies below to take it, tried from red to magenta; hues above magenta's
+                bound are red again. None divides the hue circle evenly.
+                """
 
         # Overwrite the parameters explicitly to enable auto-completion
         parameters = Parameters()
@@ -149,6 +155,8 @@ class ClusterColorAnnotator(BaseAnnotator):
             Color.BLUE: hue_intervals[4],
             Color.MAGENTA: hue_intervals[5],
         }
+        if self.descriptor.parameters.hue_upper_bounds is not None:
+            self.color_hue_positions = dict(self.descriptor.parameters.hue_upper_bounds)
 
         self.cluster_color_info: list[list[tuple[Color, int, float]]] = []
         self.cluster_rois: list[Rect] = []
@@ -186,8 +194,20 @@ class ClusterColorAnnotator(BaseAnnotator):
             self.descriptor.parameters.min_value_color,
             self.descriptor.parameters.max_value_black,
             self.descriptor.parameters.min_value_white,
-            self.descriptor.parameters.num_of_colors,
-            self.descriptor.parameters.color_range,
+            np.array(
+                [
+                    self.color_hue_positions[color]
+                    for color in (
+                        Color.RED,
+                        Color.YELLOW,
+                        Color.GREEN,
+                        Color.CYAN,
+                        Color.BLUE,
+                        Color.MAGENTA,
+                    )
+                ],
+                dtype=np.float64,
+            ),
         )
 
         color_count_map = {}
@@ -206,8 +226,7 @@ class ClusterColorAnnotator(BaseAnnotator):
         min_value_color: int,
         max_value_black: int,
         min_value_white: int,
-        number_of_colors: int,
-        color_range: float,
+        hue_intervals: npt.NDArray,
     ) -> tuple[int, npt.NDArray]:
         """
         Iterate over the masked pixels on a given hsv image to count how many pixels can
@@ -221,18 +240,14 @@ class ClusterColorAnnotator(BaseAnnotator):
         :param min_value_color: Minimum value for chromatic colors.
         :param max_value_black: Maximum value for black classification.
         :param min_value_white: Minimum value for white classification.
-        :param number_of_colors: Number of hue divisions.
-        :param color_range: Size of each hue division.
+        :param hue_intervals: The upper hue bound of each chromatic color, from red to
+            magenta.
         :return: A tuple with the number of analyzed pixels (given by the mask) as well
             as a numpy array with the counted colors. The id refers the indices of the
             Color enum from this module.
         """
         width, height, channels = hsv_image.shape
         counted_pixel_sum = 0
-
-        hue_intervals = [
-            i * color_range + color_range / 2 + 0.5 for i in range(0, number_of_colors)
-        ]
 
         # Amount of defined Colors (including black/white/grey)
         color_count = np.zeros(total_amount_of_colors, dtype=numpy.int32)

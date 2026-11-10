@@ -139,10 +139,10 @@ def place_cubes_at_random(seed: int, minimum_distance: float = 0.1) -> list[Plac
     return cubes
 
 
-@pytest.fixture(params=[0, 1, 2])
-def cube_scene(request: pytest.FixtureRequest) -> CubeScene:
+def build_cube_scene(seed: int) -> CubeScene:
     """
-    :return: Tracy with three cubes at random poses, the world RoboKudo runs in.
+    :param seed: Seed of the cubes' random poses.
+    :return: Tracy with three cubes at random poses in a world of its own.
     """
     world = URDFParser.from_file(file_path=Tracy.get_ros_file_path()).create_world()
     tracy = Tracy.from_world(world)
@@ -151,7 +151,7 @@ def cube_scene(request: pytest.FixtureRequest) -> CubeScene:
     world.notify_state_change()
     scene = CubeScene(
         world=world,
-        cubes=place_cubes_at_random(request.param),
+        cubes=place_cubes_at_random(seed),
         table_height=tracy.table.top_z,
     )
     for cube in scene.cubes:
@@ -175,7 +175,16 @@ def cube_scene(request: pytest.FixtureRequest) -> CubeScene:
             yaw=cube.yaw,
             reference_frame=world.root,
         )
-    robokudo.world.set_world(world)
+    return scene
+
+
+@pytest.fixture(params=[0, 1, 2])
+def cube_scene(request: pytest.FixtureRequest) -> CubeScene:
+    """
+    :return: Tracy with three cubes at random poses, the world RoboKudo runs in.
+    """
+    scene = build_cube_scene(request.param)
+    robokudo.world.set_world(scene.world)
     return scene
 
 
@@ -313,9 +322,24 @@ def ask_for_objects(node, requested_object=None) -> list:
     """
     query_messages = pytest.importorskip("robokudo_msgs.action")
     client = ActionClient(node, query_messages.Query, "robokudo/query")
+    assert client.wait_for_server(timeout_sec=10.0)
+    designators = ask_client_for_objects(client, node, requested_object)
+    client.destroy()
+    return designators
+
+
+def ask_client_for_objects(client: ActionClient, node, requested_object=None) -> list:
+    """
+    Send one query through a client of RoboKudo's query action whose server is up.
+
+    :param client: The client of RoboKudo's query action.
+    :param node: The node the client is created on.
+    :param requested_object: The object designator asked for, None for any object.
+    :return: The object designators of the answer.
+    """
+    query_messages = pytest.importorskip("robokudo_msgs.action")
     executor = SingleThreadedExecutor(context=node.context)
     executor.add_node(node)
-    assert client.wait_for_server(timeout_sec=10.0)
     goal = query_messages.Query.Goal()
     if requested_object is not None:
         goal.obj = requested_object
@@ -324,7 +348,6 @@ def ask_for_objects(node, requested_object=None) -> list:
     result_future = goal_handle_future.result().get_result_async()
     executor.spin_until_future_complete(result_future, timeout_sec=30.0)
     executor.remove_node(node)
-    client.destroy()
     return list(result_future.result().result.res)
 
 

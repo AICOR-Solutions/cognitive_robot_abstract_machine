@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing_extensions import Any
 
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
+from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
 from robokudo.descriptors.camera_configs.config_mongodb_playback import (
     MongoCameraConfig,
 )
@@ -74,9 +75,23 @@ class CollectionReaderDescriptorFactory:
             class.
         """
         camera_config = CameraConfigRegistry.create_config(camera, **kwargs)
+        return CollectionReaderDescriptorFactory.create_descriptor_from_camera_configuration(
+            camera_config
+        )
+
+    @staticmethod
+    def create_descriptor_from_camera_configuration(
+        camera_config: BaseCameraConfig,
+    ) -> CollectionReaderAnnotator.Descriptor:
+        """
+        Create a CollectionReader descriptor reading through a configured camera.
+
+        :param camera_config: The configuration of a registered camera.
+        :returns: A CollectionReader descriptor reading through that camera.
+        """
         return CollectionReaderAnnotator.Descriptor(
             camera_config=camera_config,
             camera_interface=CollectionReaderDescriptorFactory._camera_interface_types[
-                camera
+                camera_config.registry_name
             ](camera_config),
         )
