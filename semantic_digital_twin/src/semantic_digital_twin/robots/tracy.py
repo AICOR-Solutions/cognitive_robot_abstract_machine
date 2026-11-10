@@ -93,6 +93,16 @@ class TracyController(StrEnum):
     """
 
 
+class TracyVelocityCommandTopic(StrEnum):
+    """
+    The topics the arms' :attr:`TracyController.FORWARD_VELOCITY` controllers take their
+    joint velocity commands on, one per arm.
+    """
+
+    LEFT_ARM = "left_arm/forward_velocity_controller/commands"
+    RIGHT_ARM = "right_arm/forward_velocity_controller/commands"
+
+
 class TracyParallelGripperCommandTopic(StrEnum):
     """
     The names the drivers of the Tracy's grippers serve their parallel gripper command
