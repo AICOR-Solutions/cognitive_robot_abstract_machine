@@ -195,9 +195,7 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[Camera
         transform.transform.rotation.y,
         transform.transform.rotation.z,
         transform.transform.rotation.w,
-    ) = (
-        Rotation.from_matrix(link_T_optical[:3, :3]).as_quat().tolist()
-    )
+    ) = Rotation.from_matrix(link_T_optical[:3, :3]).as_quat().tolist()
     StaticTransformBroadcaster(node).sendTransform(transform)
     node.create_publisher(
         String,
@@ -310,6 +308,18 @@ def test_every_cube_is_localized_in_tracys_world_frame(
             )
             < 0.01
         )
+
+
+def test_every_cube_is_localized_in_the_frame_tf_names_tracys_root_link(
+    cube_scene: CubeScene, perception_process: PerceptionClient
+) -> None:
+    designators = ask_client_for_objects(
+        perception_process.client, perception_process.node
+    )
+
+    assert {
+        pose.header.frame_id for designator in designators for pose in designator.pose
+    } == {cube_scene.world.root.name.name}
 
 
 def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(

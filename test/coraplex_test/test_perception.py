@@ -61,7 +61,10 @@ from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
+from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl, Milk
+from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world import World
@@ -702,6 +705,40 @@ def test_robokudo_detection_moves_the_body_in_the_world(
 
     np.testing.assert_allclose(
         world.get_body_by_name("milk.stl").global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_robokudo_detection_in_the_root_frame_of_a_real_robots_world(
+    rclpy_node, robokudo_query_server
+):
+    """
+    On the real robot, the world is the one Giskard builds from the robot's published
+    description: a ``map`` root holding the description with the names it publishes, so
+    Tracy's root link is ``map`` as well. A pose reported in the ROS frame ``map`` is
+    one in that world's root.
+    """
+    world = WorldSpecification(
+        robots=[RobotSpecification.specify_real_robot(Tracy)]
+    ).create_world()
+    region = VolumetricBoundingBox(
+        origin=HomogeneousTransformationMatrix(reference_frame=world.root),
+        min_x=-10,
+        min_y=-10,
+        min_z=-10,
+        max_x=10,
+        max_y=10,
+        max_z=10,
+    )
+    [tracy] = world.get_semantic_annotations_by_type(Tracy)
+    query = PerceptionQuery(Milk, region, tracy, world)
+
+    [detection] = RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+
+    assert detection.pose.reference_frame is world.root
+    np.testing.assert_allclose(
+        detection.pose.position.to_np().flatten()[:3],
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )

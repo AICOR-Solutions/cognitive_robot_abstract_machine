@@ -71,7 +71,10 @@ class TracyCubesPerceptionProcess:
             analysis_engine=AnalysisEngine(
                 camera=self.settings.real_camera, settings=self.settings
             ),
-            world=URDFParser(urdf=self.read_robot_description()).create_world(),
+            # Without a prefix, the world names Tracy's frames as tf and Giskard do.
+            world=URDFParser(
+                urdf=self.read_robot_description(), prefix=""
+            ).create_world(),
         )
         service.start()
         for signal_number in (signal.SIGINT, signal.SIGTERM):

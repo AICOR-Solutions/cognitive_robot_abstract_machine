@@ -41,6 +41,7 @@ from semantic_digital_twin.world_description.geometry import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    KinematicStructureEntity,
 )
 from typing_extensions import Any, Self, TYPE_CHECKING
 
@@ -676,11 +677,28 @@ class RoboKudoPerception(PerceptionInterface):
                 pose_stamped.pose.orientation.y,
                 pose_stamped.pose.orientation.z,
                 pose_stamped.pose.orientation.w,
-                reference_frame=world.get_kinematic_structure_entity_by_name(
-                    pose_stamped.header.frame_id
+                reference_frame=self._reported_frame(
+                    world, pose_stamped.header.frame_id
                 ),
             ),
         )
+
+    @staticmethod
+    def _reported_frame(world: World, frame_id: str) -> KinematicStructureEntity:
+        """
+        The entity a frame RoboKudo reports names.
+
+        A frame named as the world's root is the root, as the world's root is published
+        on tf under its name, even where the robot's description, merged with its own
+        names, has a root link named alike.
+
+        :param world: The world the detection is expressed in.
+        :param frame_id: The frame of the reported pose.
+        :return: The entity the frame names in the world.
+        """
+        if frame_id == str(world.root.name):
+            return world.root
+        return world.get_kinematic_structure_entity_by_name(frame_id)
 
 
 # %% perceiving inside the motion chart
