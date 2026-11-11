@@ -17,6 +17,7 @@ from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.monitors.safety_monitors import (
     CancelOnSafetyViolation,
+    JointVelocityExceeded,
     MaximumJointVelocity,
     SafetyEnvelope,
     SafetyMonitor,
@@ -24,7 +25,9 @@ from giskardpy.motion_statechart.monitors.safety_monitors import (
     WorkspaceBox,
 )
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
+from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from krrood_spatial_math.spatial_types import Point3
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 from semantic_digital_twin.world_description.world_entity import Body
@@ -50,6 +53,22 @@ def _torso(world: World) -> ActiveConnection1DOF:
     :return: The torso joint of the PR2, which lifts the tool straight up.
     """
     return world.get_connection_by_name("torso_lift_joint")
+
+
+def _arm_joints(world: World) -> list[ActiveConnection1DOF]:
+    """
+    :return: The joints of the right arm of the PR2 from the shoulder to the forearm.
+    """
+    return [
+        world.get_connection_by_name(name)
+        for name in (
+            "r_shoulder_pan_joint",
+            "r_shoulder_lift_joint",
+            "r_upper_arm_roll_joint",
+            "r_elbow_flex_joint",
+            "r_forearm_roll_joint",
+        )
+    ]
 
 
 def _box_around_tool(world: World, half_size: float) -> WorkspaceBox:
@@ -100,19 +119,72 @@ def test_a_tool_outside_its_box_is_a_violation(pr2_world_state_reset):
 
 
 @pytest.mark.parametrize(
-    "velocity, expected",
-    [(0.05, ObservationStateValues.FALSE), (0.2, ObservationStateValues.TRUE)],
+    "share_of_limit, expected",
+    [
+        (0.5, ObservationStateValues.FALSE),
+        (1.0, ObservationStateValues.FALSE),
+        (-1.0, ObservationStateValues.FALSE),
+        (1.01, ObservationStateValues.TRUE),
+        (-1.01, ObservationStateValues.TRUE),
+    ],
 )
-def test_a_joint_faster_than_its_limit_is_a_violation(
-    pr2_world_state_reset, velocity, expected
+def test_a_joint_faster_than_its_own_velocity_limit_is_a_violation(
+    pr2_world_state_reset, share_of_limit, expected
 ):
     world = pr2_world_state_reset
     torso = _torso(world)
-    world.state[torso.dof.id].velocity = velocity
-    limit = MaximumJointVelocity(
-        constraint="torso velocity", connections=[torso], maximum_velocity=0.1
+    world.state[torso.dof.id].velocity = (
+        share_of_limit * torso.dof.limits.upper.velocity
     )
+    limit = MaximumJointVelocity(constraint="torso velocity", connections=[torso])
     assert _observe(world, limit.create_monitor()) == expected
+
+
+def test_a_joint_passing_its_limit_within_the_tolerance_is_no_violation(
+    pr2_world_state_reset,
+):
+    world = pr2_world_state_reset
+    torso = _torso(world)
+    world.state[torso.dof.id].velocity = (
+        torso.dof.limits.upper.velocity
+        + JointVelocityExceeded.velocity_limit_tolerance / 2
+    )
+    limit = MaximumJointVelocity(constraint="torso velocity", connections=[torso])
+    assert _observe(world, limit.create_monitor()) == ObservationStateValues.FALSE
+
+
+def test_each_joint_is_held_to_its_own_velocity_limit(pr2_world_state_reset):
+    """
+    The shoulder pan joint's limit is far below the elbow's: a velocity the elbow may
+    move at breaks the shoulder's limit.
+    """
+    world = pr2_world_state_reset
+    arm = _arm_joints(world)
+    shoulder_joint, elbow_joint = arm[0], arm[3]
+    velocity = elbow_joint.dof.limits.upper.velocity * 0.9
+    assert velocity > shoulder_joint.dof.limits.upper.velocity
+    world.state[shoulder_joint.dof.id].velocity = velocity
+    world.state[elbow_joint.dof.id].velocity = velocity
+    limit = MaximumJointVelocity(
+        constraint="arm velocity", connections=[shoulder_joint, elbow_joint]
+    )
+    monitor = limit.create_monitor()
+
+    assert _observe(world, monitor) == ObservationStateValues.TRUE
+    assert monitor.describe_violation().startswith(str(shoulder_joint.name))
+
+
+def test_a_joint_is_held_to_its_limit_as_the_robot_tightened_it(
+    pr2_world_state_reset,
+):
+    world = pr2_world_state_reset
+    torso = _torso(world)
+    description_limit = torso.dof.limits.upper.velocity
+    torso.raw_dof.limits.upper.velocity = description_limit / 2
+    torso.raw_dof.limits.lower.velocity = -description_limit / 2
+    world.state[torso.dof.id].velocity = description_limit * 0.75
+    limit = MaximumJointVelocity(constraint="torso velocity", connections=[torso])
+    assert _observe(world, limit.create_monitor()) == ObservationStateValues.TRUE
 
 
 @pytest.mark.parametrize(
@@ -199,3 +271,43 @@ def test_a_motion_is_held_below_its_tools_velocity_limit(pr2_world_state_reset):
 
     reached = world.compute_forward_kinematics_np(world.root, tool)[:3, 3]
     assert np.allclose(reached, goal.to_np()[:3], atol=0.01)
+
+
+def test_a_motion_at_its_joints_velocity_limits_is_not_cancelled(
+    pr2_world_state_reset,
+):
+    """
+    Every joint of a far joint goal moves at its velocity limit for most of the motion,
+    as fast as the controller lets it.
+    """
+    world = pr2_world_state_reset
+    joints = [*_arm_joints(world), _torso(world)]
+    goal = {}
+    for joint in joints:
+        position = float(world.state[joint.dof.id].position)
+        lower, upper = joint.dof.limits.lower.position, joint.dof.limits.upper.position
+        if upper is None:
+            goal[joint] = position + 2.0
+        elif upper - position > position - lower:
+            goal[joint] = position + 0.9 * (upper - position)
+        else:
+            goal[joint] = position + 0.9 * (lower - position)
+    limit = MaximumJointVelocity(constraint="arm velocity", connections=joints)
+    executor = StatechartExecutor(
+        context=StatechartContext(world=world), extensions=[MotionControl()]
+    )
+    statechart = Statechart(context=executor.context)
+    reach = JointPositionList(
+        goal_state=JointState.from_mapping(goal), cruise_velocity=100.0
+    )
+    statechart.add_node(reach)
+    statechart.add_node(EndMotion.when_true(reach))
+    statechart.add_nodes(SafetyEnvelope(constraints=[limit]).create_nodes())
+    executor.compile(statechart=statechart)
+
+    executor.tick_until_end()
+
+    for joint in joints:
+        assert world.state[joint.dof.id].position == pytest.approx(
+            goal[joint], abs=0.02
+        )

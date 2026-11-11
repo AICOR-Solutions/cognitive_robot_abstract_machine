@@ -51,9 +51,9 @@ from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
 from giskardpy.motion_statechart.monitors.progress_monitors import StillProgressing
 from giskardpy.motion_statechart.monitors.safety_monitors import (
     CancelOnSafetyViolation,
-    JointVelocityExceeded,
-    MaximumJointVelocity,
     SafetyEnvelope,
+    ToolOutsideWorkspace,
+    WorkspaceBox,
 )
 from cramph.exceptions import ExecutionFailure
 from semantic_digital_twin.datastructures.definitions import TorsoState
@@ -62,7 +62,7 @@ from semantic_digital_twin.robots.pr2 import PR2Joint
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
 from ..conftest import physically_simulated_executor
@@ -379,17 +379,22 @@ def test_a_plan_that_violates_collision_avoidance_fails_as_a_plan_failure(
 # %% holding the plan to safety constraints
 
 
-def _slow_torso(world: World) -> SafetyEnvelope:
+def _low_ceiling(world: World) -> SafetyEnvelope:
     """
-    :return: An envelope holding the PR2's torso to a velocity no lift reaches its goal
-        within.
+    :return: An envelope holding the PR2's right tool inside a box whose top lies 5 mm
+        above it, which no lift of the torso stays inside.
     """
+    tool = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+    position = world.compute_forward_kinematics_np(world.root, tool)[:3, 3]
     return SafetyEnvelope(
         constraints=[
-            MaximumJointVelocity(
-                constraint="torso velocity",
-                connections=[world.get_connection_by_name(PR2Joint.TORSO_LIFT)],
-                maximum_velocity=0.001,
+            WorkspaceBox(
+                constraint="right tool workspace",
+                tool=tool,
+                minimum=Point3(*(position - 1.0), reference_frame=world.root),
+                maximum=Point3(
+                    *(position + [1.0, 1.0, 0.005]), reference_frame=world.root
+                ),
             )
         ]
     )
@@ -400,11 +405,11 @@ def test_compiling_watches_the_plan_for_safety_violations(
 ) -> None:
     world, robot_view, extensions = pr2_apartment_context
     plan = MoveTorsoAction(torso_state=TorsoState.HIGH)
-    executor = simulated_executor(extensions, safety=_slow_torso(world))
+    executor = simulated_executor(extensions, safety=_low_ceiling(world))
 
     executor.compile(statechart_of(executor, plan))
 
-    [monitor] = plan.statechart.get_nodes_by_type(JointVelocityExceeded)
+    [monitor] = plan.statechart.get_nodes_by_type(ToolOutsideWorkspace)
     [cancel] = plan.statechart.get_nodes_by_type(CancelOnSafetyViolation)
     assert cancel.monitors == [monitor]
 
@@ -417,7 +422,7 @@ def test_a_plan_breaking_a_safety_constraint_is_cancelled_and_no_failure(
     another candidate, so it is not raised as one.
     """
     world, robot_view, extensions = pr2_apartment_context
-    envelope = _slow_torso(world)
+    envelope = _low_ceiling(world)
     torso = world.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
     position_before = world.state[torso].position
     executor = simulated_executor(extensions, safety=envelope)

@@ -835,9 +835,7 @@ def _safety_envelope(world: World) -> list[StatechartNode]:
                 maximum=Point3(1.0, 1.0, 2.0, reference_frame=_root(world)),
             ),
             MaximumJointVelocity(
-                constraint="joint velocity",
-                connections=[_connection(world)],
-                maximum_velocity=0.5,
+                constraint="joint velocity", connections=[_connection(world)]
             ),
             MaximumToolVelocity(
                 constraint="tool velocity",

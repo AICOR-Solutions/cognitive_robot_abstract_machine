@@ -539,10 +539,6 @@ class Tracy(
     def get_ros_file_path(cls) -> str:
         return "package://iai_tracy_description/urdf/tracy.urdf.xacro"
 
-    @classproperty
-    def maximum_safe_joint_velocity(cls) -> float | None:
-        return 0.5
-
     @classmethod
     def _get_root_body_name(cls) -> str:
         return "table"

@@ -24,6 +24,7 @@ from giskardpy.motion_statechart.graph_node import (
     Task,
 )
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
+from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math.symbolic_math import Scalar
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
@@ -114,8 +115,9 @@ class ToolOutsideWorkspace(SafetyMonitor):
 @dataclass(eq=False, repr=False, kw_only=True)
 class JointVelocityExceeded(SafetyMonitor):
     """
-    Observes ``True`` while any of :attr:`connections` moves faster than
-    :attr:`maximum_velocity`.
+    Observes ``True`` while any of :attr:`connections` moves faster than its own
+    velocity limit, as the world describes it when the monitor is built, by more than
+    :attr:`velocity_limit_tolerance`. A joint without a velocity limit is not watched.
     """
 
     connections: list[ActiveConnection1DOF]
@@ -123,32 +125,73 @@ class JointVelocityExceeded(SafetyMonitor):
     The joints whose velocities are watched.
     """
 
-    maximum_velocity: float
-    """
-    The velocity no joint may exceed, in radians or metres per second.
-    """
+    @classproperty
+    def velocity_limit_tolerance(cls) -> float:
+        """
+        :return: How far, in radians or metres per second, a joint may move faster than
+            its velocity limit before a violation is observed. The controller holds the
+            velocity it plans to the limit, but the velocity it commands is integrated
+            from the jerk the QP solver returns, which meets that integration only up to
+            the solver's tolerance of 1e-6; a joint moving at its limit can pass it by
+            that much.
+        """
+        return 1e-5
 
     def build_artifacts(self) -> NodeArtifacts:
-        velocities = sm.Vector(
-            [connection.dof.variables.velocity for connection in self.connections]
-        )
         return NodeArtifacts(
-            observation=sm.max(sm.abs(velocities)) > self.maximum_velocity
+            observation=sm.logic_or(
+                Scalar.const_false(),
+                *[
+                    self.exceeds_its_limit(connection)
+                    for connection in self.limited_connections
+                ],
+            )
+        )
+
+    @property
+    def limited_connections(self) -> list[ActiveConnection1DOF]:
+        """
+        :return: Those of :attr:`connections` the world sets a velocity limit for.
+        """
+        return [
+            connection
+            for connection in self.connections
+            if connection.raw_dof.limits.upper.velocity is not None
+        ]
+
+    @classmethod
+    def exceeds_its_limit(cls, connection: ActiveConnection1DOF) -> sm.Scalar:
+        """
+        :param connection: A joint the world sets a velocity limit for.
+        :return: Whether it moves faster than that limit, in either direction.
+        """
+        dof = connection.raw_dof
+        velocity = dof.variables.velocity
+        return sm.logic_or(
+            velocity > dof.limits.upper.velocity + cls.velocity_limit_tolerance,
+            velocity < dof.limits.lower.velocity - cls.velocity_limit_tolerance,
         )
 
     def describe_violation(self) -> str:
-        fastest = max(self.connections, key=self.joint_speed)
+        fastest = max(self.limited_connections, key=self.share_of_limit)
         return (
-            f"{fastest.name} moved at {self.joint_speed(fastest):.3f}, faster than "
-            f"{self.maximum_velocity}"
+            f"{fastest.name} moved at {self.joint_speed(fastest):.3f}, faster than its "
+            f"limit of {fastest.raw_dof.limits.upper.velocity:.3f}"
         )
+
+    def share_of_limit(self, connection: ActiveConnection1DOF) -> float:
+        """
+        :param connection: One of :attr:`limited_connections`.
+        :return: How fast it moves now, as a share of its upper velocity limit.
+        """
+        return self.joint_speed(connection) / connection.raw_dof.limits.upper.velocity
 
     def joint_speed(self, connection: ActiveConnection1DOF) -> float:
         """
         :param connection: One of :attr:`connections`.
         :return: How fast it moves now.
         """
-        return abs(float(self.context.world.state[connection.dof.id].velocity))
+        return abs(float(self.context.world.state[connection.raw_dof.id].velocity))
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -345,17 +388,14 @@ class WorkspaceBox(SafetyConstraint):
 @dataclass(frozen=True)
 class MaximumJointVelocity(SafetyConstraint):
     """
-    A velocity no joint of a group may exceed.
+    Each joint of a group stays within its own velocity limit, as the world describes
+    it: the limit the controller plans every motion within, so only a motion leaving it
+    unexpectedly breaks this constraint.
     """
 
     connections: list[ActiveConnection1DOF]
     """
-    The joints held to the limit.
-    """
-
-    maximum_velocity: float
-    """
-    The velocity no joint may exceed, in radians or metres per second.
+    The joints held to their limits.
     """
 
     def create_monitor(self) -> JointVelocityExceeded:
@@ -363,7 +403,6 @@ class MaximumJointVelocity(SafetyConstraint):
             name=self.constraint,
             constraint=self.constraint,
             connections=self.connections,
-            maximum_velocity=self.maximum_velocity,
         )
 
 
