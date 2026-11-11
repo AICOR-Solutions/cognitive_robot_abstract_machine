@@ -4,7 +4,8 @@ world, kinematically simulated, so nothing real moves.
 
 A step left underspecified is
 grounded the way a run grounds it, by trying its candidates, and a detection is answered
-by :class:`~coraplex.perception.ValidationPerception`.
+by :class:`~coraplex.perception.ValidationPerception`. A step may be held to safety
+constraints too, which it fails by breaking one, rather than stopping as a run does.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from coraplex.plans.failures import (
     EndEffectorDidNotReachTarget,
     MotionMadeNoProgress,
     MotionViolatedCollisionAvoidance,
+    MotionWouldBreakSafetyLimit,
     NavigationGoalNotReachedError,
     RobotInCollision,
     TargetLeftFieldOfView,
@@ -36,6 +38,10 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.exceptions import ExecutionFailure
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
+from giskardpy.motion_statechart.monitors.safety_monitors import (
+    CancelOnSafetyViolation,
+    SafetyEnvelope,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -94,6 +100,12 @@ class FailureCause(StrEnum):
     An object the step was to keep in view lay outside the camera's field of view.
     """
 
+    SAFETY_LIMIT = "safety_limit"
+    """
+    The step's motion would break a safety constraint the robot is held to, such as its
+    tool leaving its workspace box.
+    """
+
     UNSUCCESSFUL = "unsuccessful"
     """
     The step failed for another reason, which the failure itself names.
@@ -120,6 +132,8 @@ class FailureCause(StrEnum):
                 return cls.AMBIGUOUS
             case TargetLeftFieldOfView():
                 return cls.OUT_OF_VIEW
+            case MotionWouldBreakSafetyLimit():
+                return cls.SAFETY_LIMIT
         return cls.UNSUCCESSFUL
 
 
@@ -176,6 +190,41 @@ class StepCheck:
         return FailureCause.from_failure(self.failure)
 
 
+# %% safety constraints
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class FailOnSafetyViolation(CancelOnSafetyViolation):
+    """
+    Differs from :class:`CancelOnSafetyViolation` in ending the motion with a
+    :class:`~coraplex.plans.failures.MotionWouldBreakSafetyLimit`, a failure of the step
+    tried rather than a stop of the robot.
+    """
+
+    def create_exception(self) -> MotionWouldBreakSafetyLimit:
+        return MotionWouldBreakSafetyLimit(violation=super().create_exception())
+
+
+@dataclass
+class SafetyEnvelopeCheck(SafetyEnvelope):
+    """
+    Differs from :class:`SafetyEnvelope` in failing the motion that breaks one of its
+    constraints, see :class:`FailOnSafetyViolation`, as a step tried before it runs
+    does.
+    """
+
+    def create_nodes(self) -> list[StatechartNode]:
+        if not self.constraints:
+            return []
+        limits = [
+            limit
+            for constraint in self.constraints
+            for limit in constraint.create_motion_limits()
+        ]
+        monitors = [constraint.create_monitor() for constraint in self.constraints]
+        return [*limits, *monitors, FailOnSafetyViolation(monitors=monitors)]
+
+
 # %% validation
 
 
@@ -218,12 +267,17 @@ class PlanValidation:
     def __post_init__(self) -> None:
         self.copied_world = deepcopy(self.world)
 
-    def check(self, step: StatechartNode) -> StepCheck:
+    def check(
+        self, step: StatechartNode, safety: SafetyEnvelope | None = None
+    ) -> StepCheck:
         """
         Run a step in the copy, kinematically simulated in a statechart of its own; an
         underspecified step is grounded by trying its candidates.
 
         :param step: The step, built from the entities of :attr:`copied_world`.
+        :param safety: The safety constraints the step is held to, built from the
+            entities of :attr:`copied_world`; the step fails as soon as it breaks one.
+            None holds it to none.
         :return: How it fared.
         """
         executor = KinematicallySimulatedPlanExecutor(
@@ -235,6 +289,9 @@ class PlanValidation:
                 ],
             ),
             collision_avoidance=self.collision_avoidance,
+            safety=SafetyEnvelopeCheck(
+                constraints=[] if safety is None else list(safety.constraints)
+            ),
         )
         statechart = Statechart(context=executor.context)
         statechart.add_node(step)

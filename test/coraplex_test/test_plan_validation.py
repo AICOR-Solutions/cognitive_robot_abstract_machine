@@ -17,6 +17,7 @@ from coraplex.exceptions import NothingPerceived, UnidentifiedDetections
 from coraplex.perception import PerceptionQuery, WorldPerception
 from coraplex.plans.failures import (
     MotionViolatedCollisionAvoidance,
+    MotionWouldBreakSafetyLimit,
     PlanFailure,
     RobotInCollision,
     TargetLeftFieldOfView,
@@ -27,9 +28,20 @@ from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import StatementNode
 from cramph.context import ContextExtension
-from giskardpy.motion_statechart.exceptions import CollisionViolatedError
+from giskardpy.motion_statechart.exceptions import (
+    CollisionViolatedError,
+    SafetyConstraintViolated,
+)
+from giskardpy.motion_statechart.monitors.safety_monitors import (
+    SafetyEnvelope,
+    WorkspaceBox,
+)
 from krrood.entity_query_language.factories import a, variable
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point3,
+    Pose,
+)
 from semantic_digital_twin.datastructures.camera_model import FieldOfViewCameraModel
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
@@ -202,6 +214,14 @@ def joint_positions(world: World) -> np.ndarray:
             ),
             FailureCause.OUT_OF_VIEW,
         ),
+        (
+            MotionWouldBreakSafetyLimit(
+                SafetyConstraintViolated(
+                    constraint="Left arm workspace", violation="1.0 mm past"
+                )
+            ),
+            FailureCause.SAFETY_LIMIT,
+        ),
         (PlanFailure(), FailureCause.UNSUCCESSFUL),
     ],
 )
@@ -286,6 +306,69 @@ def test_a_step_given_as_an_action_runs_as_itself(cube_on_the_table: CubeOnTheTa
 
     assert check.verdict is ValidationVerdict.VALID
     assert check.grounded_action is park
+
+
+def workspace_below(
+    validation: PlanValidation, scene: CubeOnTheTable, height: float
+) -> SafetyEnvelope:
+    """
+    :return: The left arm's tool held below a height above Tracy's table, in the copy.
+    """
+    copy = validation.copied_world
+    tool = copy.rebind_world_entities(scene.tracy.left_arm).end_effector.tool_frame
+    return SafetyEnvelope(
+        constraints=[
+            WorkspaceBox(
+                constraint="Left arm workspace",
+                tool=tool,
+                minimum=Point3(-5.0, -5.0, 0.0, reference_frame=copy.root),
+                maximum=Point3(
+                    5.0,
+                    5.0,
+                    scene.tracy.table.top_z + height,
+                    reference_frame=copy.root,
+                ),
+            )
+        ]
+    )
+
+
+def test_a_step_whose_tool_leaves_a_workspace_box_fails_as_breaking_a_safety_limit(
+    cube_on_the_table: CubeOnTheTable,
+):
+    scene = cube_on_the_table
+    validation = scene.validation()
+    copy = validation.copied_world
+
+    check = validation.check(
+        PickUpAction(
+            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            arm=copy.rebind_world_entities(scene.tracy.left_arm),
+        ),
+        safety=workspace_below(validation, scene, 0.02),
+    )
+
+    assert check.verdict is ValidationVerdict.FAILED
+    assert check.cause is FailureCause.SAFETY_LIMIT
+    assert "Left arm workspace" in check.failure.error_message()
+
+
+def test_a_step_whose_tool_stays_inside_a_workspace_box_is_valid(
+    cube_on_the_table: CubeOnTheTable,
+):
+    scene = cube_on_the_table
+    validation = scene.validation()
+    copy = validation.copied_world
+
+    check = validation.check(
+        PickUpAction(
+            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            arm=copy.rebind_world_entities(scene.tracy.left_arm),
+        ),
+        safety=workspace_below(validation, scene, 2.0),
+    )
+
+    assert check.verdict is ValidationVerdict.VALID
 
 
 # %% choosing the arm

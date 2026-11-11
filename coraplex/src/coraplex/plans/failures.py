@@ -8,6 +8,7 @@ from typing_extensions import TYPE_CHECKING
 from giskardpy.motion_statechart.exceptions import (
     CollisionViolatedError,
     NoProgressError,
+    SafetyConstraintViolated,
 )
 from cramph.exceptions import ExecutionFailure
 from semantic_digital_twin.robots.robot_parts import Arm, Camera, EndEffector
@@ -111,6 +112,29 @@ class MotionViolatedCollisionAvoidance(PlanFailure):
 
     def suggest_correction(self) -> str:
         return self.violation.suggest_correction()
+
+
+@dataclass
+class MotionWouldBreakSafetyLimit(PlanFailure):
+    """
+    Raised when a motion tried before it runs, in a copy of the world, broke one of the
+    safety constraints the robot is held to, such as its tool leaving its workspace box.
+
+    Unlike the :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`
+    that stops a running robot, this says only that the attempt would not do, so a plan
+    can try another candidate, such as the other arm.
+    """
+
+    violation: SafetyConstraintViolated
+    """
+    The violation the motion reported, which names the constraint and how it broke it.
+    """
+
+    def error_message(self) -> str:
+        return self.violation.error_message()
+
+    def suggest_correction(self) -> str:
+        return "Choose another arm, or a place the robot reaches inside the constraint."
 
 
 @dataclass
