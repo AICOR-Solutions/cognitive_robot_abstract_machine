@@ -115,3 +115,26 @@ def test_a_restarted_passage_monitor_judges_the_passage_anew():
     executor.tick()
 
     assert monitor.observation_state == ObservationStateValues.FALSE
+
+
+def test_a_clear_passage_never_seen_blocked_is_not_clear_when_asked_to():
+    world, mount = world_with_walls(FAR_WALL_DISTANCE)
+    monitor = passage_monitor(mount, PASSAGE_DISTANCE)
+    monitor.clear_only_after_blocked = True
+
+    ticked_executor(world, monitor)
+
+    assert monitor.observation_state == ObservationStateValues.FALSE
+
+
+def test_a_passage_seen_blocked_and_then_clear_is_clear_when_asked_to():
+    world, mount = world_with_walls(2 * PASSAGE_DISTANCE)
+    monitor = passage_monitor(mount, 2 * PASSAGE_DISTANCE)
+    monitor.clear_only_after_blocked = True
+    executor = ticked_executor(world, monitor)
+    monitor.passage_start.x = PASSAGE_DISTANCE
+    monitor.passage_end.x = PASSAGE_DISTANCE
+
+    executor.tick()
+
+    assert monitor.observation_state == ObservationStateValues.TRUE

@@ -52,11 +52,6 @@ class NavigateToRoomAction(SequentialAction):
     How far in front of the elevator's doors the robot drives before riding it.
     """
 
-    elevator_arrival_threshold: float = 0.01
-    """
-    Position error within which the elevator's drive counts as having arrived.
-    """
-
     obstacle_clearance: float = 0.0
     """
     How far the robot's base keeps from obstacles on top of its base radius on every
@@ -117,7 +112,6 @@ class NavigateToRoomAction(SequentialAction):
             ElevatorNavigation(
                 elevator=elevator,
                 target_floor=target_level,
-                arrival_threshold=self.elevator_arrival_threshold,
                 exit_clearance=self.elevator_exit_clearance,
             )
         ]

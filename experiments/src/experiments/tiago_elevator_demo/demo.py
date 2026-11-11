@@ -32,13 +32,10 @@ from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
 )
 from cramph.context import ContextExtension, StatechartContext
+from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
 from experiments.tiago_arise_gazebo.elevator_operator import SimulatedElevatorOperator
-from semantic_digital_twin.callbacks.callback import (
-    ModelChangeCallback,
-    StateChangeCallback,
-)
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
@@ -61,52 +58,15 @@ from semantic_digital_twin.world_description.world_entity import Region
 # %% operating the elevator in a kinematic simulation
 
 
-@dataclass(eq=False)
-class ElevatorCallButton(StateChangeCallback):
+@dataclass
+class ElevatorOperator(TickingExecutorExtension):
     """
-    Calls an elevator's cabin to the level a robot waits on in front of its doors,
-    standing in for the robot pressing the elevator's call button.
-    """
+    Brings an elevator's cabin to a robot waiting in front of its doors, as if the robot
+    pressed the call button.
 
-    elevator: Elevator = field(kw_only=True)
-    """
-    The elevator this button calls.
-    """
-
-    robot: AbstractRobot = field(kw_only=True)
-    """
-    The robot whose waiting calls the cabin.
-    """
-
-    waiting_areas: dict[Level, Region] = field(init=False)
-    """
-    Where the robot waits for the cabin, per level.
-    """
-
-    def __post_init__(self) -> None:
-        self.waiting_areas = self.elevator.waiting_areas
-        super().__post_init__()
-
-    def on_state_change(self, **kwargs) -> None:
-        level = Level.under(self.robot.root)
-        if level is None or self.elevator.is_at_floor(level):
-            return
-        if not InsideRegion(
-            self.robot.bodies_with_collision[0], self.waiting_areas[level]
-        )():
-            return
-        # Moving the doors and the cabin changes the state this button listens to
-        self.pause()
-        self.elevator.serve_floor(level)
-        self.resume()
-
-
-@dataclass(eq=False)
-class ElevatorOperator(ModelChangeCallback):
-    """
-    Brings an elevator's cabin to a robot waiting for it and drives the elevator to a
-    floor as soon as the robot boards it, standing in for whatever operates the elevator
-    in the real world.
+    Once the robot boards, closes the doors, drives the cabin to a floor and opens the
+    doors again after :attr:`ride_duration` ticks, standing in for whatever operates the
+    elevator in the real world.
     """
 
     elevator: Elevator = field(kw_only=True)
@@ -124,29 +84,63 @@ class ElevatorOperator(ModelChangeCallback):
     The robot whose boarding sets the elevator off.
     """
 
-    call_button: ElevatorCallButton = field(init=False)
+    ride_duration: int = 500
     """
-    The call button the robot presses by waiting in front of the doors.
+    How many ticks the doors stay closed after the robot boarded, long enough for it to
+    turn towards them.
+    """
+
+    waiting_areas: dict[Level, Region] = field(init=False)
+    """
+    Where the robot waits for the cabin, per level.
+    """
+
+    robot_aboard: bool = field(default=False, init=False)
+    """
+    Whether the robot was aboard the elevator at the last tick.
+    """
+
+    ticks_until_doors_open: int | None = field(default=None, init=False)
+    """
+    How many more ticks the doors stay closed, None while the elevator is not riding.
     """
 
     def __post_init__(self) -> None:
-        self.call_button = ElevatorCallButton(
-            _world=self._world, elevator=self.elevator, robot=self.robot
-        )
-        super().__post_init__()
+        # The areas join the world on first access, which must not happen mid-tick.
+        self.waiting_areas = self.elevator.waiting_areas
 
-    def on_model_change(self, **kwargs) -> None:
-        if self.robot.root.parent_kinematic_structure_entity is not self.elevator.root:
+    def before_tick(self, executor: StatechartExecutor) -> None:
+        aboard = self.robot.root.parent_kinematic_structure_entity is self.elevator.root
+        boarded = aboard and not self.robot_aboard
+        self.robot_aboard = aboard
+        if boarded:
+            self.ticks_until_doors_open = self.ride_duration
+            self.elevator.close()
+            self.elevator.drive_to_floor(self.floor)
             return
-        self.elevator.serve_floor(self.floor)
+        if self.ticks_until_doors_open is not None:
+            self.ticks_until_doors_open -= 1
+            if self.ticks_until_doors_open > 0:
+                return
+            self.ticks_until_doors_open = None
+            self.elevator.open()
+            return
+        if not aboard:
+            self.answer_call()
 
-    def stop(self) -> None:
+    def answer_call(self) -> None:
         """
-        Differs from :meth:`~semantic_digital_twin.callbacks.callback.Callback.stop` in
-        stopping :attr:`call_button` too.
+        Bring the cabin to the robot's level if the robot waits in front of the doors
+        there.
         """
-        self.call_button.stop()
-        super().stop()
+        level = Level.under(self.robot.root)
+        if level is None or self.elevator.is_at_floor(level):
+            return
+        if not InsideRegion(
+            self.robot.bodies_with_collision[0], self.waiting_areas[level]
+        )():
+            return
+        self.elevator.serve_floor(level)
 
 
 # %% driving the real base
@@ -300,12 +294,20 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             ]
         if self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
-                _world=world,
                 elevator=elevator,
                 floor=self.destination_level(world),
                 robot=robot,
             )
         return [RobotAccess(robot)]
+
+    def create_executor(self, world: World) -> PlanExecutor:
+        """
+        In a kinematic simulation the executor also ticks the :attr:`elevator_operator`.
+        """
+        executor = super().create_executor(world)
+        if self.elevator_operator is not None:
+            executor.extensions.append(self.elevator_operator)
+        return executor
 
     def _follow_elevator_drive(self, elevator: Elevator) -> None:
         """
@@ -350,15 +352,12 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             ElevatorNavigation(
                 elevator=context.world.get_semantic_annotations_by_type(Elevator)[0],
                 target_floor=self.destination_level(context.world),
-                arrival_threshold=self.elevator_arrival_threshold,
             )
         )
         return statechart
 
     def tear_down(self) -> None:
-        if self.elevator_operator is not None:
-            self.elevator_operator.stop()
-            self.elevator_operator = None
+        self.elevator_operator = None
         super().tear_down()
 
 
