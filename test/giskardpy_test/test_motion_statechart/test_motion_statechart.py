@@ -41,6 +41,7 @@ from giskardpy.motion_statechart.tasks.weight_scaling_goals import MaxManipulabi
 from giskardpy.qp.constraint import GiskardEqualityConstraint
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.enforcement_strategy import IntegralStrategy
+from giskardpy.qp.exceptions import EmptyProblemException
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -299,6 +300,32 @@ def test_local_minimum_reached_raises_on_explicitly_empty_degrees_of_freedom(
 
     with pytest.raises(EmptyDegreesOfFreedomError):
         monitor.build()
+
+
+def test_a_motion_no_degree_of_freedom_moves_is_an_empty_problem(
+    pr2_world_state_reset: World,
+):
+    """
+    The tip of the pose task is fixed to its root, so its constraints depend on no
+    degree of freedom of the world.
+    """
+    world = pr2_world_state_reset
+    executor = StatechartExecutor(
+        context=StatechartContext(world=world), extensions=[MotionControl()]
+    )
+    statechart = Statechart(context=executor.context)
+    pose = CartesianPose(
+        root_link=world.get_kinematic_structure_entity_by_name("base_footprint"),
+        tip_link=world.get_kinematic_structure_entity_by_name("base_link"),
+        goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=1, reference_frame=world.root
+        ),
+    )
+    statechart.add_node(pose)
+    statechart.add_node(EndMotion.when_true(pose))
+
+    with pytest.raises(EmptyProblemException):
+        executor.compile(statechart=statechart)
 
 
 def test_long_goal(pr2_world_state_reset: World):

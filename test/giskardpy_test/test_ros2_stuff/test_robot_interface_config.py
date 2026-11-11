@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass, fields, is_dataclass
 
 import pytest
@@ -12,6 +13,12 @@ from giskardpy.middleware.ros2.robot_interface_config import (
     StandAloneRobotInterfaceConfig,
 )
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
+from semantic_digital_twin.adapters.ros import rospy
+from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
+from semantic_digital_twin.adapters.ros.world_fetcher import FetchWorldServer
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
 from semantic_digital_twin.adapters.ros.input_synchronization import (
     LatestJointPositionSource,
     PendingJointPositionSource,
@@ -241,6 +248,39 @@ def test_closed_loop_controls_exactly_the_commanded_joints(
     giskard.setup()
 
     assert controlled_joint_names(giskard.world) == set(interface.joint_names)
+
+
+def world_following(world: World) -> World:
+    """
+    :return: A world rebuilt from the modification blocks and the state of ``world``,
+        as a process fetching it from Giskard or following it on the world's topics
+        receives them.
+    """
+    server = FetchWorldServer(node=rospy.get_node(), world=world)
+    payload = json.loads(server.get_payload_as_json())
+    server.close()
+    follower = World()
+    WorldModelSnapshot.apply_to_json_snapshot_to_world(
+        follower,
+        payload,
+        **WorldEntityWithIDKwargsTracker.from_world(follower).create_kwargs(),
+    )
+    return follower
+
+
+def test_a_world_following_giskard_controls_the_joints_it_commands(
+    init_rospy, pr2_world_specification
+) -> None:
+    interface = GroupCommandingInterface(
+        joint_names=[PR2Joint.HEAD_PAN, PR2Joint.HEAD_TILT]
+    )
+    giskard = closed_loop_pr2(interface, pr2_world_specification)
+
+    giskard.setup()
+
+    assert controlled_joint_names(world_following(giskard.world)) == set(
+        interface.joint_names
+    )
 
 
 def test_closed_loop_does_not_control_a_drive_nothing_commands(

@@ -211,7 +211,16 @@ class EmptyProblemException(InfeasibleException):
     print_stack_trace: bool = field(default=False, kw_only=True)
 
     def error_message(self) -> str:
-        return "Empty QP problem."
+        return (
+            "Empty QP problem: no constraint of the motion depends on a degree of "
+            "freedom of the world."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "make sure the joints the motion should move are controlled in the world "
+            "it runs in."
+        )
 
 
 @dataclass
