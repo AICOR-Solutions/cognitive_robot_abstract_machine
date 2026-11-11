@@ -1,6 +1,12 @@
-from cramph.data_types import StatechartPayloadKey
+"""
+The goal lifecycle of Giskard and the control loop running its goals.
+"""
+
+from cramph.data_types import StatechartPayloadKey, ObservationStateValues
 import json
+import time
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing_extensions import Any
 
 import pytest
@@ -32,7 +38,7 @@ from giskardpy.middleware.ros2.post_goal_plotters import PostGoalPlotter
 from giskardpy.middleware.ros2.world_updates import OutgoingWorldUpdates
 from cramph.exceptions import SelfInStartConditionError
 from giskardpy.motion_statechart.graph_node import EndMotion
-from cramph.monitors import CountSimulationTimeSeconds
+from cramph.monitors import CountSimulationTimeSeconds, TickCounter
 from cramph.state import LastObservationState
 from cramph.statechart import Statechart
 from cramph.nodes_for_testing import ConstTrueNode
@@ -299,6 +305,81 @@ class RecordingCommandPublisher(CommandPublisher):
 
     def stop(self) -> None:
         self.stop_count += 1
+
+
+class CommandEvent(StrEnum):
+    """
+    What a command publisher was asked to do.
+    """
+
+    PUBLISHED = "published"
+    """
+    It sent the velocities of a control cycle.
+    """
+
+    STOPPED = "stopped"
+    """
+    It sent zero velocities.
+    """
+
+
+@dataclass
+class EventRecordingCommandPublisher(CommandPublisher):
+    """
+    Records, in order, every command it was asked to send.
+    """
+
+    events: list[CommandEvent] = field(default_factory=list)
+    """
+    Every command asked for, in the order asked.
+    """
+
+    def publish(self) -> None:
+        self.events.append(CommandEvent.PUBLISHED)
+
+    def stop(self) -> None:
+        self.events.append(CommandEvent.STOPPED)
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class TickBlockingNode(TickCounter):
+    """
+    Blocks one of its ticks, as a node waiting for a slow reply does, and turns True a
+    few ticks later.
+    """
+
+    blocking_seconds: float
+    """
+    How long, in seconds, the blocked tick takes.
+    """
+
+    command_events: list[CommandEvent]
+    """
+    The commands recorded so far, shared with the recording publisher.
+    """
+
+    blocked_tick: int = 3
+    """
+    The tick that blocks, counted from the node's start.
+    """
+
+    events_before_block: int | None = field(init=False, default=None)
+    """
+    How many commands were recorded when the tick blocked, None before it did.
+    """
+
+    def on_tick(self) -> ObservationStateValues | None:
+        """
+        Does what :meth:`TickCounter.on_tick` does, sleeping through the blocked tick.
+        """
+        observation = super().on_tick()
+        if self._counter == self.blocked_tick:
+            self.events_before_block = len(self.command_events)
+            time.sleep(self.blocking_seconds)
+        return observation
+
+    def _reached_target(self) -> bool:
+        return self._counter >= self.blocked_tick + 3
 
 
 @dataclass
@@ -1168,6 +1249,50 @@ class TestStopClearsCommands:
         motion_server.control_loop.stop()
 
         assert motion_server.command_publisher.stop_count == 1
+
+
+class TestStalledCycleHalt:
+    """
+    A control cycle whose tick blocks leaves the robot halted instead of holding the
+    last command sent.
+    """
+
+    def run_a_blocking_tick(
+        self, motion_server: MotionServerFixture
+    ) -> list[CommandEvent]:
+        """
+        :return: The commands sent from the blocked tick on.
+        """
+        recorder = EventRecordingCommandPublisher()
+        motion_server.control_loop.command_publishers = [recorder]
+        statechart = Statechart(context=motion_server.executor.context)
+        statechart.add_node(
+            blocking := TickBlockingNode(
+                blocking_seconds=2
+                * motion_server.control_loop.stalled_cycle_halt.stall_timeout,
+                command_events=recorder.events,
+            )
+        )
+        statechart.add_node(EndMotion.when_true(blocking))
+        motion_server.executor.compile(statechart)
+
+        motion_server.control_loop.run()
+
+        return recorder.events[blocking.events_before_block :]
+
+    def test_the_robot_is_halted_while_a_tick_blocks(
+        self, motion_server: MotionServerFixture
+    ):
+        events = self.run_a_blocking_tick(motion_server)
+
+        assert events[:2] == [CommandEvent.STOPPED, CommandEvent.STOPPED]
+
+    def test_cycles_after_the_blocked_one_command_the_robot_again(
+        self, motion_server: MotionServerFixture
+    ):
+        events = self.run_a_blocking_tick(motion_server)
+
+        assert set(events[2:]) == {CommandEvent.PUBLISHED}
 
 
 class TestRobotIsStoppedOnInterrupt:
