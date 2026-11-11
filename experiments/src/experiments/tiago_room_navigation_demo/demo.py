@@ -49,7 +49,6 @@ class TiagoRoomNavigationDemonstration(TiagoElevatorRideDemonstration):
                 target_room=context.world.get_semantic_annotation_by_name(
                     self.target_room_name
                 ),
-                elevator_arrival_threshold=self.elevator_arrival_threshold,
             )
         )
         return statechart

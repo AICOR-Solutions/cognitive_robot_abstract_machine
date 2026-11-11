@@ -32,9 +32,9 @@ from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
 )
 from cramph.context import ContextExtension, StatechartContext
+from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
-from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
@@ -55,11 +55,12 @@ from semantic_digital_twin.world import World
 # %% operating the elevator in a kinematic simulation
 
 
-@dataclass(eq=False)
-class ElevatorOperator(ModelChangeCallback):
+@dataclass
+class ElevatorOperator(TickingExecutorExtension):
     """
-    Drives an elevator to a floor as soon as a robot boards it, standing in for whatever
-    operates the elevator in the real world.
+    Closes an elevator's doors and drives it to a floor as soon as a robot boards it,
+    and opens the doors again once the ride took :attr:`ride_duration` ticks, standing
+    in for whatever operates the elevator in the real world.
     """
 
     elevator: Elevator = field(kw_only=True)
@@ -77,11 +78,40 @@ class ElevatorOperator(ModelChangeCallback):
     The robot whose boarding sets the elevator off.
     """
 
-    def on_model_change(self, **kwargs) -> None:
-        if self.robot.root.parent_kinematic_structure_entity is not self.elevator.root:
+    ride_duration: int = 500
+    """
+    How many ticks the doors stay closed after the robot boarded, long enough for it to
+    turn towards them.
+    """
+
+    robot_boarded: bool = field(default=False, init=False)
+    """
+    Whether the robot was ever observed aboard the elevator.
+    """
+
+    ticks_until_doors_open: int | None = field(default=None, init=False)
+    """
+    How many more ticks the doors stay closed, None while the elevator is not riding.
+    """
+
+    def before_tick(self, executor: StatechartExecutor) -> None:
+        if not self.robot_boarded:
+            if (
+                self.robot.root.parent_kinematic_structure_entity
+                is not self.elevator.root
+            ):
+                return
+            self.robot_boarded = True
+            self.ticks_until_doors_open = self.ride_duration
+            self.elevator.close()
+            self.elevator.drive_to_floor(self.floor)
             return
-        self.elevator.close()
-        self.elevator.drive_to_floor(self.floor)
+        if self.ticks_until_doors_open is None:
+            return
+        self.ticks_until_doors_open -= 1
+        if self.ticks_until_doors_open > 0:
+            return
+        self.ticks_until_doors_open = None
         self.elevator.open()
 
 
@@ -225,12 +255,20 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
             ]
         if self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
-                _world=world,
                 elevator=elevator,
                 floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
                 robot=robot,
             )
         return [RobotAccess(robot)]
+
+    def create_executor(self, world: World) -> PlanExecutor:
+        """
+        In a kinematic simulation the executor also ticks the :attr:`elevator_operator`.
+        """
+        executor = super().create_executor(world)
+        if self.elevator_operator is not None:
+            executor.extensions.append(self.elevator_operator)
+        return executor
 
     def _follow_elevator_drive(self, elevator: Elevator) -> None:
         """
@@ -261,15 +299,12 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 target_floor=context.world.get_semantic_annotations_by_type(FirstFloor)[
                     0
                 ],
-                arrival_threshold=self.elevator_arrival_threshold,
             )
         )
         return statechart
 
     def tear_down(self) -> None:
-        if self.elevator_operator is not None:
-            self.elevator_operator.stop()
-            self.elevator_operator = None
+        self.elevator_operator = None
         super().tear_down()
 
 

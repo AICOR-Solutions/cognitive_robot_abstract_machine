@@ -429,6 +429,12 @@ class NavigateToRoomAskingToBoardAction(NavigateToRoomAction):
     How many times the robot asks to board before it gives up.
     """
 
+    elevator_arrival_threshold: float = 0.01
+    """
+    Position error of the elevator's drive within which the cabin serves the robot's
+    level.
+    """
+
     def _ride_elevator(
         self, elevator: Elevator, target_level: Level
     ) -> list[StatechartNode]:

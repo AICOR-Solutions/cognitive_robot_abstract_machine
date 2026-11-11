@@ -22,6 +22,7 @@ from cramph.statechart import Statechart
 from cramph.composites import Parallel, Sequence, TryAll, TryInOrder
 from cramph.threaded_nodes import FunctionCall
 from cramph.data_types import LifeCycleValues
+from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from coraplex.robot_plans.plan_transformations import (
     OpenDrawerBeforeMoveAndPickUp,
     ParkArmsBeforeFirstAction,
@@ -86,7 +87,6 @@ from giskardpy.motion_statechart.tasks.joint_tasks import (
 )
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from giskardpy.utils.utils_for_tests import compare_axis_angle, compare_orientations
-from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.datastructures.definitions import (
     TorsoState,
     GripperState,
@@ -117,17 +117,11 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.specifications.connections import (
-    PrismaticConnectionSpecification,
-)
-from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Door,
     Elevator,
     FirstFloor,
     Floor,
-    GroundFloor,
     Handle,
     Level,
 )
@@ -150,7 +144,7 @@ from semantic_digital_twin.world_description.connections import (
     DifferentialDrive,
     FixedConnection,
 )
-from semantic_digital_twin.world_description.geometry import Cylinder, Scale
+from semantic_digital_twin.world_description.geometry import Cylinder
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -973,16 +967,12 @@ def skip_without_a_lidar(robot: AbstractRobot) -> None:
         pytest.skip(f"{type(robot.mobile_base).__name__} carries no lidar.")
 
 
-@dataclass(eq=False)
-class ElevatorOperator(ModelChangeCallback):
+@dataclass
+class ElevatorOperator(TickingExecutorExtension):
     """
-    Drives an elevator to a floor as soon as a robot boards it, standing in for whatever
-    operates the elevator in the real world.
-
-    Reacting to the model change that boards the robot rather than polling for it matters
-    here: the plan runs on simulated time that advances as fast as the machine allows, so
-    every control cycle spent waiting is taken from the same budget the motions afterwards
-    need.
+    Closes an elevator's doors and drives it to a floor as soon as a robot boards it,
+    and opens the doors again once the ride took :attr:`ride_duration` ticks, standing
+    in for whatever operates the elevator in the real world.
     """
 
     elevator: Elevator = field(kw_only=True)
@@ -1000,42 +990,41 @@ class ElevatorOperator(ModelChangeCallback):
     The robot whose boarding sets the elevator off.
     """
 
+    ride_duration: int = 500
+    """
+    How many ticks the doors stay closed after the robot boarded, long enough for it to
+    turn towards them.
+    """
+
     robot_boarded: bool = field(default=False, init=False)
     """
     Whether the robot was ever observed aboard the elevator.
     """
 
-    def on_model_change(self, **kwargs):
-        if self.robot.root.parent_kinematic_structure_entity is not self.elevator.root:
+    ticks_until_doors_open: int | None = field(default=None, init=False)
+    """
+    How many more ticks the doors stay closed, None while the elevator is not riding.
+    """
+
+    def before_tick(self, executor: StatechartExecutor) -> None:
+        if not self.robot_boarded:
+            if (
+                self.robot.root.parent_kinematic_structure_entity
+                is not self.elevator.root
+            ):
+                return
+            self.robot_boarded = True
+            self.ticks_until_doors_open = self.ride_duration
+            self.elevator.close()
+            self.elevator.drive_to_floor(self.floor)
             return
-        self.robot_boarded = True
-        self.elevator.close()
-        self.elevator.drive_to_floor(self.floor)
+        if self.ticks_until_doors_open is None:
+            return
+        self.ticks_until_doors_open -= 1
+        if self.ticks_until_doors_open > 0:
+            return
+        self.ticks_until_doors_open = None
         self.elevator.open()
-
-
-def test_elevator_navigation_needs_a_cabin_that_can_move():
-    world = World.create_with_root_body("root")
-    with world.modify_world():
-        elevator = Elevator.create_with_new_body_in_world(
-            name="elevator", world=world, scale=Scale(2, 2, 2)
-        )
-        door = Door.create_with_new_body_in_world(
-            name="door",
-            world=world,
-            scale=Scale(0.05, 1, 2),
-            parent_connection_specification=PrismaticConnectionSpecification(
-                axis=Vector3.Y()
-            ),
-        )
-        elevator.add(door)
-        ground_floor = GroundFloor.create_with_new_region_in_world(
-            name="ground_floor", world=world, scale=Scale(4, 4, 0.1)
-        )
-    navigation = ElevatorNavigation(elevator=elevator, target_floor=ground_floor)
-
-    with pytest.raises(MissingMovableJointError):
-        navigation._cabin_at_floor(ground_floor)
 
 
 def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
@@ -1051,22 +1040,17 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
         elevator.movable_joint.position
     )
 
-    operator = ElevatorOperator(
-        _world=world, elevator=elevator, floor=first_floor, robot=robot
-    )
+    operator = ElevatorOperator(elevator=elevator, floor=first_floor, robot=robot)
     action = ElevatorNavigation(elevator=elevator, target_floor=first_floor)
-    plan = action
 
     robot.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
         1, -5, 0, reference_frame=world.root
     )
 
-    # The operator watches every model change of the shared world, so it has to stop
-    # before the next test runs on it, whether or not the ride succeeds.
-    try:
-        run_plan(plan, extensions)
-    finally:
-        operator.stop()
+    executor = simulated_executor(extensions)
+    executor.extensions.append(operator)
+    executor.compile(statechart_of(executor, action))
+    executor.execute()
 
     cabin_position = elevator.root.global_transform.position.to_np().flatten()
 
@@ -1084,6 +1068,38 @@ def test_elevator_navigation(multiple_robot_apartment_context, rclpy_node):
     assert robot.root.global_transform.position.to_np().flatten()[:3] == pytest.approx(
         expected_position, abs=0.01
     )
+
+
+def test_elevator_navigation_faces_the_doors_while_the_cabin_travels(
+    multiple_robot_apartment_context, rclpy_node
+):
+    """
+    The robot turns towards the doors right after boarding, so its lidar can see them
+    open, and stays aboard while the doors it boarded through have not closed yet.
+    """
+    world, robot, extensions = multiple_robot_apartment_context
+    skip_without_a_lidar(robot)
+
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    elevator.open()
+    first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
+    robot.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        1, -5, 0, reference_frame=world.root
+    )
+    action = ElevatorNavigation(elevator=elevator, target_floor=first_floor)
+    executor = simulated_executor(extensions)
+    executor.compile(statechart_of(executor, action))
+    forward = Vector3(
+        *robot.mobile_base.forward_axis.to_np()[:3], reference_frame=robot.root
+    )
+
+    # Nobody sends the cabin, so the plan waits for it once the robot is aboard.
+    for _ in range(5000):
+        executor.tick()
+    cabin_forward = world.transform(forward, elevator.root).to_np()[:3]
+
+    assert robot.root.parent_kinematic_structure_entity is elevator.root
+    assert cabin_forward == pytest.approx(elevator.hole_direction.to_np()[:3], abs=0.05)
 
 
 # %% passing a door

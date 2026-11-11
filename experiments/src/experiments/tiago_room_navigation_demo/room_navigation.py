@@ -49,11 +49,6 @@ class NavigateToRoomAction(SequentialAction):
     How far in front of the elevator's doors the robot drives before riding it.
     """
 
-    elevator_arrival_threshold: float = 0.01
-    """
-    Position error within which the elevator's drive counts as having arrived.
-    """
-
     def create_steps(self) -> list[StatechartNode]:
         """
         :raises RoomOnNoLevelError: If the target room lies on no level.
@@ -91,6 +86,5 @@ class NavigateToRoomAction(SequentialAction):
             ElevatorNavigation(
                 elevator=elevator,
                 target_floor=target_level,
-                arrival_threshold=self.elevator_arrival_threshold,
             )
         ]

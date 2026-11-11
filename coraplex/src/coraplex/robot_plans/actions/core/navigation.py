@@ -23,13 +23,9 @@ from giskardpy.motion_statechart.goals.base_pose_goals import (
     DifferentialDriveBaseGoal,
     HolonomicBaseGoal,
 )
-from giskardpy.motion_statechart.monitors.joint_monitors import (
-    JointPositionReached,
-)
 from giskardpy.motion_statechart.monitors.sensor_monitors import PassageClear
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from giskardpy.motion_statechart.tasks.pointing import Pointing
-from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.robots.exceptions import MissingLidarError
 from semantic_digital_twin.robots.robot_part_mixins import HasLidar
 from semantic_digital_twin.robots.robot_parts import Camera
@@ -361,6 +357,12 @@ class PassDoorAction(SequentialAction):
     passage to clear, or None to wait silently.
     """
 
+    doorway_closes_first: bool = False
+    """
+    Whether the robot waits for the doorway to be seen closed before it may see it open,
+    such as elevator doors still open on the floor the robot boarded at.
+    """
+
     def create_steps(self) -> list[StatechartNode]:
         side = self._destination_side
         steps = [
@@ -466,6 +468,7 @@ class PassDoorAction(SequentialAction):
             ),
             name="DoorwayClear",
             stays_clear_once_seen=True,
+            clear_only_after_blocked=self.doorway_closes_first,
         )
         return passage_clear
 
@@ -516,9 +519,12 @@ class ElevatorRideAnnouncement(StrEnum):
 @dataclass(eq=False, repr=False, kw_only=True)
 class ElevatorNavigation(ReattachesBranches, SequentialAction):
     """
-    Navigates a robot to another level of a building using an elevator, the robot drives
-    in the elevator, turns towards the doors and waits there until its lidar sees the
-    doors open again and the elevator is at the right level.
+    Navigates a robot to another level of a building using an elevator: the robot drives
+    in once its lidar sees the doors open, turns towards the doors and drives out once
+    its lidar saw them close and open again.
+
+    .. warning:: The robot leaves at the first floor the doors open on after closing,
+        whether or not it is :attr:`target_floor`.
 
     Along the way the robot says where it believes it is and where it is headed, see
     :class:`ElevatorRideAnnouncement`.
@@ -540,11 +546,6 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
     half the cabin's depth.
     """
 
-    arrival_threshold: float = 0.01
-    """
-    Position error within which the elevator's drive counts as having arrived.
-    """
-
     def create_steps(self) -> list[StatechartNode]:
         half_cabin_depth = float(self.elevator.scale.x) / 2
         current_floor = self._current_floor
@@ -554,32 +555,28 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
                     current_floor, self.target_floor
                 )
             ),
-            PausedUntilTrue(
-                monitor=self._cabin_at_floor(current_floor),
-                monitored_node=PassDoorAction(
-                    doors=self.elevator.doors,
-                    destination=Point3(reference_frame=self.elevator.root),
-                    approach_distance=self.exit_clearance,
-                    exit_distance=half_cabin_depth,
-                    waiting_announcement=ElevatorRideAnnouncement.WAITING_AT_DOORS.verbalize(
-                        current_floor, self.target_floor
-                    ),
+            PassDoorAction(
+                doors=self.elevator.doors,
+                destination=Point3(reference_frame=self.elevator.root),
+                approach_distance=self.exit_clearance,
+                exit_distance=half_cabin_depth,
+                waiting_announcement=ElevatorRideAnnouncement.WAITING_AT_DOORS.verbalize(
+                    current_floor, self.target_floor
                 ),
             ),
             *self.reattach(self.robot.root, self.elevator.root),
+            NavigateAction(target_location=self._pose_facing_doors),
             SayAction(
                 text=ElevatorRideAnnouncement.RIDING.verbalize(
                     current_floor, self.target_floor
                 )
             ),
-            PausedUntilTrue(
-                monitor=self._cabin_at_floor(self.target_floor),
-                monitored_node=PassDoorAction(
-                    doors=self.elevator.doors,
-                    destination=self._point_outside_cabin,
-                    approach_distance=half_cabin_depth,
-                    exit_distance=self.exit_clearance,
-                ),
+            PassDoorAction(
+                doors=self.elevator.doors,
+                destination=self._point_outside_cabin,
+                approach_distance=half_cabin_depth,
+                exit_distance=self.exit_clearance,
+                doorway_closes_first=True,
             ),
             *self.reattach(self.robot.root, self.world.root),
             SayAction(
@@ -606,6 +603,18 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
         return current_floor[0]
 
     @property
+    def _pose_facing_doors(self) -> Pose:
+        """
+        The middle of the cabin on its floor, facing the doors, in the cabin frame.
+        """
+        x, y = self.elevator.hole_direction.to_np().flatten()[:2]
+        return Pose.from_xyz_rpy(
+            z=float(self.elevator.doorway_pose.z),
+            yaw=float(np.arctan2(y, x)),
+            reference_frame=self.elevator.root,
+        )
+
+    @property
     def _point_outside_cabin(self) -> Point3:
         """
         A point a cabin depth beyond the elevator's opening.
@@ -617,19 +626,4 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
             float(hole_direction[1]) * cabin_depth,
             float(hole_direction[2]) * cabin_depth,
             reference_frame=self.elevator.root,
-        )
-
-    def _cabin_at_floor(self, floor: Level) -> JointPositionReached:
-        """
-        Observes True once the cabin serves ``floor``.
-
-        :raises MissingMovableJointError: If the elevator has no drive.
-        """
-        if self.elevator.movable_joint is None:
-            raise MissingMovableJointError(self.elevator)
-        return JointPositionReached(
-            connection=self.elevator.movable_joint,
-            position=self.elevator.drive_position_for_floor(floor),
-            threshold=self.arrival_threshold,
-            name="ElevatorAtFloor",
         )
