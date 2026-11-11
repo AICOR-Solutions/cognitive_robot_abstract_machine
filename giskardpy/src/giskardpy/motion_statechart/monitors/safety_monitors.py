@@ -240,9 +240,10 @@ class CancelOnSafetyViolation(CancelStatechart):
 @dataclass(eq=False, repr=False, kw_only=True)
 class ToolSpeedLimit(Task):
     """
-    Keeps a tool slower than :attr:`maximum_velocity` relative to :attr:`root_link` as
-    a hard constraint of the controller: each axis of its velocity is held to
-    :attr:`maximum_velocity` divided by the square root of three.
+    Keeps a tool slower than :attr:`maximum_velocity` relative to :attr:`root_link`,
+    weighted above collision avoidance: each axis of its velocity is held to
+    :attr:`maximum_velocity` divided by the square root of three. Not a hard
+    constraint, which a tool already moving faster could not meet in one cycle.
     """
 
     root_link: Body
@@ -276,8 +277,6 @@ class ToolSpeedLimit(Task):
                 task_expression=coordinate,
                 velocity_scale=VelocityScale.TRANSLATION,
                 name=f"{self.name}/{axis}",
-                lower_slack_limit=0.0,
-                upper_slack_limit=0.0,
             )
         artifacts.observation = sm.Scalar.const_true()
         return artifacts
