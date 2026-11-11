@@ -18,7 +18,11 @@ def create_giskard() -> Giskard:
         read from its topic.
     """
     return Giskard(
-        world_config=WorldWithTiagoConfig(urdf=get_robot_description()),
+        world_config=WorldWithTiagoConfig(
+            urdf=get_robot_description(),
+            translation_velocity_limit=0.3,
+            rotation_velocity_limit=0.3,
+        ),
         robot_interface_config=TiagoVelocityInterface(),
         server_config=GiskardServerConfig(debug_mode=False),
         qp_controller_config=QPControllerConfig(target_frequency=20),
