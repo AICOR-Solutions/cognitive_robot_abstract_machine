@@ -29,6 +29,7 @@ from robokudo.cas import CASViews
 from robokudo.exceptions import ColorToDepthRatioMissing
 from robokudo.io.camera_model_adapters import Open3DCameraModelAdapter
 from robokudo.utils.cv_helper import get_scaled_color_image_for_depth_image
+from robokudo.utils.query import QueryHandler
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -147,13 +148,15 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
         )
 
         if resized_color.shape[:2] != self.depth.shape[:2]:
-            self.rk_logger.error(
+            mismatch = (
                 f"The depth image is {self.depth.shape[1]}x{self.depth.shape[0]} "
                 f"pixels, the color image scaled by color_to_depth_ratio "
                 f"{resized_color.shape[1]}x{resized_color.shape[0]}, so no point cloud "
                 "can be built; register the depth image to the color image "
                 "(orbbec_camera: depth_registration:=true) or set color_to_depth_ratio."
             )
+            self.rk_logger.error(mismatch)
+            QueryHandler.send_feedback_str(mismatch)
         # open3d expects color images in RGB order
         color_rgb = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
         open3d_color_image = open3d.geometry.Image(color_rgb)
