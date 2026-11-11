@@ -458,3 +458,49 @@ def test_a_query_failing_on_a_frame_fails_and_the_next_query_is_answered(
     assert failed.status == GoalStatus.STATUS_ABORTED
     assert answered.status == GoalStatus.STATUS_SUCCEEDED
     assert_every_cube_is_answered(cube_scene, answered.result)
+
+
+def test_a_depth_image_not_registered_to_the_color_image_is_logged(
+    camera_driver: CameraStream, settings_file: Path, tmp_path: Path
+) -> None:
+    """
+    The Femto Bolt's driver sends a depth image of its own size unless asked to register
+    it to the color image; the log has to say so, as no point cloud can be built.
+    """
+    depth = camera_driver.depth
+    unregistered = CVBridgeWorkaround().cv2_to_imgmsg(
+        np.zeros((depth.height // 2, depth.width // 2), dtype=np.uint16), "16UC1"
+    )
+    unregistered.header = depth.header
+    log_file = tmp_path / "perception.log"
+    node = rclpy.create_node("tracy_cubes_unregistered_depth_client")
+    client = ActionClient(node, query_messages.Query, "robokudo/query")
+    with log_file.open("w") as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "robokudo.scripts.perceive_tracy_cubes",
+                "--settings",
+                str(settings_file),
+            ],
+            env=os.environ.copy(),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+    perception = PerceptionClient(node=node, client=client, process=process)
+    started = time.monotonic()
+    while not client.wait_for_server(timeout_sec=1.0):
+        assert process.poll() is None, "the perception process ended"
+        assert time.monotonic() - started < 180.0
+    show_depth(camera_driver, perception, unregistered)
+    send_query(perception)
+    started = time.monotonic()
+    while "register the depth image" not in log_file.read_text():
+        assert time.monotonic() - started < 20.0, log_file.read_text()[-2000:]
+        time.sleep(0.5)
+    process.kill()
+    process.wait()
+    show_depth(camera_driver, perception, depth)
+    client.destroy()
+    node.destroy_node()

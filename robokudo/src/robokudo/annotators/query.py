@@ -136,9 +136,9 @@ class QueryAnnotator(BaseAnnotator):
         """
         self.rk_logger.debug(f"{self.__class__.__name__}.update()")
 
-        assert (
-            self.action_server is not None
-        ), "Action server should be initialized by now."
+        assert self.action_server is not None, (
+            "Action server should be initialized by now."
+        )
         query = self.action_server.new_query
         self.rk_logger.debug(f"self.action_server.new_query: {query}")
 
@@ -475,6 +475,10 @@ class QueryActionServer(Node):
         Event to signal query processing completion.
         """
         self.logger = logging.getLogger(LOGGING_IDENTIFIER_QUERY)
+        self.unanswered_log_period: float = 5.0
+        """
+        How often, in seconds, a query that is not answered yet is logged as waiting.
+        """
 
     def reset_bookkeeping_vars(self) -> None:
         """
@@ -548,9 +552,20 @@ class QueryActionServer(Node):
 
         feedback_queue = Blackboard().get(BBIdentifier.QUERY_FEEDBACK)
         self.logger.info("Start watching")
+        self.feedback_instance.feedback = ""
+        received = time.monotonic()
+        next_unanswered_log = received + self.unanswered_log_period
 
         while rclpy.ok() and not self.answering_stopped.is_set():
             time.sleep(1.0 / 50.0)
+            if time.monotonic() >= next_unanswered_log:
+                self.logger.warning(
+                    f"Query unanswered for {time.monotonic() - received:.0f} s; "
+                    f"last feedback: {self.feedback_instance.feedback or 'none'}. "
+                    "If the feedback no longer changes, look above for an exception in "
+                    "thread robokudo_tick or robokudo_spin, which stops all answers."
+                )
+                next_unanswered_log += self.unanswered_log_period
 
             # At least one node in the Tree has to acknowledge the preempt request. This allows the tree
             # to properly shutdown.

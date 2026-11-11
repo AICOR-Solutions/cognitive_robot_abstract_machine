@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
+from datetime import timedelta
 
 from typing_extensions import TYPE_CHECKING, Generic
 
@@ -548,6 +549,26 @@ class DetectWithRoboKudo(ConfigurationTransformation[DetectAction]):
 
     def apply(self, plan_node: DetectAction) -> None:
         plan_node.perception_source = PerceptionSource.ROBOKUDO
+
+
+@dataclass
+class LimitHowLongDetectionsWait(ConfigurationTransformation[DetectAction]):
+    """
+    Lets every detection wait at most a given time for a source answering in another
+    process, so a pipeline that does not answer fails the detection instead of holding
+    the plan up.
+    """
+
+    answer_timeout: timedelta
+    """
+    How long each detection waits for its answer.
+    """
+
+    def is_applicable(self, plan_node: DetectAction) -> bool:
+        return True
+
+    def apply(self, plan_node: DetectAction) -> None:
+        plan_node.perception_answer_timeout = self.answer_timeout
 
 
 # %% letting contact carry a body

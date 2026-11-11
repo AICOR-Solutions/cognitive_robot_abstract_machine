@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 from dataclasses import dataclass
+from datetime import timedelta
 from typing_extensions import TYPE_CHECKING
 
 from krrood.exceptions import DataclassException
@@ -372,6 +373,41 @@ class PerceptionSourceUnavailable(PerceptionException):
 
     def suggest_correction(self) -> str:
         return "start the perception pipeline before running the plan."
+
+
+@dataclass
+class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
+    """
+    Raised when the perception pipeline took up a query and did not answer it in time.
+    """
+
+    action_name: str
+    """
+    The action the query was sent on.
+    """
+
+    answer_timeout: timedelta
+    """
+    How long the answer was waited for.
+    """
+
+    waiting_for: str
+    """
+    What the pipeline last reported waiting for, empty when it reported nothing.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"RoboKudo did not answer within "
+            f"{self.answer_timeout.total_seconds():g} s: "
+            f"{self.waiting_for or 'it did not report what it waits for'}"
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            f"read the log of the pipeline serving '{self.action_name}' for what it "
+            "waits for, such as camera images or a transform."
+        )
 
 
 @dataclass

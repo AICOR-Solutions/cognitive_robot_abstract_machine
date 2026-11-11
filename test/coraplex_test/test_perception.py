@@ -14,13 +14,15 @@ import json
 import threading
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 import numpy as np
 import pytest
 import rclpy
 from coraplex.robot_plans.actions.core.exceptions import DetectionTargetMissing
-from rclpy.action import ActionServer
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.action import ActionServer, CancelResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
 
 from coraplex.datastructures.enums import (
@@ -31,6 +33,7 @@ from coraplex.exceptions import (
     AmbiguousDetection,
     MotionDidNotFinish,
     PerceivedObjectNotInWorld,
+    PerceptionSourceDidNotAnswer,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
@@ -45,6 +48,10 @@ from coraplex.perception import (
 )
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
+from coraplex.robot_plans.plan_transformations import (
+    DetectWithRoboKudo,
+    LimitHowLongDetectionsWait,
+)
 from cramph.composites import TryInOrder
 from cramph.context import StatechartContext
 from cramph.data_types import LifeCycleValues, ObservationStateValues
@@ -1000,6 +1007,177 @@ def test_a_robokudo_detection_without_a_known_color_carries_none(
     assert detection.color is None
 
 
+# %% a pipeline that does not answer
+
+
+class UnansweredQueryServer:
+    """
+    Action server that takes up every perception query and never answers it, as a
+    pipeline does that waits for camera data that never arrives.
+
+    It keeps reporting what it waits for as feedback, if told what, and notes a request
+    to cancel the query.
+    """
+
+    def __init__(
+        self, node_name: str, action_name: str, waiting_for: str | None
+    ) -> None:
+        from robokudo_msgs.action import Query
+
+        self.waiting_for = waiting_for
+        self.cancel_requested = threading.Event()
+        self.released = threading.Event()
+        self.node = rclpy.create_node(node_name)
+        self.server = ActionServer(
+            self.node,
+            Query,
+            action_name,
+            self.execute_callback,
+            cancel_callback=self.accept_cancel,
+            callback_group=ReentrantCallbackGroup(),
+        )
+        self.executor = MultiThreadedExecutor()
+        self.executor.add_node(self.node)
+        self.thread = threading.Thread(
+            target=self.executor.spin, daemon=True, name=node_name
+        )
+        self.thread.start()
+
+    def accept_cancel(self, goal_handle) -> CancelResponse:
+        self.cancel_requested.set()
+        return CancelResponse.ACCEPT
+
+    def execute_callback(self, goal_handle):
+        from robokudo_msgs.action import Query
+
+        while not self.released.wait(0.05):
+            if self.waiting_for is not None:
+                goal_handle.publish_feedback(Query.Feedback(feedback=self.waiting_for))
+        goal_handle.abort()
+        return Query.Result()
+
+    def stop(self) -> None:
+        self.released.set()
+        self.server.destroy()
+        self.executor.shutdown()
+        self.thread.join(timeout=2.0)
+        self.node.destroy_node()
+
+
+@pytest.fixture
+def unanswered_query_server(rclpy_node):
+    """
+    Start a stand-in pipeline that never answers, reporting what a test asks it to wait
+    for.
+    """
+    pytest.importorskip("robokudo_msgs")
+    started = []
+
+    def start(waiting_for: str | None) -> UnansweredQueryServer:
+        server = UnansweredQueryServer(
+            node_name="robokudo_stand_in",
+            action_name=ROBOKUDO_QUERY_ACTION_NAME,
+            waiting_for=waiting_for,
+        )
+        started.append(server)
+        return server
+
+    yield start
+    for server in started:
+        server.stop()
+
+
+@pytest.fixture
+def short_answer_timeout() -> timedelta:
+    """
+    How long a test waits for a pipeline that does not answer.
+    """
+    return timedelta(seconds=0.5)
+
+
+def test_a_query_robokudo_does_not_answer_fails_after_the_answer_timeout(
+    pr2_apartment_context,
+    whole_scene_region,
+    rclpy_node,
+    unanswered_query_server,
+    short_answer_timeout,
+):
+    """
+    A pipeline that took up a query and hangs must not hold up the plan forever.
+    """
+    world, view, extensions = pr2_apartment_context
+    unanswered_query_server(waiting_for=None)
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    with pytest.raises(PerceptionSourceDidNotAnswer) as raised:
+        RoboKudoPerception(
+            ros_node=rclpy_node, answer_timeout=short_answer_timeout
+        ).look_for(query)
+
+    assert raised.value.answer_timeout == short_answer_timeout
+    assert raised.value.waiting_for == ""
+
+
+def test_a_query_robokudo_does_not_answer_names_what_robokudo_waits_for(
+    pr2_apartment_context,
+    whole_scene_region,
+    rclpy_node,
+    unanswered_query_server,
+    short_answer_timeout,
+):
+    world, view, extensions = pr2_apartment_context
+    server = unanswered_query_server(
+        waiting_for="synchronized color and depth on /color and /depth"
+    )
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    with pytest.raises(PerceptionSourceDidNotAnswer) as raised:
+        RoboKudoPerception(
+            ros_node=rclpy_node, answer_timeout=short_answer_timeout
+        ).look_for(query)
+
+    assert raised.value.waiting_for == server.waiting_for
+
+
+def test_a_query_robokudo_does_not_answer_is_canceled(
+    pr2_apartment_context,
+    whole_scene_region,
+    rclpy_node,
+    unanswered_query_server,
+    short_answer_timeout,
+):
+    """
+    The pipeline must not go on working on a query nobody waits for any more.
+    """
+    world, view, extensions = pr2_apartment_context
+    server = unanswered_query_server(waiting_for=None)
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    with pytest.raises(PerceptionSourceDidNotAnswer):
+        RoboKudoPerception(
+            ros_node=rclpy_node, answer_timeout=short_answer_timeout
+        ).look_for(query)
+
+    assert server.cancel_requested.wait(timeout=2.0)
+
+
+def test_a_query_robokudo_did_not_answer_survives_a_json_round_trip(
+    short_answer_timeout,
+):
+    """
+    On the real robot the query is asked in the controller's process, which hands the
+    failure back to the plan as JSON.
+    """
+    failure = PerceptionSourceDidNotAnswer(
+        ROBOKUDO_QUERY_ACTION_NAME, short_answer_timeout, "camera data"
+    )
+
+    restored = from_json(json.loads(json.dumps(to_json(failure))))
+
+    assert type(restored) is PerceptionSourceDidNotAnswer
+    assert str(restored) == str(failure)
+
+
 # %% perception inside the motion chart
 
 
@@ -1252,6 +1430,41 @@ def test_detect_action_asks_robokudo_on_the_real_robot(pr2_apartment_context) ->
 
     [task] = [node for node in plan.descendants if isinstance(node, PerceptionTask)]
     assert task.answered_by is PerceptionSource.ROBOKUDO
+
+
+def test_a_detection_waits_for_robokudo_as_long_as_the_plan_allows(
+    pr2_apartment_context, short_answer_timeout
+) -> None:
+    world, view, extensions = pr2_apartment_context
+    plan = DetectAction(technique=DetectionTechnique.TYPES, object_sem_annotation=Milk)
+    executor = robot_executor(
+        extensions,
+        plan_adaptations=[
+            DetectWithRoboKudo(),
+            LimitHowLongDetectionsWait(answer_timeout=short_answer_timeout),
+        ],
+    )
+
+    executor.prepare(statechart_of(executor, plan))
+
+    [task] = [node for node in plan.descendants if isinstance(node, PerceptionTask)]
+    assert task.answer_timeout == short_answer_timeout
+
+
+def test_a_perception_task_asks_robokudo_with_its_answer_timeout(
+    pr2_apartment_context, whole_scene_region, rclpy_node, short_answer_timeout
+) -> None:
+    world, view, extensions = pr2_apartment_context
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    task = PerceptionTask(
+        query=query,
+        answered_by=PerceptionSource.ROBOKUDO,
+        answer_timeout=short_answer_timeout,
+    )
+
+    build_perception_task(task, world, rclpy_node)
+
+    assert task.perception_source.answer_timeout == short_answer_timeout
 
 
 def test_perception_task_survives_a_chart_round_trip(

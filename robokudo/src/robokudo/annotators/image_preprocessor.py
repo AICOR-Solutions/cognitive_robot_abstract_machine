@@ -146,6 +146,14 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
             self.get_cas(), self.color
         )
 
+        if resized_color.shape[:2] != self.depth.shape[:2]:
+            self.rk_logger.error(
+                f"The depth image is {self.depth.shape[1]}x{self.depth.shape[0]} "
+                f"pixels, the color image scaled by color_to_depth_ratio "
+                f"{resized_color.shape[1]}x{resized_color.shape[0]}, so no point cloud "
+                "can be built; register the depth image to the color image "
+                "(orbbec_camera: depth_registration:=true) or set color_to_depth_ratio."
+            )
         # open3d expects color images in RGB order
         color_rgb = cv2.cvtColor(resized_color, cv2.COLOR_BGR2RGB)
         open3d_color_image = open3d.geometry.Image(color_rgb)

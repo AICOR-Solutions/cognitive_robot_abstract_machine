@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import time
 from dataclasses import dataclass, field
 from datetime import timedelta
+from threading import Event
 
 import numpy as np
 
@@ -15,6 +17,7 @@ from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.task import Future
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -49,6 +52,7 @@ from coraplex.datastructures.enums import DetectionGrounding, PerceptionSource
 from coraplex.exceptions import (
     AmbiguousDetection,
     PerceivedObjectNotInWorld,
+    PerceptionSourceDidNotAnswer,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
@@ -468,20 +472,39 @@ class PerceptionInterface(ABC):
             raise UnidentifiedDetections(query.semantic_annotation, len(detections))
         return detections[0]
 
+    @classproperty
+    def default_answer_timeout(cls) -> timedelta:
+        """
+        :return: How long a source answering in another process is waited for by
+            default.
+        """
+        return timedelta(seconds=30)
+
     @staticmethod
     def for_source(
-        source: PerceptionSource, ros_node: Node | None = None
+        source: PerceptionSource,
+        ros_node: Node | None = None,
+        answer_timeout: timedelta | None = None,
     ) -> PerceptionInterface:
         """
         :param source: The kind of source that answers the queries.
         :param ros_node: Node a RoboKudo pipeline is reached through.
+        :param answer_timeout: How long a RoboKudo pipeline is waited for, None for
+            :attr:`default_answer_timeout`.
         :return: The source to answer queries with.
         """
         match source:
             case PerceptionSource.WORLD_MODEL:
                 return WorldPerception()
             case PerceptionSource.ROBOKUDO:
-                return RoboKudoPerception(ros_node=ros_node)
+                return RoboKudoPerception(
+                    ros_node=ros_node,
+                    answer_timeout=(
+                        PerceptionInterface.default_answer_timeout
+                        if answer_timeout is None
+                        else answer_timeout
+                    ),
+                )
 
 
 @dataclass
@@ -566,6 +589,41 @@ class ValidationPerception:
 
 
 @dataclass
+class QueryAnswerWait:
+    """
+    The wait for the answer to one query sent over an action, bounded by one deadline
+    for every step of it, keeping what the action server last reported as feedback.
+    """
+
+    deadline: float
+    """
+    The time, on :func:`time.monotonic`'s clock, the answer is waited for until.
+    """
+
+    latest_feedback: str = ""
+    """
+    What the action server last reported while working on the query, empty before it
+    reported anything.
+    """
+
+    def record_feedback(self, feedback_message: Any) -> None:
+        """
+        :param feedback_message: A feedback message of the query, whose ``feedback``
+            text is kept.
+        """
+        self.latest_feedback = feedback_message.feedback.feedback
+
+    def until_done(self, future: Future) -> bool:
+        """
+        :param future: A step of the query, completed by the node's executor.
+        :return: Whether it completed before the deadline.
+        """
+        done = Event()
+        future.add_done_callback(lambda _: done.set())
+        return done.wait(max(0.0, self.deadline - time.monotonic()))
+
+
+@dataclass
 class RoboKudoPerception(PerceptionInterface):
     """
     Source that asks a running RoboKudo pipeline over its query action, reporting the
@@ -587,7 +645,20 @@ class RoboKudoPerception(PerceptionInterface):
     How long to wait for the action server before giving up.
     """
 
+    answer_timeout: timedelta = field(
+        default_factory=lambda: PerceptionInterface.default_answer_timeout
+    )
+    """
+    How long a query the action server took up may take to be answered.
+    """
+
     def look_for(self, query: PerceptionQuery) -> list[Detection]:
+        """
+        :raises PerceptionSourceUnavailable: If no action server serves
+            :attr:`action_name` within :attr:`server_timeout`.
+        :raises PerceptionSourceDidNotAnswer: If the query is not answered within
+            :attr:`answer_timeout`; the query is canceled then.
+        """
         # RoboKudo's messages only exist where its pipeline is installed, so they are
         # imported here rather than at module level: reading the world in simulation must
         # not depend on them.
@@ -605,7 +676,18 @@ class RoboKudoPerception(PerceptionInterface):
                 attribute=query.attributes,
             )
         )
-        result = client.send_goal(goal).result
+        wait = QueryAnswerWait(
+            deadline=time.monotonic() + self.answer_timeout.total_seconds()
+        )
+        sent = client.send_goal_async(goal, feedback_callback=wait.record_feedback)
+        if not wait.until_done(sent):
+            raise self._unanswered(wait)
+        goal_handle = sent.result()
+        answered = goal_handle.get_result_async()
+        if not wait.until_done(answered):
+            goal_handle.cancel_goal_async()
+            raise self._unanswered(wait)
+        result = answered.result().result
         detections = [
             self._to_detection(designator, query)
             for designator in result.res
@@ -616,6 +698,15 @@ class RoboKudoPerception(PerceptionInterface):
             for detection in detections
             if query.region.contains(detection.pose.position)
         ]
+
+    def _unanswered(self, wait: QueryAnswerWait) -> PerceptionSourceDidNotAnswer:
+        """
+        :param wait: The wait for the query that was not answered.
+        :return: The failure naming what the pipeline last reported waiting for.
+        """
+        return PerceptionSourceDidNotAnswer(
+            self.action_name, self.answer_timeout, wait.latest_feedback
+        )
 
     @staticmethod
     def _can_be_requested_object(
@@ -735,6 +826,13 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
     plan is executed.
     """
 
+    answer_timeout: timedelta = field(
+        default_factory=lambda: PerceptionInterface.default_answer_timeout
+    )
+    """
+    How long a source answering in another process is waited for.
+    """
+
     perception_source: PerceptionInterface | None = field(init=False, default=None)
     """
     The source answering the query, resolved during :meth:`set_up`.
@@ -764,6 +862,7 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
         self.perception_source = PerceptionInterface.for_source(
             self.answered_by,
             self.context.require_extension(RosContextExtension).ros_node,
+            self.answer_timeout,
         )
 
     def on_start(self) -> None:

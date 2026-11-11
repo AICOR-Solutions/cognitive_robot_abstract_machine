@@ -121,6 +121,13 @@ class CameraInterface(object):
         """
         return self._has_new_data
 
+    def describe_awaited_data(self) -> str:
+        """
+        :return: What this interface waits for before it has new data, as a person
+            reads it in a log.
+        """
+        return "new data from the camera"
+
     @staticmethod
     def bind_world_T_camera(
         world_frame: str,
@@ -579,17 +586,54 @@ class KinectCameraInterface(ROSCameraInterface):
         """
         Camera info subscriber.
         """
+        self.synchronization_slop: float = 0.4
+        """
+        How far apart, in seconds, the stamps of a color image, a depth image and a
+        camera info may lie to be taken as one frame.
+        """
         ts = ApproximateTimeSynchronizer(
             [self.color_subscriber, self.depth_subscriber, self.camera_info_subscriber],
             queue_size=10,
-            slop=0.4,
+            slop=self.synchronization_slop,
         )
         ts.registerCallback(self.callback)
 
+        self.received_messages: dict[str, int] = {
+            camera_config.topic_color: 0,
+            camera_config.topic_depth: 0,
+            camera_config.topic_camera_info: 0,
+        }
+        """
+        How many messages arrived on each subscribed topic, synchronized or not.
+        """
+        for subscriber, topic in (
+            (self.color_subscriber, camera_config.topic_color),
+            (self.depth_subscriber, camera_config.topic_depth),
+            (self.camera_info_subscriber, camera_config.topic_camera_info),
+        ):
+            subscriber.registerCallback(self.count_message, topic)
+        self.synchronized_frames: int = 0
+        """
+        How many color images arrived together with a depth image and a camera info.
+        """
+        self.transform_missing: bool = False
+        """
+        Whether TF lacked the camera pose for the latest synchronized frame.
+        """
         self.rk_logger.info("Subscribed to: ")
-        self.rk_logger.info(f"  {camera_config.topic_color}")
-        self.rk_logger.info(f"  {camera_config.topic_depth}")
-        self.rk_logger.info(f"  {camera_config.topic_camera_info}")
+        self.rk_logger.info(
+            f"  {camera_config.topic_color} "
+            f"({'CompressedImage' if self.compressed_color_configured() else 'Image'})"
+        )
+        self.rk_logger.info(
+            f"  {camera_config.topic_depth} "
+            f"({'CompressedImage' if self.compressed_depth_configured() else 'Image'})"
+        )
+        self.rk_logger.info(f"  {camera_config.topic_camera_info} (CameraInfo)")
+        if self.lookup_viewpoint:
+            self.rk_logger.info(
+                f"Looking up the camera pose on TF from {self.tf_from} to {self.tf_to}"
+            )
 
         self.color: npt.NDArray | None = None
         """
@@ -644,6 +688,34 @@ class KinectCameraInterface(ROSCameraInterface):
 
     def get_node(self) -> rclpy.node.Node:
         return self.node
+
+    def count_message(self, message: Any, topic: str) -> None:
+        """
+        :param message: A message that arrived on a subscribed topic.
+        :param topic: The topic it arrived on, whose count it raises.
+        """
+        self.received_messages[topic] += 1
+
+    def describe_awaited_data(self) -> str:
+        """
+        Differs from :meth:`CameraInterface.describe_awaited_data` in naming the topics
+        without messages, a synchronization that never matched, or the missing camera
+        pose.
+        """
+        silent = [topic for topic, count in self.received_messages.items() if not count]
+        if silent:
+            return f"no message yet on {', '.join(silent)}"
+        if not self.synchronized_frames:
+            counts = ", ".join(
+                f"{count} on {topic}" for topic, count in self.received_messages.items()
+            )
+            return (
+                f"messages arrive ({counts}) but never within "
+                f"{self.synchronization_slop} s of each other"
+            )
+        if self.transform_missing:
+            return f"no transform from {self.tf_from} to {self.tf_to} on TF"
+        return "the next synchronized color image, depth image and camera info"
 
     def blackhole_callback(self, data: Any) -> None:
         """
@@ -726,12 +798,20 @@ class KinectCameraInterface(ROSCameraInterface):
             self.depth = self.bridge.imgmsg_to_cv2(depth_data, "32FC1")
 
         self.camera_info = camera_info
+        self.synchronized_frames += 1
 
         # self.rk_logger.info("Callback processing done - Final steps")
         if not self.lookup_transform():
+            if not self.transform_missing:
+                self.rk_logger.warning(
+                    f"No transform from {self.tf_from} to {self.tf_to} on TF; "
+                    "the camera's frames are skipped until there is one."
+                )
+            self.transform_missing = True
             self._has_new_data = False
             self.lock.release()
             return
+        self.transform_missing = False
 
         self._has_new_data = True
         self.lock.release()

@@ -16,6 +16,7 @@ from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraCon
 from robokudo.io.camera_interface import CameraInterface
 from robokudo.pipeline import Pipeline
 from robokudo.types.core import Query
+from robokudo.utils.query import QueryHandler
 
 
 # %% Acquisition fixture
@@ -126,6 +127,27 @@ def test_collection_reader_reports_wait_threshold(
         logging.WARNING,
         logging.WARNING,
     ]
+
+
+def test_collection_reader_reports_what_it_waits_for_to_the_query(
+    reader_pipeline: ReaderPipeline,
+) -> None:
+    """
+    The client of a query that is held up learns which camera data is missing.
+    """
+    reader_pipeline.camera_interface.has_new_data.return_value = False
+    reader_pipeline.camera_interface.describe_awaited_data.return_value = (
+        "no message yet on /camera/depth/image_raw"
+    )
+    reader_pipeline.reader.iterations_since_last_data_warn_threshold = 1
+
+    reader_pipeline.reader.update()
+
+    feedback = QueryHandler.get_feedback_queue().get_nowait()
+    assert feedback.feedback == (
+        "waiting for camera data: "
+        f"{reader_pipeline.camera_interface.describe_awaited_data.return_value}"
+    )
 
 
 def test_collection_reader_requires_pipeline(reader_pipeline: ReaderPipeline) -> None:

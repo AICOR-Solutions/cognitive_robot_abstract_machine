@@ -13,6 +13,7 @@ from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.exceptions import InvalidCollectionReaderParent
+from robokudo.utils.query import QueryHandler
 
 if TYPE_CHECKING:
     from robokudo.descriptors.camera_configs.base_camera_config import BaseCameraConfig
@@ -110,11 +111,13 @@ class CollectionReaderAnnotator(BaseAnnotator):
                 self.iterations_since_last_data
                 >= self.iterations_since_last_data_warn_threshold
             ):
+                awaited = camera_interface.describe_awaited_data()
                 self.rk_logger.warning(
                     "Didn't receive sensor data since %s iterations.",
                     self.iterations_since_last_data,
                 )
-                self.rk_logger.warning("Camera data available?: %s", False)
+                self.rk_logger.warning("Waiting for %s.", awaited)
+                QueryHandler.send_feedback_str(f"waiting for camera data: {awaited}")
                 self.iterations_since_last_data = 0
             return Status.RUNNING
 

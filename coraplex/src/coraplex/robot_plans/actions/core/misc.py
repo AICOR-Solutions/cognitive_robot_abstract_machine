@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 
 from krrood.ormatic.utils import classproperty
@@ -9,7 +10,11 @@ from coraplex.datastructures.enums import (
     DetectionTechnique,
     PerceptionSource,
 )
-from coraplex.perception import PerceptionQuery, PerceptionTask
+from coraplex.perception import (
+    PerceptionInterface,
+    PerceptionQuery,
+    PerceptionTask,
+)
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import SequentialAction
 from coraplex.robot_plans.actions.core.exceptions import DetectionTargetMissing
@@ -99,6 +104,14 @@ class DetectAction(SequentialAction):
     What answers the detection.
     """
 
+    perception_answer_timeout: timedelta = field(
+        default_factory=lambda: PerceptionInterface.default_answer_timeout,
+        init=False,
+    )
+    """
+    How long a source answering in another process is waited for.
+    """
+
     @classproperty
     def default_detection_distance(cls) -> float:
         """
@@ -113,6 +126,7 @@ class DetectAction(SequentialAction):
                 query=self._build_query(),
                 answered_by=self.perception_source,
                 accept_first_if_multiple=self.accept_first_if_multiple,
+                answer_timeout=self.perception_answer_timeout,
             )
         ]
 
