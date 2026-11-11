@@ -27,7 +27,10 @@ from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math.symbolic_math import Scalar
 from krrood_spatial_math.spatial_types import Point3
-from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
+from semantic_digital_twin.world_description.connections import (
+    ActiveConnection1DOF,
+    PrismaticConnection,
+)
 from semantic_digital_twin.world_description.world_entity import Body
 
 # %% monitors
@@ -94,13 +97,17 @@ class ToolOutsideWorkspace(SafetyMonitor):
         box_P_tool = self.tool_position()
         minimum = self.minimum.to_np()[:3]
         maximum = self.maximum.to_np()[:3]
-        distance = np.linalg.norm(
-            np.maximum(0.0, np.maximum(minimum - box_P_tool, box_P_tool - maximum))
-        )
+        below, above = minimum - box_P_tool, box_P_tool - maximum
+        axis = int(np.argmax(np.maximum(below, above)))
+        if below[axis] > above[axis]:
+            side, bound, distance = "lower", minimum[axis], below[axis]
+        else:
+            side, bound, distance = "upper", maximum[axis], above[axis]
+        name = "xyz"[axis]
         return (
-            f"{self.tool.name} at {np.round(box_P_tool, 3).tolist()} m is "
-            f"{distance:.3f} m outside the box from {minimum.tolist()} to "
-            f"{maximum.tolist()} m"
+            f"{self.tool.name} is {distance * 1000:.1f} mm past the box's {side} "
+            f"{name} bound: {name}={box_P_tool[axis]:.3f} m against {bound:.3f} m in "
+            f"{self.minimum.reference_frame.name}"
         )
 
     def tool_position(self) -> np.ndarray:
@@ -174,9 +181,10 @@ class JointVelocityExceeded(SafetyMonitor):
 
     def describe_violation(self) -> str:
         fastest = max(self.limited_connections, key=self.share_of_limit)
+        unit = "m/s" if isinstance(fastest, PrismaticConnection) else "rad/s"
         return (
-            f"{fastest.name} moved at {self.joint_speed(fastest):.3f}, faster than its "
-            f"limit of {fastest.raw_dof.limits.upper.velocity:.3f}"
+            f"{fastest.name} moved at {self.joint_speed(fastest):.3f} {unit}, faster "
+            f"than its limit {fastest.raw_dof.limits.upper.velocity:.3f} {unit}"
         )
 
     def share_of_limit(self, connection: ActiveConnection1DOF) -> float:
@@ -217,6 +225,12 @@ class ToolVelocityExceeded(SafetyMonitor):
     The speed the tool may not exceed, in metres per second.
     """
 
+    tool_speed: sm.Scalar = field(init=False, repr=False)
+    """
+    How fast the tool moves, from the joints' positions and velocities; set once the
+    monitor is built.
+    """
+
     def build_artifacts(self) -> NodeArtifacts:
         root_P_tool = self.context.world.compose_forward_kinematics_expression(
             self.root_link, self.tool
@@ -228,10 +242,15 @@ class ToolVelocityExceeded(SafetyMonitor):
             [dof.variables.position for dof in degrees_of_freedom],
             [dof.variables.velocity for dof in degrees_of_freedom],
         )
-        return NodeArtifacts(observation=tool_velocity.norm() > self.maximum_velocity)
+        self.tool_speed = tool_velocity.norm()
+        return NodeArtifacts(observation=self.tool_speed > self.maximum_velocity)
 
     def describe_violation(self) -> str:
-        return f"{self.tool.name} moved faster than {self.maximum_velocity} m/s"
+        speed = float(np.asarray(self.tool_speed.evaluate()).reshape(-1)[0])
+        return (
+            f"{self.tool.name} moved at {speed:.3f} m/s, faster than its limit "
+            f"{self.maximum_velocity:.3f} m/s"
+        )
 
 
 # %% cancelling the motion
@@ -256,11 +275,23 @@ class CancelOnSafetyViolation(CancelStatechart):
     which constraint is violated.
     """
 
+    violation: SafetyConstraintViolated | None = field(
+        init=False, default=None, repr=False
+    )
+    """
+    The violation this node cancelled the motion with, kept as it was when it started,
+    since the world moves on after the motion stopped; None while it did not start.
+    """
+
     def build(self) -> NodeArtifacts:
         self.start_condition = sm.logic_or(
             Scalar.const_false(), *[monitor.observes_true for monitor in self.monitors]
         )
         return NodeArtifacts()
+
+    def on_start(self) -> None:
+        super().on_start()
+        self.violation = self.pending_exception
 
     def create_exception(self) -> SafetyConstraintViolated:
         """

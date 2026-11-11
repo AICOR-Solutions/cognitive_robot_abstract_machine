@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cramph.data_types import StatechartPayloadKey
+from cramph.data_types import LifeCycleValues, StatechartPayloadKey
 import json
 from dataclasses import dataclass, field
 from time import sleep
@@ -31,6 +31,10 @@ from giskardpy.middleware.ros2.ros2_interface import MyActionClient
 from giskardpy.middleware.ros2.state_updates import StatechartStateUpdate
 from giskardpy.middleware.ros2.world_updates import ClientWorldUpdates
 from giskardpy.motion_control import MotionControl
+from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
+from giskardpy.motion_statechart.monitors.safety_monitors import (
+    CancelOnSafetyViolation,
+)
 from rclpy import Context, Parameter, Future
 from action_msgs.msg import GoalStatus
 from rclpy.action.client import ClientGoalHandle
@@ -268,14 +272,30 @@ class GiskardClientExecutor(Executor):
                 StatechartStateUpdate.from_json(
                     result_json, statechart=self.statechart
                 ).apply()
-            raise self._client.create_abort_exception(
+            exception = self._client.create_abort_exception(
                 result,
                 **WorldEntityWithIDKwargsTracker.from_world(self.world).create_kwargs(),
             )
+            self._hand_over_safety_violation(exception)
+            raise exception
         self.world_updates.wait_for_the_changes_of_a_goal(result_json)
         StatechartStateUpdate.from_json(result_json, statechart=self.statechart).apply()
         if not self.statechart.is_ended():
             raise StatechartNotEndedByResultError()
+
+    def _hand_over_safety_violation(self, exception: Exception) -> None:
+        """
+        Keep a safety violation Giskard aborted the goal with on the nodes that cancelled
+        the motion for it, as they keep one they raise themselves, since they did not
+        start in this process.
+
+        :param exception: The exception that made Giskard abort the goal.
+        """
+        if not isinstance(exception, SafetyConstraintViolated):
+            return
+        for node in self.statechart.get_nodes_by_type(CancelOnSafetyViolation):
+            if node.life_cycle_state is not LifeCycleValues.NOT_STARTED:
+                node.violation = exception
 
     def _create_goal_message(self) -> JsonAction.Goal:
         """

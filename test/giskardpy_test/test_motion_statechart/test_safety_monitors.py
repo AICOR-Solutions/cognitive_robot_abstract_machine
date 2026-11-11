@@ -205,6 +205,72 @@ def test_a_tool_faster_than_its_limit_is_a_violation(
     assert _observe(world, limit.create_monitor()) == expected
 
 
+# %% describing a violation
+
+
+def test_a_tool_outside_its_box_is_described_by_the_side_it_left(
+    pr2_world_state_reset,
+):
+    world = pr2_world_state_reset
+    inside = _box_around_tool(world, 0.1)
+    lift = np.array([0.0, 0.0, 0.5])
+    raised = WorkspaceBox(
+        constraint=inside.constraint,
+        tool=inside.tool,
+        minimum=Point3(
+            *(inside.minimum.to_np()[:3] + lift), reference_frame=world.root
+        ),
+        maximum=Point3(
+            *(inside.maximum.to_np()[:3] + lift), reference_frame=world.root
+        ),
+    )
+    monitor = raised.create_monitor()
+    _observe(world, monitor)
+    tool_height = world.compute_forward_kinematics_np(world.root, inside.tool)[2, 3]
+    floor = raised.minimum.to_np()[2]
+    assert monitor.describe_violation() == (
+        f"{inside.tool.name} is {(floor - tool_height) * 1000:.1f} mm past the box's "
+        f"lower z bound: z={tool_height:.3f} m against {floor:.3f} m in "
+        f"{world.root.name}"
+    )
+
+
+@pytest.mark.parametrize(
+    "joint_of, unit",
+    [(_torso, "m/s"), (lambda world: _arm_joints(world)[0], "rad/s")],
+)
+def test_a_joint_too_fast_is_described_by_its_speed_and_limit(
+    pr2_world_state_reset, joint_of, unit
+):
+    world = pr2_world_state_reset
+    joint = joint_of(world)
+    limit = joint.dof.limits.upper.velocity
+    world.state[joint.dof.id].velocity = -1.5 * limit
+    monitor = MaximumJointVelocity(
+        constraint="velocity", connections=[joint]
+    ).create_monitor()
+    _observe(world, monitor)
+    assert monitor.describe_violation() == (
+        f"{joint.name} moved at {1.5 * limit:.3f} {unit}, faster than its limit "
+        f"{limit:.3f} {unit}"
+    )
+
+
+def test_a_tool_too_fast_is_described_by_its_speed_and_limit(pr2_world_state_reset):
+    world = pr2_world_state_reset
+    world.state[_torso(world).dof.id].velocity = 0.2
+    monitor = MaximumToolVelocity(
+        constraint="right tool velocity",
+        root_link=world.root,
+        tool=_tool(world),
+        maximum_velocity=0.1,
+    ).create_monitor()
+    _observe(world, monitor)
+    assert monitor.describe_violation() == (
+        f"{_tool(world).name} moved at 0.200 m/s, faster than its limit 0.100 m/s"
+    )
+
+
 # %% cancelling
 
 
@@ -241,7 +307,9 @@ def test_a_motion_leaving_the_box_is_cancelled_at_its_boundary(pr2_world_state_r
 
     stopped = world.compute_forward_kinematics_np(world.root, box.tool)[:3, 3]
     overshoot = stopped[0] - box.maximum.to_np()[0]
+    [cancel] = statechart.get_nodes_by_type(CancelOnSafetyViolation)
     assert violated.value.constraint == box.constraint
+    assert cancel.violation is violated.value
     assert 0.0 < overshoot < BOUNDARY_TOLERANCE
     assert np.allclose(stopped[1:], start[1:], atol=0.01)
 
