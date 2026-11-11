@@ -13,6 +13,7 @@ from krrood.ormatic.utils import classproperty
 
 
 from semantic_digital_twin.collision_checking.collision_rules import (
+    AvoidCollisionBetweenGroups,
     AvoidExternalCollisions,
     AvoidSelfCollisions,
     SelfCollisionMatrixRule,
@@ -101,6 +102,17 @@ class TracyVelocityCommandTopic(StrEnum):
 
     LEFT_ARM = "left_arm/forward_velocity_controller/commands"
     RIGHT_ARM = "right_arm/forward_velocity_controller/commands"
+
+
+class TracyBody(StrEnum):
+    """
+    Names of the Tracy's bodies its collision rules name, as spelled in its URDF.
+    """
+
+    LEFT_UPPER_ARM = "left_upper_arm_link"
+    RIGHT_UPPER_ARM = "right_upper_arm_link"
+    CAMERA_POLE = "camera_pole"
+    TABLE = "table"
 
 
 class TracyParallelGripperCommandTopic(StrEnum):
@@ -535,6 +547,34 @@ class Tracy(
     def _get_root_body_name(cls) -> str:
         return "table"
 
+    @classproperty
+    def upper_arm_buffer_zone_distance(cls) -> float:
+        """
+        :return: How far, in metres, the upper arms keep from the camera pole and the
+            table they are mounted beside: closer than the arms keep from each other,
+            as the parked arms stand 2 cm from the pole.
+        """
+        return 0.01
+
+    @classproperty
+    def gripper_violated_distance(cls) -> float:
+        """
+        :return: How far, in metres, a gripper may be in an object outside Tracy before
+            its motion is cancelled: the pads squeezing a cube carried by contact
+            alone, before the step setting it down allows that contact.
+        """
+        return -0.01
+
+    @classproperty
+    def gripper_buffer_zone_distance(cls) -> float:
+        """
+        :return: How far, in metres, the grippers keep from everything outside Tracy and
+            from its table and camera pole: closer than its arms, so a gripper holding a
+            5 cm cube 1 cm below its top, its fingertips 2.5 cm above the table, still
+            reaches the grasp.
+        """
+        return 0.015
+
     def _setup_collision_rules(self):
         srdf_path = os.path.join(
             Path(files("semantic_digital_twin")).parent.parent,
@@ -546,15 +586,49 @@ class Tracy(
             SelfCollisionMatrixRule.from_collision_srdf(srdf_path, self._world)
         )
 
+        # the mounts never move, so objects resting on the table are not avoided
+        mounts = [
+            self._world.get_body_by_name(TracyBody.CAMERA_POLE),
+            self._world.get_body_by_name(TracyBody.TABLE),
+        ]
+        gripper_bodies = [
+            body
+            for end_effector in self.all_end_effectors
+            for body in end_effector.bodies_with_collision
+        ]
         self._world.collision_manager.extend_default_rules(
             [
                 AvoidExternalCollisions(
-                    buffer_zone_distance=0.05, violated_distance=0.0, robot=self
+                    buffer_zone_distance=0.05,
+                    violated_distance=0.0,
+                    robot=self,
+                    body_subset=set(self.bodies_with_collision) - set(mounts),
+                ),
+                AvoidExternalCollisions(
+                    buffer_zone_distance=self.gripper_buffer_zone_distance,
+                    violated_distance=self.gripper_violated_distance,
+                    robot=self,
+                    body_subset=set(gripper_bodies),
                 ),
                 AvoidSelfCollisions(
                     buffer_zone_distance=0.03,
                     violated_distance=0.0,
                     robot=self,
+                ),
+                AvoidCollisionBetweenGroups(
+                    buffer_zone_distance=self.upper_arm_buffer_zone_distance,
+                    violated_distance=0.0,
+                    body_group_a=[
+                        self._world.get_body_by_name(TracyBody.LEFT_UPPER_ARM),
+                        self._world.get_body_by_name(TracyBody.RIGHT_UPPER_ARM),
+                    ],
+                    body_group_b=mounts,
+                ),
+                AvoidCollisionBetweenGroups(
+                    buffer_zone_distance=self.gripper_buffer_zone_distance,
+                    violated_distance=0.0,
+                    body_group_a=gripper_bodies,
+                    body_group_b=mounts,
                 ),
             ]
         )

@@ -204,6 +204,12 @@ class PlanValidation:
     The robot's perception, asked where its camera sees a detection's region now.
     """
 
+    collision_avoidance: bool = False
+    """
+    Whether every step avoids collisions with the robot's surroundings and itself, as
+    the plan's run does.
+    """
+
     copied_world: World = field(init=False)
     """
     The copy the steps are checked in.
@@ -227,7 +233,8 @@ class PlanValidation:
                     self.copied_world.rebind_world_entities(extension)
                     for extension in self.extensions
                 ],
-            )
+            ),
+            collision_avoidance=self.collision_avoidance,
         )
         statechart = Statechart(context=executor.context)
         statechart.add_node(step)

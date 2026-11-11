@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from coraplex.robot_plans.plan_transformations import LetOnlyTheObjectTouchTheGripper
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PlanExecutor
 from coraplex.robot_plans.actions.base import (
@@ -54,6 +55,7 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 )
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
     AllowCollisionForEndEffector,
 )
 from semantic_digital_twin.datastructures.definitions import TorsoState
@@ -712,6 +714,51 @@ def test_a_place_lets_the_gripper_holding_its_object_touch(
     [rule] = place.temporary_collision_rules
     assert rule.end_effector is robot.left_arm.end_effector
     assert nodes_of_type(place, UpdateTemporaryCollisionRules) == []
+
+
+def test_a_pick_up_letting_only_its_object_touch_allows_the_gripper_that_alone(
+    pr2_apartment_context,
+) -> None:
+    world, robot, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    end_effector = robot.left_arm.end_effector
+    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+    executor = simulated_executor(
+        extensions, plan_adaptations=[LetOnlyTheObjectTouchTheGripper()]
+    )
+
+    _expanded(pick_up, extensions, executor)
+
+    [grasping] = nodes_of_type(pick_up, GraspingAction)
+    [reach] = nodes_of_type(pick_up, ReachAction)
+    for action in (pick_up, grasping, reach):
+        [rule] = action.temporary_collision_rules
+        assert isinstance(rule, AllowCollisionBetweenGroups)
+        assert set(rule.body_group_a) == set(end_effector.bodies_with_collision)
+        assert set(rule.body_group_b) == set(milk.bodies_with_collision)
+
+
+def test_a_place_letting_only_its_object_touch_lets_the_object_touch_while_set_down(
+    pr2_apartment_context,
+) -> None:
+    world, robot, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+    place = PlaceAction(
+        object_designator=milk,
+        target_location=Pose.from_xyz_rpy(0.8, -1.9, 0.7, reference_frame=world.root),
+    )
+    executor = simulated_executor(
+        extensions, plan_adaptations=[LetOnlyTheObjectTouchTheGripper()]
+    )
+
+    statechart_of(executor, Sequence(nodes=[pick_up, place]))
+
+    [rule] = place.temporary_collision_rules
+    assert set(rule.body_group_b) == set(milk.bodies_with_collision)
+    [setting_down] = nodes_of_type(place, UpdateTemporaryCollisionRules)
+    [allowance] = setting_down.temporary_rules
+    assert set(allowance.body_group_a) == set(milk.bodies_with_collision)
 
 
 def test_opening_lets_the_gripper_on_the_handle_touch(pr2_apartment_context) -> None:

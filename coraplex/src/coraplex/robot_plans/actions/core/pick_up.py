@@ -94,10 +94,12 @@ class ReachAction(
 
     def create_temporary_collision_rules(self) -> list[CollisionRule]:
         """
-        :return: An allowance for the gripper to touch the surroundings of the grasp it
-            comes down onto.
+        :return: An allowance for the gripper to touch the object of the grasp it comes
+            down onto, see :meth:`create_gripper_contact_rules`.
         """
-        return [AllowCollisionForEndEffector(end_effector=self.arm.end_effector)]
+        return self.create_gripper_contact_rules(
+            self.arm.end_effector, self.grasp.graspable
+        )
 
     def create_steps(self) -> list[StatechartNode]:
         poses = self.grasp_pose_sequence(
@@ -200,11 +202,13 @@ class PickUpAction(
 
     def create_temporary_collision_rules(self) -> list[CollisionRule]:
         """
-        :return: An allowance for the gripper to touch the surroundings of its object,
-            which it is around from reaching for it until it has lifted it clear, the
-            moment the object is put under it included.
+        :return: An allowance for the gripper to touch its object, which it is around
+            from reaching for it until it has lifted it clear, the moment the object is
+            put under it included, see :meth:`create_gripper_contact_rules`.
         """
-        return [AllowCollisionForEndEffector(end_effector=self.arm.end_effector)]
+        return self.create_gripper_contact_rules(
+            self.arm.end_effector, self.grasp.graspable
+        )
 
     def create_steps(self) -> list[StatechartNode]:
         lift_to_pose = self.grasp_pose_sequence(
@@ -246,10 +250,12 @@ class GraspingAction(
 
     def create_temporary_collision_rules(self) -> list[CollisionRule]:
         """
-        :return: An allowance for the gripper to touch the surroundings of the grasp it
-            reaches and closes on.
+        :return: An allowance for the gripper to touch the object of the grasp it
+            reaches and closes on, see :meth:`create_gripper_contact_rules`.
         """
-        return [AllowCollisionForEndEffector(end_effector=self.arm.end_effector)]
+        return self.create_gripper_contact_rules(
+            self.arm.end_effector, self.grasp.graspable
+        )
 
     def create_steps(self) -> list[StatechartNode]:
         return [

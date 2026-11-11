@@ -584,3 +584,20 @@ class MoveStraightNearTheObject(ConfigurationTransformation[MovesToolCenterPoint
 
     def apply(self, plan_node: MovesToolCenterPoint) -> None:
         plan_node.moves_straight_near_the_object = True
+
+
+@dataclass
+class LetOnlyTheObjectTouchTheGripper(
+    ConfigurationTransformation[MovesToolCenterPoint]
+):
+    """
+    Lets the gripper of an action touch only the object the action acts on, so collision
+    avoidance keeps it clear of everything else, the support the object stands on
+    included.
+    """
+
+    def is_applicable(self, plan_node: MovesToolCenterPoint) -> bool:
+        return True
+
+    def apply(self, plan_node: MovesToolCenterPoint) -> None:
+        plan_node.lets_only_its_object_touch_the_gripper = True

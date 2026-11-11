@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC
 from dataclasses import dataclass, field
 
@@ -19,8 +21,14 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPositionVelocityLimit,
     CartesianRotationVelocityLimit,
 )
+from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
+from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
+    AllowCollisionForEndEffector,
+)
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
+from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import (
@@ -200,11 +208,36 @@ class MovesToolCenterPoint(Action, ABC):
     Rotation threshold in rad for goal achievement.
     """
 
+    lets_only_its_object_touch_the_gripper: bool = field(default=False, init=False)
+    """
+    Whether the gripper may touch only the object the action acts on, and keeps clear
+    of everything else, as set by the plan transformations configuring the action; else
+    it may touch anything while the action runs.
+    """
+
     moves_straight_near_the_object: bool = field(default=False, init=False)
     """
     Whether the tool center point comes onto the object it acts on, and leaves it, along
     a straight line, as set by the plan transformations configuring the action.
     """
+
+    def create_gripper_contact_rules(
+        self, end_effector: EndEffector, touched_object: HasGraspCandidates
+    ) -> list[CollisionRule]:
+        """
+        :param end_effector: The gripper the action moves.
+        :param touched_object: The object the action acts on.
+        :return: New rules letting the gripper touch the object alone where the action
+            :attr:`lets_only_its_object_touch_the_gripper`, else anything.
+        """
+        if not self.lets_only_its_object_touch_the_gripper:
+            return [AllowCollisionForEndEffector(end_effector=end_effector)]
+        return [
+            AllowCollisionBetweenGroups(
+                body_group_a=list(end_effector.bodies_with_collision),
+                body_group_b=list(touched_object.bodies_with_collision),
+            )
+        ]
 
     def tool_center_point_goal(
         self,
