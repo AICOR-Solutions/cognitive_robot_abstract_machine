@@ -37,12 +37,30 @@ class CollisionViolatedError(DataclassException):
     """
 
     def error_message(self) -> str:
-        violations = "".join(
-            f"{str(violation.closest_points.body_a.name), str(violation.closest_points.body_b.name)}: "
-            f"{violation.closest_points.distance} < {violation.violated_distance}\n"
-            for violation in self.violated_collisions
+        return "Collision avoidance stopped the motion: " + "; ".join(
+            self.describe(violation) for violation in self.violated_collisions
         )
-        return f"Violated collision constraints: \n{violations}"
+
+    @staticmethod
+    def describe(violation: ViolatedCollision) -> str:
+        """
+        :param violation: One collision that came too close.
+        :return: The two bodies and how close they came, as a person reads it.
+        """
+        points = violation.closest_points
+        bodies = f"{points.body_a.name.name} and {points.body_b.name.name}"
+        if points.distance < 0:
+            closeness = f"{bodies} overlap by {-points.distance * 1000:.2f} mm"
+        else:
+            closeness = (
+                f"{bodies} came within {points.distance * 1000:.2f} mm of each other"
+            )
+        if violation.violated_distance <= 0:
+            return closeness
+        return (
+            f"{closeness}, closer than the {violation.violated_distance * 1000:.2f} "
+            f"mm they are to keep apart"
+        )
 
     def suggest_correction(self) -> str:
         return ""

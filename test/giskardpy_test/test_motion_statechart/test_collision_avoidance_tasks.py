@@ -60,7 +60,11 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.collision_checking.collision_detector import (
+    ClosestPoints,
     CollisionCheckingResult,
+)
+from semantic_digital_twin.collision_checking.collision_variable_managers import (
+    ViolatedCollision,
 )
 from semantic_digital_twin.collision_checking.collision_manager import CollisionConsumer
 from semantic_digital_twin.collision_checking.collision_matrix import (
@@ -1312,6 +1316,26 @@ def test_hard_constraints_violated(
     with pytest.raises(CollisionViolatedError) as exc_info:
         executor_driving_into_obstacles.tick_until_end()
     assert len(exc_info.value.violated_collisions) == 2
+
+
+def test_a_violated_collision_names_both_bodies_and_how_far_they_overlap() -> None:
+    violation = ViolatedCollision(
+        closest_points=ClosestPoints(
+            body_a=Body(name=PrefixedName("table")),
+            body_b=Body(name=PrefixedName("red_cube")),
+            distance=-0.00015905,
+            root_P_point_on_body_a=np.zeros(3),
+            root_P_point_on_body_b=np.zeros(3),
+            root_V_contact_normal_from_b_to_a=np.array([0.0, 0.0, 1.0]),
+        ),
+        violated_distance=0.0,
+    )
+
+    message = CollisionViolatedError(violated_collisions=[violation]).error_message()
+
+    assert message == (
+        "Collision avoidance stopped the motion: table and red_cube overlap by 0.16 mm"
+    )
 
 
 def test_violated_body_pairs_survive_storing_the_history(
