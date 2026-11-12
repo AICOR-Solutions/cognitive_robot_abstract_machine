@@ -23,6 +23,7 @@ from semantic_digital_twin.datastructures.camera_model import (
     PlumbBobCameraDistortion,
 )
 from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
+from semantic_digital_twin.exceptions import InvalidCameraDistortionError
 
 
 # %% Camera model conversion
@@ -120,3 +121,43 @@ def test_camera_info_rejects_unsupported_distortion_model() -> None:
         RosCameraModelAdapter.from_camera_info(camera_info)
     assert error.value.distortion_model == camera_info.distortion_model
     assert isinstance(error.value, InvalidCameraObservation)
+
+
+# %% Zero-padded distortion coefficients
+
+
+def test_camera_info_coefficients_padded_with_zeros_are_read() -> None:
+    """
+    Zeros a driver appends beyond the model's coefficients do not change the distortion.
+
+    The Orbbec Femto Bolt publishes plumb bob with five coefficients and three zeros.
+    """
+    coefficients = [0.1, -0.2, 0.01, 0.02, 0.03]
+    camera_info = CameraInfo()
+    camera_info.width = 640
+    camera_info.height = 480
+    camera_info.k = [500.0, 0.0, 321.0, 0.0, 510.0, 239.0, 0.0, 0.0, 1.0]
+    camera_info.distortion_model = CameraDistortionModel.PLUMB_BOB.value
+    camera_info.d = coefficients + [0.0, 0.0, 0.0]
+
+    model = RosCameraModelAdapter.from_camera_info(camera_info)
+
+    assert model.distortion == PlumbBobCameraDistortion(
+        radial_coefficient_1=coefficients[0],
+        radial_coefficient_2=coefficients[1],
+        tangential_coefficient_1=coefficients[2],
+        tangential_coefficient_2=coefficients[3],
+        radial_coefficient_3=coefficients[4],
+    )
+
+
+def test_camera_info_rejects_nonzero_coefficients_beyond_the_model() -> None:
+    """
+    A nonzero coefficient the model has no place for is an error, not dropped.
+    """
+    camera_info = CameraInfo()
+    camera_info.distortion_model = CameraDistortionModel.PLUMB_BOB.value
+    camera_info.d = [0.1, -0.2, 0.01, 0.02, 0.03, 0.0, 0.0, 0.5]
+
+    with pytest.raises(InvalidCameraDistortionError):
+        RosCameraModelAdapter.from_camera_info(camera_info)

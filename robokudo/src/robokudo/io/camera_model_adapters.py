@@ -43,6 +43,8 @@ class RosCameraModelAdapter:
         :return: Semantic pinhole calibration.
         :raises CameraDistortionModelMissing: If nonzero coefficients have no model.
         :raises UnsupportedCameraDistortionModel: If the model is unsupported.
+        :raises InvalidCameraDistortionError: If a nonzero coefficient lies beyond the
+            model's coefficients.
         """
         distortion_models = {
             model.value: model
@@ -55,9 +57,16 @@ class RosCameraModelAdapter:
             distortion = NoCameraDistortion()
         elif camera_info.distortion_model in distortion_models:
             distortion_model = distortion_models[camera_info.distortion_model]
+            coefficients = tuple(camera_info.d)
+            coefficient_count = distortion_model.coefficient_count
+            # Drivers such as the Orbbec Femto Bolt pad with zeros, which change nothing.
+            if all(
+                coefficient == 0.0 for coefficient in coefficients[coefficient_count:]
+            ):
+                coefficients = coefficients[:coefficient_count]
             distortion = CameraDistortion.from_ordered_coefficients(
                 model=distortion_model,
-                coefficients=camera_info.d,
+                coefficients=coefficients,
             )
         else:
             raise UnsupportedCameraDistortionModel(
