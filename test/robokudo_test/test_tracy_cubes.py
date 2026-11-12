@@ -7,7 +7,8 @@ from __future__ import annotations
 
 # %% Imports
 import math
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 
 import numpy as np
 import py_trees
@@ -487,3 +488,84 @@ def test_a_query_after_one_on_an_unregistered_depth_image_is_answered(
     }
     for cube in cube_scene.cubes:
         assert cube.color_name.name.lower() in answered_colors
+
+
+# %% an exception ending the thread that ticks the pipeline
+
+
+class RaisedInTheTick(Exception):
+    """
+    The exception :class:`RaiseOnEveryFrame` raises.
+    """
+
+
+class RaiseOnEveryFrame(BaseAnnotator):
+    """
+    Raises its exception on every frame, as an annotator does that meets data it cannot
+    handle.
+    """
+
+    def __init__(self, exception: Exception) -> None:
+        super().__init__(name="RaiseOnEveryFrame")
+        self.exception = exception
+        """
+        The exception raised.
+        """
+
+    def update(self) -> py_trees.common.Status:
+        raise self.exception
+
+
+@dataclass
+class AnalysisEngineRaisingOnEveryFrame(AnalysisEngine):
+    """
+    The cube localization with an annotator raising on every frame before the image
+    preprocessor.
+    """
+
+    exception: Exception = field(
+        default_factory=lambda: RaisedInTheTick("the frame cannot be read")
+    )
+    """
+    The exception the annotator raises.
+    """
+
+    def perception_annotators(self) -> list[Behaviour]:
+        annotators = super().perception_annotators()
+        [preprocessor_index] = [
+            index
+            for index, annotator in enumerate(annotators)
+            if isinstance(annotator, ImagePreprocessorAnnotator)
+        ]
+        annotators.insert(preprocessor_index, RaiseOnEveryFrame(self.exception))
+        return annotators
+
+
+@pytest.mark.parametrize("cube_scene", [0], indirect=True)
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+def test_a_query_whose_frame_ends_the_tick_thread_is_aborted_at_once_naming_why(
+    node, cube_scene: CubeScene
+) -> None:
+    """
+    An exception ending the thread that ticks the pipeline aborts the query in progress
+    with the exception's text, instead of leaving it unanswered, and marks the service
+    as failed.
+    """
+    query_messages = pytest.importorskip("robokudo_msgs.action")
+    analysis_engine = AnalysisEngineRaisingOnEveryFrame()
+    service = QueryService(analysis_engine=analysis_engine, world=cube_scene.world)
+    service.start()
+    client = ActionClient(node, query_messages.Query, "robokudo/query")
+    assert client.wait_for_server(timeout_sec=10.0)
+
+    started = time.monotonic()
+    aborted = ask_for_an_answer(node, client)
+    took = time.monotonic() - started
+    client.destroy()
+    service.stop()
+
+    assert aborted.status == GoalStatus.STATUS_ABORTED
+    assert str(analysis_engine.exception) in aborted.result.text_result
+    assert took < 5.0
+    assert service.thread_failed.is_set()
+    assert service.thread_failure.reason is analysis_engine.exception

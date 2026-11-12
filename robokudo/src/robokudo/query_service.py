@@ -6,9 +6,10 @@ process, so that it perceives the very world that process holds.
 from __future__ import annotations
 
 # %% Imports
+import threading
 import time
 from dataclasses import dataclass, field
-from threading import Event, Thread
+from threading import Event, ExceptHookArgs, Thread
 
 import rclpy
 from py_trees.blackboard import Blackboard
@@ -17,13 +18,15 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.world import World
+from typing_extensions import Any, Callable
 
 import robokudo.world
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.defs import PACKAGE_NAME
-from robokudo.exceptions import QueryServiceAlreadyRunning
+from robokudo.exceptions import QueryServiceAlreadyRunning, QueryServiceThreadFailed
 from robokudo.garden import grow_tree
 from robokudo.identifier import BBIdentifier
+from robokudo.utils.error_handling import raise_to_blackboard
 from robokudo.utils.tree import setup_with_descendants_rk
 
 # %% Query service
@@ -54,6 +57,17 @@ class QueryService:
     How often the analysis engine is ticked, in Hz.
     """
 
+    thread_failed: Event = field(default_factory=Event)
+    """
+    Set once a thread of the service ended with an exception; the service answers no
+    more queries from then on.
+    """
+
+    thread_failure: QueryServiceThreadFailed | None = field(default=None, init=False)
+    """
+    Why a thread of the service ended, once one did, else None.
+    """
+
     _stopped: Event = field(default_factory=Event, init=False, repr=False)
     """
     Set once the analysis engine is to stop ticking.
@@ -76,6 +90,13 @@ class QueryService:
     The threads spinning the nodes and ticking the analysis engine while it runs.
     """
 
+    _previous_excepthook: Callable[[ExceptHookArgs], Any] | None = field(
+        default=None, init=False, repr=False
+    )
+    """
+    The process's handler of exceptions ending a thread before the service started.
+    """
+
     def start(self) -> None:
         """
         Build the analysis engine and answer queries until :meth:`stop`.
@@ -96,6 +117,8 @@ class QueryService:
         self._executor.add_node(self._node)
         self._executor.add_node(Blackboard().get(BBIdentifier.QUERY_SERVER))
         self._stopped.clear()
+        self._previous_excepthook = threading.excepthook
+        threading.excepthook = self._record_thread_failure
         self._threads = [
             Thread(target=self._executor.spin, daemon=True, name="robokudo_spin"),
             Thread(target=self._tick, args=(tree,), daemon=True, name="robokudo_tick"),
@@ -115,6 +138,24 @@ class QueryService:
             tree.tick()
             self._stopped.wait(max(0.0, period - (time.monotonic() - started)))
 
+    def _record_thread_failure(self, arguments: ExceptHookArgs) -> None:
+        """
+        Handle an exception ending a thread of the process: when it ends a thread of the
+        service that was not asked to stop, keep it as :attr:`thread_failure`, abort the
+        query in progress with it and set :attr:`thread_failed`. The previous handler
+        reports it either way.
+
+        :param arguments: The exception and the thread it ended.
+        """
+        self._previous_excepthook(arguments)
+        if arguments.thread not in self._threads or self._stopped.is_set():
+            return
+        self.thread_failure = QueryServiceThreadFailed(
+            thread_name=arguments.thread.name, reason=arguments.exc_value
+        )
+        raise_to_blackboard(self.thread_failure)
+        self.thread_failed.set()
+
     def stop(self) -> None:
         """
         Stop answering queries and release the nodes; does nothing when not running.
@@ -126,6 +167,7 @@ class QueryService:
         self._executor.shutdown()
         for thread in self._threads:
             thread.join()
+        threading.excepthook = self._previous_excepthook
         query_server = Blackboard().get(BBIdentifier.QUERY_SERVER)
         Blackboard().unset(BBIdentifier.QUERY_SERVER)
         query_server.destroy_node()

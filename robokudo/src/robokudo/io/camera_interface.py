@@ -820,37 +820,37 @@ class KinectCameraInterface(ROSCameraInterface):
         if not self.has_new_data():
             return
 
-        self.lock.acquire()
-        if self.camera_config.hi_res_mode:
-            self.color = self.color[0:960, 0:1280]
+        with self.lock:
+            if self.camera_config.hi_res_mode:
+                self.color = self.color[0:960, 0:1280]
 
-        width = self.camera_info.width
-        height = self.camera_info.height
-        if self.camera_config.hi_res_mode:
-            height = 960
-        self.camera_info.width = width
-        self.camera_info.height = height
+            width = self.camera_info.width
+            height = self.camera_info.height
+            if self.camera_config.hi_res_mode:
+                height = 960
+            self.camera_info.width = width
+            self.camera_info.height = height
 
-        self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
+            self.color_to_depth_ratio = self.camera_config.color_to_depth_ratio
 
-        cas.set(CASViews.COLOR_IMAGE, self.color)
-        cas.set(CASViews.DEPTH_IMAGE, self.depth)
-        cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
+            cas.set(CASViews.COLOR_IMAGE, self.color)
+            cas.set(CASViews.DEPTH_IMAGE, self.depth)
+            cas.set(CASViews.COLOR_TO_DEPTH_RATIO, self.color_to_depth_ratio)
 
-        camera_frame = self.camera_info.header.frame_id or self.camera_config.tf_from
-        self.validate_camera_frame_for_tf(camera_frame)
-        world_T_camera = self.world_T_camera_from_tf(self.timestamp)
-        self.store_camera_observation(
-            cas=cas,
-            camera_model=RosCameraModelAdapter.from_camera_info(self.camera_info),
-            camera_frame=camera_frame,
-            timestamp_nanoseconds=(
-                self.timestamp.sec * 1_000_000_000 + self.timestamp.nanosec
-            ),
-            modalities=(CameraModality.COLOR, CameraModality.DEPTH),
-            world_T_camera=world_T_camera,
-        )
+            camera_frame = (
+                self.camera_info.header.frame_id or self.camera_config.tf_from
+            )
+            self.validate_camera_frame_for_tf(camera_frame)
+            world_T_camera = self.world_T_camera_from_tf(self.timestamp)
+            self.store_camera_observation(
+                cas=cas,
+                camera_model=RosCameraModelAdapter.from_camera_info(self.camera_info),
+                camera_frame=camera_frame,
+                timestamp_nanoseconds=(
+                    self.timestamp.sec * 1_000_000_000 + self.timestamp.nanosec
+                ),
+                modalities=(CameraModality.COLOR, CameraModality.DEPTH),
+                world_T_camera=world_T_camera,
+            )
 
-        self._has_new_data = False
-
-        self.lock.release()
+            self._has_new_data = False

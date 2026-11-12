@@ -9,6 +9,7 @@ Skipped where Tracy's description is not installed.
 from __future__ import annotations
 
 # %% Imports
+import copy
 import math
 import os
 import subprocess
@@ -44,6 +45,7 @@ from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.camera_rendering import (
     VisualColorRenderingMode,
 )
+from semantic_digital_twin.exceptions import InvalidCameraDistortionError
 from semantic_digital_twin.robots.tracy import Tracy, TracyCamera
 
 from .test_tracy_cubes import CubeScene, ask_client_for_objects, build_cube_scene
@@ -458,6 +460,57 @@ def test_a_query_failing_on_a_frame_fails_and_the_next_query_is_answered(
     assert failed.status == GoalStatus.STATUS_ABORTED
     assert answered.status == GoalStatus.STATUS_SUCCEEDED
     assert_every_cube_is_answered(cube_scene, answered.result)
+
+
+# %% an exception ending the thread that ticks the pipeline
+
+
+def test_a_calibration_that_cannot_be_read_aborts_the_query_and_ends_the_process(
+    camera_driver: CameraStream,
+    settings_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
+    """
+    A frame raising in the thread that ticks the pipeline answers the query in progress
+    with the reason at once and ends the process with an error, so that whoever runs it
+    restarts it, instead of leaving every later query unanswered.
+    """
+    unreadable = copy.deepcopy(camera_driver.camera_info)
+    unreadable.d = list(unreadable.d) + [0.0, 0.0, 0.5]
+    with pytest.raises(InvalidCameraDistortionError) as reading:
+        RosCameraModelAdapter.from_camera_info(unreadable)
+    monkeypatch.setattr(camera_driver, "camera_info", unreadable)
+    node = rclpy.create_node("tracy_cubes_unreadable_calibration_client")
+    client = ActionClient(node, query_messages.Query, "robokudo/query")
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "robokudo.scripts.perceive_tracy_cubes",
+            "--settings",
+            str(settings_file),
+        ],
+        env=os.environ.copy(),
+    )
+    request.addfinalizer(process.kill)
+    perception = PerceptionClient(node=node, client=client, process=process)
+    started = time.monotonic()
+    while not client.wait_for_server(timeout_sec=1.0):
+        assert process.poll() is None, "the perception process ended"
+        assert time.monotonic() - started < 180.0
+
+    aborted = wait_for_result(perception, send_query(perception))
+    exit_code = process.wait(timeout=stopping_time)
+    client.destroy()
+    node.destroy_node()
+
+    assert aborted.status == GoalStatus.STATUS_ABORTED
+    assert reading.value.error_message() in aborted.result.text_result
+    assert exit_code != 0
+
+
+# %% a depth image the pipeline cannot use
 
 
 def test_a_depth_image_not_registered_to_the_color_image_is_logged(

@@ -611,7 +611,9 @@ class QueryActionServer(Node):
         self.logger.error("Aborting since queries are no longer answered")
         goal_handle.abort()
         abort_result = Query.Result()
-        abort_result.text_result = "Aborted"
+        abort_result.text_result = (
+            str(get_blackboard_exception()) if has_blackboard_exception() else "Aborted"
+        )
         self.reset_bookkeeping_vars()
         return abort_result
 

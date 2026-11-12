@@ -1,6 +1,7 @@
 """
 Localize the cubes on Tracy's table through Tracy's real camera, as a process of its own
-answering RoboKudo's query action until it receives SIGINT or SIGTERM.
+answering RoboKudo's query action until it receives SIGINT or SIGTERM, or until a thread
+of RoboKudo ends with an exception, which ends the process with an error.
 
 Run it as ``python -m robokudo.scripts.perceive_tracy_cubes --settings <file>``.
 """
@@ -10,6 +11,7 @@ from __future__ import annotations
 # %% Imports
 import argparse
 import signal
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Event
@@ -51,15 +53,24 @@ class TracyCubesPerceptionProcess:
     The topic Tracy's description is published on, the one its motions are planned with.
     """
 
+    answer_delivery_time: float = 1.0
+    """
+    How long, in seconds, RoboKudo keeps spinning after one of its threads ended, so
+    that the query it aborted with the reason gets its answer before the process ends.
+    """
+
     _stopped: Event = field(default_factory=Event, init=False, repr=False)
     """
-    Set once the process is asked to stop.
+    Set once the process is asked to stop or a thread of RoboKudo ended.
     """
 
     def run(self) -> None:
         """
         Answer queries until SIGINT or SIGTERM arrives; before the first query can be
         answered, either signal ends the process at once.
+
+        :raises QueryServiceThreadFailed: Once a thread of RoboKudo ended with an
+            exception, after the query in progress was aborted with it.
         """
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         configure_logging(
@@ -75,13 +86,18 @@ class TracyCubesPerceptionProcess:
             world=URDFParser(
                 urdf=self.read_robot_description(), prefix=""
             ).create_world(),
+            thread_failed=self._stopped,
         )
         service.start()
         for signal_number in (signal.SIGINT, signal.SIGTERM):
             signal.signal(signal_number, self.stop)
         self._stopped.wait()
+        if service.thread_failure is not None:
+            time.sleep(self.answer_delivery_time)
         service.stop()
         rclpy.shutdown()
+        if service.thread_failure is not None:
+            raise service.thread_failure
 
     def read_robot_description(self) -> str:
         """

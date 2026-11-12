@@ -490,8 +490,8 @@ class EmptyPointCloud(AnalysisPreconditionError):
 @dataclass
 class DepthImageNotRegistered(AnalysisPreconditionError):
     """
-    Raised when the depth image does not match the color image scaled by the
-    color-to-depth ratio, so no point cloud can be built from them.
+    Raised when the depth image does not match the color image scaled by the color-to-
+    depth ratio, so no point cloud can be built from them.
     """
 
     depth_width: int
@@ -710,3 +710,30 @@ class QueryServiceAlreadyRunning(RoboKudoError, RuntimeError):
 
     def suggest_correction(self) -> str:
         return "stop the service before starting it again."
+
+
+@dataclass
+class QueryServiceThreadFailed(RoboKudoError, RuntimeError):
+    """
+    Raised when a thread of a query service ends with an exception, after which the
+    service answers no more queries.
+    """
+
+    thread_name: str
+    """
+    Name of the thread that ended.
+    """
+
+    reason: BaseException
+    """
+    The exception that ended the thread.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"RoboKudo stopped answering: its thread {self.thread_name} ended with "
+            f"{type(self.reason).__name__}: {self.reason}"
+        )
+
+    def suggest_correction(self) -> str:
+        return "restart RoboKudo after removing the cause named above."
