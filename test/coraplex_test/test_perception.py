@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 import json
 import threading
+import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -34,6 +35,7 @@ from coraplex.exceptions import (
     MotionDidNotFinish,
     PerceivedObjectNotInWorld,
     PerceptionSourceDidNotAnswer,
+    PerceptionSourceFailed,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
@@ -1175,6 +1177,92 @@ def test_a_query_robokudo_did_not_answer_survives_a_json_round_trip(
     restored = from_json(json.loads(json.dumps(to_json(failure))))
 
     assert type(restored) is PerceptionSourceDidNotAnswer
+    assert str(restored) == str(failure)
+
+
+# %% a pipeline that cannot answer
+
+
+class AbortingQueryServer:
+    """
+    Action server that aborts every perception query at once, naming why, as RoboKudo
+    does when a frame cannot be used, such as one whose depth image is not registered.
+    """
+
+    def __init__(self, node_name: str, action_name: str, reason: str) -> None:
+        from robokudo_msgs.action import Query
+
+        self.reason = reason
+        self.node = rclpy.create_node(node_name)
+        self.server = ActionServer(self.node, Query, action_name, self.execute_callback)
+        self.executor = SingleThreadedExecutor()
+        self.executor.add_node(self.node)
+        self.thread = threading.Thread(
+            target=self.executor.spin, daemon=True, name=node_name
+        )
+        self.thread.start()
+
+    def execute_callback(self, goal_handle):
+        from robokudo_msgs.action import Query
+
+        goal_handle.abort()
+        return Query.Result(text_result=self.reason)
+
+    def stop(self) -> None:
+        self.server.destroy()
+        self.executor.shutdown()
+        self.thread.join(timeout=2.0)
+        self.node.destroy_node()
+
+
+@pytest.fixture
+def aborting_query_server(rclpy_node):
+    """
+    A stand-in pipeline aborting every query with the reason the depth image of
+    Tracy's camera gives when it is not registered.
+    """
+    pytest.importorskip("robokudo_msgs")
+    server = AbortingQueryServer(
+        node_name="robokudo_stand_in",
+        action_name=ROBOKUDO_QUERY_ACTION_NAME,
+        reason=(
+            "The depth image is 640x576 pixels, the color image scaled by "
+            "color_to_depth_ratio 1280x720, so no point cloud can be built.\n"
+            "Suggestion: register the depth image to the color image "
+            "(orbbec_camera: depth_registration:=true) or set color_to_depth_ratio."
+        ),
+    )
+    yield server
+    server.stop()
+
+
+def test_a_query_robokudo_aborts_fails_at_once_with_robokudos_reason(
+    pr2_apartment_context, whole_scene_region, rclpy_node, aborting_query_server
+):
+    """
+    A query RoboKudo gave up on fails as soon as RoboKudo says so, not after the answer
+    timeout, and names RoboKudo's reason whole.
+    """
+    world, view, extensions = pr2_apartment_context
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    started = time.monotonic()
+
+    with pytest.raises(PerceptionSourceFailed) as raised:
+        RoboKudoPerception(
+            ros_node=rclpy_node, answer_timeout=timedelta(seconds=30)
+        ).look_for(query)
+
+    assert time.monotonic() - started < 5.0
+    assert raised.value.reason == aborting_query_server.reason
+    assert aborting_query_server.reason in str(raised.value)
+
+
+def test_a_query_robokudo_aborted_survives_a_json_round_trip() -> None:
+    failure = PerceptionSourceFailed(ROBOKUDO_QUERY_ACTION_NAME, "no point cloud")
+
+    restored = from_json(json.loads(json.dumps(to_json(failure))))
+
+    assert type(restored) is PerceptionSourceFailed
     assert str(restored) == str(failure)
 
 

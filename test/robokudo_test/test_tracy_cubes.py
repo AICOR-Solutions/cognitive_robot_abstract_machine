@@ -480,6 +480,7 @@ def test_a_query_after_one_on_an_unregistered_depth_image_is_answered(
     service.stop()
 
     assert unusable.status == GoalStatus.STATUS_ABORTED
+    assert "depth_registration:=true" in unusable.result.text_result
     assert answered.status == GoalStatus.STATUS_SUCCEEDED
     answered_colors = {
         color for designator in answered.result.res for color in designator.color

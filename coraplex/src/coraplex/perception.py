@@ -15,6 +15,7 @@ from cramph.data_types import ObservationStateValues
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
+from action_msgs.msg import GoalStatus
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.task import Future
@@ -53,6 +54,7 @@ from coraplex.exceptions import (
     AmbiguousDetection,
     PerceivedObjectNotInWorld,
     PerceptionSourceDidNotAnswer,
+    PerceptionSourceFailed,
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
@@ -658,6 +660,7 @@ class RoboKudoPerception(PerceptionInterface):
             :attr:`action_name` within :attr:`server_timeout`.
         :raises PerceptionSourceDidNotAnswer: If the query is not answered within
             :attr:`answer_timeout`; the query is canceled then.
+        :raises PerceptionSourceFailed: If the pipeline aborts the query, naming why.
         """
         # RoboKudo's messages only exist where its pipeline is installed, so they are
         # imported here rather than at module level: reading the world in simulation must
@@ -687,6 +690,10 @@ class RoboKudoPerception(PerceptionInterface):
         if not wait.until_done(answered):
             goal_handle.cancel_goal_async()
             raise self._unanswered(wait)
+        if answered.result().status == GoalStatus.STATUS_ABORTED:
+            raise PerceptionSourceFailed(
+                self.action_name, answered.result().result.text_result
+            )
         result = answered.result().result
         detections = [
             self._to_detection(designator, query)

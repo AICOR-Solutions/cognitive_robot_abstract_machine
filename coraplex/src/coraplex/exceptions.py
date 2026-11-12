@@ -411,6 +411,30 @@ class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
 
 
 @dataclass
+class PerceptionSourceFailed(PerceptionException, PlanFailure):
+    """
+    Raised when the perception pipeline gave up on a query, saying why, such as a camera
+    frame it cannot build a point cloud from.
+    """
+
+    action_name: str
+    """
+    The action the query was sent on.
+    """
+
+    reason: str
+    """
+    Why the pipeline gave up, as it reported it.
+    """
+
+    def error_message(self) -> str:
+        return f"RoboKudo could not answer: {self.reason}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
 class NoFloorBelowRobot(DataclassException):
     """
     Raised when a robot that has to plan its way over a floor stands over none.

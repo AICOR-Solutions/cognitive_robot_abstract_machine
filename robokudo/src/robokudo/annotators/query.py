@@ -584,7 +584,7 @@ class QueryActionServer(Node):
                 clear_blackboard_exception()
                 goal_handle.abort()
                 abort_result = Query.Result()
-                abort_result.text_result = "Aborted"
+                abort_result.text_result = exception_text
                 self.reset_bookkeeping_vars()
                 return abort_result
 
