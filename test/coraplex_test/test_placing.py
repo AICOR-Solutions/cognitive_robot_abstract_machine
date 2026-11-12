@@ -149,6 +149,26 @@ def test_a_place_of_an_object_nothing_holds_is_refused(pr2_apartment_context):
         expand(Sequence(nodes=[place]), extensions)
 
 
+def test_a_refused_place_names_the_object_by_its_body_and_asks_for_a_pick_up(
+    pr2_apartment_context,
+):
+    """
+    The refusal names the object as a person sees it, by its body, not its kind.
+    """
+    world, robot, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    target = Pose.from_xyz_rpy(1.2, 0.4, 0.9, reference_frame=world.root)
+
+    place = PlaceAction(object_designator=milk, target_location=target)
+
+    with pytest.raises(ObjectIsNotHeld) as refusal:
+        expand(Sequence(nodes=[place]), extensions)
+    message = str(refusal.value)
+    assert milk.root.name.name.replace("_", " ") in message
+    assert type(milk).__name__ not in message
+    assert "pick-up" in message
+
+
 # %% the arm that places
 
 

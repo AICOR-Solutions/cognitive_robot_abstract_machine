@@ -244,10 +244,17 @@ class ObjectIsNotHeld(DataclassException):
     """
 
     def error_message(self) -> str:
-        return f"no arm holds {self.object_designator.name} to place it."
+        return f"no arm holds the {self.shown_object_name} to place it."
 
     def suggest_correction(self) -> str:
-        return "place the object after a pick-up of it."
+        return f"put a pick-up of the {self.shown_object_name} before this place."
+
+    @property
+    def shown_object_name(self) -> str:
+        """
+        The object's name as a person sees it: its body's, its words apart.
+        """
+        return self.object_designator.root.name.name.replace("_", " ")
 
 
 @dataclass
