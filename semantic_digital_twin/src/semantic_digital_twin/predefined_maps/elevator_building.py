@@ -44,6 +44,14 @@ class ElevatorBuilding(ABC):
             speaking.
         """
 
+    def in_spoken_name_words(self, heard: str) -> str:
+        """
+        :param heard: What speech recognition heard a person say.
+        :return: ``heard`` in lower case, with the words :meth:`rooms_by_spoken_name`
+            names rooms by in place of those speech recognition mistakes them for.
+        """
+        return heard.casefold()
+
     def find_room_by_spoken_name(self, world: World, spoken_name: str) -> Room | None:
         """
         :param world: The world the building was spawned into.
@@ -51,7 +59,7 @@ class ElevatorBuilding(ABC):
         :return: The room named so by :meth:`rooms_by_spoken_name`, or None if there is
             none.
         """
-        requested = spoken_name.strip().casefold()
+        requested = self.in_spoken_name_words(spoken_name).strip()
         for known_name, room in self.rooms_by_spoken_name(world).items():
             if known_name.casefold() == requested:
                 return room
@@ -65,7 +73,7 @@ class ElevatorBuilding(ABC):
             holds, by that name. A name that is only part of another named room's name
             does not count.
         """
-        heard = sentence.casefold()
+        heard = self.in_spoken_name_words(sentence)
         named = {
             known_name: room
             for known_name, room in self.rooms_by_spoken_name(world).items()
