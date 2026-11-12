@@ -124,3 +124,33 @@ class WorldUpdateReferencesUnknownEntityError(UsageError):
             "before it exists reach nobody, and every later change that builds on them "
             "cannot be applied."
         )
+
+
+@dataclass
+class WorldServiceDidNotAnswer(DataclassException):
+    """
+    Raised when the service serving a world did not answer a request for it in time,
+    although the request was sent again while unanswered.
+    """
+
+    service: str = field(kw_only=True)
+    """
+    The name of the service asked.
+    """
+
+    timeout_seconds: float = field(kw_only=True)
+    """
+    How long, in seconds, the world was waited for in all.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The world service {self.service} did not answer within "
+            f"{self.timeout_seconds:.0f} s."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the process serving the world, such as Giskard, runs and is "
+            "not stuck, then try again."
+        )

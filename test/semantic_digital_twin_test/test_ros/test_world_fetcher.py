@@ -1,10 +1,15 @@
 import json
+import threading
 import time
 
+import pytest
+
 import numpy as np
+import rclpy
 
 from krrood.adapters.json_field import JSONField
 from krrood.adapters.json_serializer import from_json
+from semantic_digital_twin.adapters.ros.exceptions import WorldServiceDidNotAnswer
 from semantic_digital_twin.adapters.ros.world_fetcher import (
     FetchWorldServer,
     fetch_world_from_service,
@@ -324,3 +329,56 @@ def test_fetched_robot_parts_keep_their_joint_states(rclpy_node, pr2_world_state
     assert [joint_state.name for joint_state in fetched_pr2.torso.joint_states] == [
         joint_state.name for joint_state in pr2.torso.joint_states
     ]
+
+
+# %% a request that is never answered
+
+
+def test_a_world_request_lost_with_its_server_is_asked_again_of_the_next(rclpy_node):
+    """
+    A server that never spins, then ends, leaves the request unanswered, as a request
+    lost on its way does; the server serving the world next answers the request again.
+    """
+    world = create_dummy_world()
+    silent = rclpy.create_node("silent_world_server")
+    silent_service = silent.create_service(
+        Trigger,
+        "/semantic_digital_twin/fetch_world",
+        lambda request, response: response,
+    )
+    fetched = []
+    fetching = threading.Thread(
+        target=lambda: fetched.append(
+            fetch_world_from_service(
+                rclpy_node, timeout_seconds=8.0, request_interval=1.0
+            )
+        )
+    )
+    fetching.start()
+    time.sleep(2.0)
+    silent.destroy_service(silent_service)
+    silent.destroy_node()
+    fetcher = FetchWorldServer(node=rclpy_node, world=world)
+    fetching.join()
+    fetcher.close()
+
+    assert [body.name for body in fetched[0].bodies] == [
+        body.name for body in world.bodies
+    ]
+
+
+def test_a_world_service_that_never_answers_fails_the_fetch_in_time(rclpy_node):
+    silent = rclpy.create_node("silent_world_server")
+    silent_service = silent.create_service(
+        Trigger,
+        "/semantic_digital_twin/fetch_world",
+        lambda request, response: response,
+    )
+    started = time.monotonic()
+    with pytest.raises(WorldServiceDidNotAnswer):
+        fetch_world_from_service(rclpy_node, timeout_seconds=3.0, request_interval=1.0)
+    took = time.monotonic() - started
+    silent.destroy_service(silent_service)
+    silent.destroy_node()
+
+    assert took < 4.0

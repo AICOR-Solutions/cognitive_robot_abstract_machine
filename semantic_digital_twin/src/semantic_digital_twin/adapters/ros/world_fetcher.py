@@ -1,11 +1,13 @@
 import json
 from dataclasses import dataclass, field
+from threading import Event
 from time import time, sleep
 
 from rclpy.node import Node
 from rclpy.service import Service
 from std_srvs.srv import Trigger
 
+from semantic_digital_twin.adapters.ros.exceptions import WorldServiceDidNotAnswer
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -118,6 +120,7 @@ def fetch_world_from_service(
     node: Node,
     service_suffix: str = "fetch_world",
     timeout_seconds: float = 10.0,
+    request_interval: float = 5.0,
 ) -> World:
     """
     Fetch a world from any WorldFetcher Service.
@@ -125,11 +128,14 @@ def fetch_world_from_service(
     This method discovers all available WorldFetcher Services in the ROS2 network and
     picks the first one to get all world modification blocks from it.
 
-    :param node: The ROS2 node to use for communication.
+    :param node: The ROS2 node to use for communication; it is spun by another thread.
     :param service_suffix: The suffix (last part behind '/') of the WorldFetcher
         services to look for.
     :param timeout_seconds: Maximum time to wait for service availability and response.
+    :param request_interval: How long, in seconds, a request is waited for before it
+        is sent again, as a request can be lost, such as with a server ending.
     :return: The fetched modification blocks.
+    :raises WorldServiceDidNotAnswer: When no request was answered in time.
     """
     deadline = time() + timeout_seconds
     while time() < deadline:
@@ -146,23 +152,29 @@ def fetch_world_from_service(
         sleep(0.1)
     else:
         raise NoServiceFoundError(service_suffix)
-    remaining = deadline - time()
 
     chosen_service = matching_services[0]
     client = node.create_client(Trigger, chosen_service)
-
-    service_available = client.wait_for_service(timeout_sec=remaining)
-    if not service_available:
-        raise TimeoutError(
-            f"WorldFetcher service '{chosen_service}' not available after {timeout_seconds} seconds"
+    answered = Event()
+    requests = []
+    while client.wait_for_service(timeout_sec=max(0.0, deadline - time())):
+        request = client.call_async(Trigger.Request())
+        request.add_done_callback(lambda done: answered.set())
+        requests.append(request)
+        if answered.wait(max(0.0, min(request_interval, deadline - time()))):
+            break
+        if time() >= deadline:
+            break
+    for request in requests:
+        if not request.done():
+            client.remove_pending_request(request)
+    node.destroy_client(client)
+    responses = [request.result() for request in requests if request.done()]
+    if not responses:
+        raise WorldServiceDidNotAnswer(
+            service=chosen_service, timeout_seconds=timeout_seconds
         )
-
-    # fetch world
-    response = client.call(Trigger.Request(), timeout_sec=remaining)
-    if response is None:
-        raise TimeoutError(
-            f"WorldFetcher service '{chosen_service}' did not respond after {remaining} seconds"
-        )
+    response = responses[0]
 
     # New format is an object {"modifications": [...], "state": {...}}.
     world = World()
