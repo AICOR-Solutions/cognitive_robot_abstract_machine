@@ -33,16 +33,22 @@ from coraplex.robot_plans.actions.core.navigation import (
     DrivesBase,
     ElevatorNavigation,
     NavigateAction,
+    PassDoorAction,
 )
 from cramph.context import ContextExtension, StatechartContext
 from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
+from cramph.world_modification_nodes import MoveBranch
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
+    SetSeedConfiguration,
+)
 from giskardpy.motion_statechart.ros2_nodes.localization import (
     LoadMap,
     PublishInitialPose,
 )
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
@@ -53,6 +59,7 @@ from semantic_digital_twin.robots.tiago import Tiago, TiagoTopic
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
+    GroundFloor,
     Level,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
@@ -190,6 +197,51 @@ class RelocalizeFacingTheElevatorDoors(SequentialInsertion[ElevatorNavigation]):
         return [LoadMap(map_url=map_url), relocalization]
 
 
+@dataclass
+class ArriveWithTheCabinOnTheTargetFloor(SequentialInsertion[ElevatorNavigation]):
+    """
+    Puts the elevator's cabin, with the robot aboard, at the height of the ride's target
+    floor once the doors opened again, right before the robot leaves the cabin, for an
+    elevator whose height nothing reports.
+    """
+
+    @property
+    def position(self) -> InsertionPosition:
+        return InsertionPosition.BEFORE
+
+    def is_applicable(self, plan_node: ElevatorNavigation) -> bool:
+        return True
+
+    def anchor(self, plan_node: ElevatorNavigation) -> StatechartNode:
+        """
+        :return: The step moving the robot out from under the cabin, once the doors
+            opened again.
+        """
+        exit_through_the_doors = [
+            step for step in plan_node.nodes if isinstance(step, PassDoorAction)
+        ][-1]
+        [leaving_the_cabin] = [
+            node
+            for node in exit_through_the_doors.descendants
+            if isinstance(node, MoveBranch)
+        ]
+        return leaving_the_cabin
+
+    def nodes_to_insert(self, plan_node: ElevatorNavigation) -> list[StatechartNode]:
+        elevator = plan_node.elevator
+        return [
+            SetSeedConfiguration(
+                seed_configuration=JointState.from_mapping(
+                    {
+                        elevator.movable_joint: elevator.drive_position_for_floor(
+                            plan_node.target_floor
+                        )
+                    }
+                )
+            )
+        ]
+
+
 # %% demonstration
 
 
@@ -307,7 +359,13 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 PlanRewriting(
                     transformations=[
                         ArriveWithinTheAccuracyOfTheRealBase(),
-                        RelocalizeFacingTheElevatorDoors(),
+                        RelocalizeFacingTheElevatorDoors(
+                            floor_map_urls={
+                                GroundFloor: "/home/pal/maps/lab_map/map.yaml",
+                                FirstFloor: "/home/pal/maps/first_floor/first_floor_map_aligned.yaml",
+                            }
+                        ),
+                        ArriveWithTheCabinOnTheTargetFloor(),
                     ]
                 ),
             ]

@@ -8,10 +8,16 @@ from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     ElevatorRideAnnouncement,
     NavigateAction,
+    PassDoorAction,
 )
+from cramph.world_modification_nodes import MoveBranch
 from experiments.tiago_elevator_demo.demo import (
+    ArriveWithTheCabinOnTheTargetFloor,
     RelocalizeFacingTheElevatorDoors,
     TiagoElevatorRideDemonstration,
+)
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
+    SetSeedConfiguration,
 )
 from giskardpy.motion_statechart.ros2_nodes.localization import (
     LoadMap,
@@ -160,6 +166,43 @@ def test_the_target_floors_map_is_loaded_before_the_robot_is_relocalized():
     assert isinstance(map_loading, LoadMap)
     assert map_loading.map_url == transformation.floor_map_urls[FirstFloor]
     assert isinstance(relocalization, PublishInitialPose)
+    demonstration.tear_down()
+
+
+# %% arriving on the target floor on a real run
+
+
+def test_the_cabin_is_put_on_the_target_floor_right_before_the_robot_leaves_it():
+    demonstration = TiagoElevatorRideDemonstration(used_robot=Tiago)
+    world = demonstration.build_simulated_world()
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    elevator = world.get_semantic_annotations_by_type(Elevator)[0]
+    first_floor = world.get_semantic_annotations_by_type(FirstFloor)[0]
+    ride = ElevatorNavigation(elevator=elevator, target_floor=first_floor)
+    executor = simulated_executor(
+        [
+            RobotAccess(robot),
+            PlanRewriting(transformations=[ArriveWithTheCabinOnTheTargetFloor()]),
+        ]
+    )
+
+    executor.prepare(statechart_of(executor, ride))
+
+    exit_through_the_doors = [
+        step for step in ride.nodes if isinstance(step, PassDoorAction)
+    ][-1]
+    [leaving] = [
+        node
+        for node in exit_through_the_doors.descendants
+        if isinstance(node, MoveBranch)
+    ]
+    passing = leaving.parent_node
+    arrival = passing.nodes[passing.nodes.index(leaving) - 1]
+    assert isinstance(arrival, SetSeedConfiguration)
+    assert arrival.seed_configuration.connections == [elevator.movable_joint]
+    assert arrival.seed_configuration.target_values == [
+        elevator.drive_position_for_floor(first_floor)
+    ]
     demonstration.tear_down()
 
 
