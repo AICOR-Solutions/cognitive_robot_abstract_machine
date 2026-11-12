@@ -13,7 +13,10 @@ from experiments.tiago_elevator_demo.demo import (
     RelocalizeFacingTheElevatorDoors,
     TiagoElevatorRideDemonstration,
 )
-from giskardpy.motion_statechart.ros2_nodes.localization import PublishInitialPose
+from giskardpy.motion_statechart.ros2_nodes.localization import (
+    LoadMap,
+    PublishInitialPose,
+)
 from semantic_digital_twin.predefined_maps.arise_office import AriseOfficeRoom
 from semantic_digital_twin.robots.tiago import Tiago
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -129,6 +132,34 @@ def test_the_robot_is_relocalized_right_after_it_turned_to_the_doors_in_the_cabi
     assert isinstance(relocalization, PublishInitialPose)
     assert relocalization.base is robot.root
     assert relocalization.topic_name == transformation.topic_name
+    demonstration.tear_down()
+
+
+def test_the_target_floors_map_is_loaded_before_the_robot_is_relocalized():
+    demonstration = TiagoElevatorRideDemonstration(used_robot=Tiago)
+    world = demonstration.build_simulated_world()
+    robot = world.get_semantic_annotations_by_type(Tiago)[0]
+    ride = ElevatorNavigation(
+        elevator=world.get_semantic_annotations_by_type(Elevator)[0],
+        target_floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
+    )
+    transformation = RelocalizeFacingTheElevatorDoors(
+        floor_map_urls={FirstFloor: "/maps/first_floor.yaml"}
+    )
+    executor = simulated_executor(
+        [RobotAccess(robot), PlanRewriting(transformations=[transformation])]
+    )
+
+    executor.prepare(statechart_of(executor, ride))
+
+    [turn_to_the_doors] = [
+        step for step in ride.nodes if isinstance(step, NavigateAction)
+    ]
+    turn_index = ride.nodes.index(turn_to_the_doors)
+    map_loading, relocalization = ride.nodes[turn_index + 1 : turn_index + 3]
+    assert isinstance(map_loading, LoadMap)
+    assert map_loading.map_url == transformation.floor_map_urls[FirstFloor]
+    assert isinstance(relocalization, PublishInitialPose)
     demonstration.tear_down()
 
 

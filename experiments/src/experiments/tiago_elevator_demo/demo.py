@@ -39,7 +39,10 @@ from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
-from giskardpy.motion_statechart.ros2_nodes.localization import PublishInitialPose
+from giskardpy.motion_statechart.ros2_nodes.localization import (
+    LoadMap,
+    PublishInitialPose,
+)
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
@@ -155,6 +158,12 @@ class RelocalizeFacingTheElevatorDoors(SequentialInsertion[ElevatorNavigation]):
     Topic the localization takes a new estimate of the robot's pose on.
     """
 
+    floor_map_urls: dict[type[Level], str] = field(default_factory=dict)
+    """
+    The map the localization loads before the new estimate, for each floor the robot
+    rides to; riding to a floor without one keeps the map the localization has.
+    """
+
     @property
     def position(self) -> InsertionPosition:
         return InsertionPosition.AFTER
@@ -172,9 +181,13 @@ class RelocalizeFacingTheElevatorDoors(SequentialInsertion[ElevatorNavigation]):
         return turn_to_the_doors
 
     def nodes_to_insert(self, plan_node: ElevatorNavigation) -> list[StatechartNode]:
-        return [
-            PublishInitialPose(topic_name=self.topic_name, base=plan_node.robot.root)
-        ]
+        relocalization = PublishInitialPose(
+            topic_name=self.topic_name, base=plan_node.robot.root
+        )
+        map_url = self.floor_map_urls.get(type(plan_node.target_floor))
+        if map_url is None:
+            return [relocalization]
+        return [LoadMap(map_url=map_url), relocalization]
 
 
 # %% demonstration
