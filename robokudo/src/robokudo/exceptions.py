@@ -488,6 +488,47 @@ class EmptyPointCloud(AnalysisPreconditionError):
 
 
 @dataclass
+class DepthImageNotRegistered(AnalysisPreconditionError):
+    """
+    Raised when the depth image does not match the color image scaled by the
+    color-to-depth ratio, so no point cloud can be built from them.
+    """
+
+    depth_width: int
+    """
+    Width of the depth image, in pixels.
+    """
+
+    depth_height: int
+    """
+    Height of the depth image, in pixels.
+    """
+
+    scaled_color_width: int
+    """
+    Width of the color image scaled by the color-to-depth ratio, in pixels.
+    """
+
+    scaled_color_height: int
+    """
+    Height of the color image scaled by the color-to-depth ratio, in pixels.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The depth image is {self.depth_width}x{self.depth_height} pixels, the "
+            f"color image scaled by color_to_depth_ratio {self.scaled_color_width}x"
+            f"{self.scaled_color_height}, so no point cloud can be built."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "register the depth image to the color image (orbbec_camera: "
+            "depth_registration:=true) or set color_to_depth_ratio."
+        )
+
+
+@dataclass
 class ImageContourMissing(AnalysisPreconditionError):
     """
     Raised when an algorithm requires an image contour but none was found.

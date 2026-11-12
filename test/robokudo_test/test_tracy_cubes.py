@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import numpy as np
 import py_trees
 import pytest
+from action_msgs.msg import GoalStatus
+from py_trees.behaviour import Behaviour
 from scipy.spatial.transform import Rotation
 
 import rclpy
@@ -24,7 +26,9 @@ import robokudo.world
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from robokudo.annotators.cluster_color import Color as SemanticColorName
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
-from robokudo.cas import CAS
+from robokudo.annotators.core import BaseAnnotator
+from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
+from robokudo.cas import CAS, CASViews
 from robokudo.descriptors.analysis_engines.tracy_cubes import AnalysisEngine
 from robokudo.query_service import QueryService
 from robokudo.types.annotation import PoseAnnotation, SemanticColor
@@ -392,3 +396,93 @@ def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(
     assert red in designator.color
     position = designator.pose[0].pose.position
     assert math.dist((position.x, position.y), (red_cube.x, red_cube.y)) < 0.01
+
+
+# %% a frame the pipeline cannot use
+
+
+class UnregisterTheDepthOfTheFirstFrame(BaseAnnotator):
+    """
+    Halves the depth image of the first frame it sees, as a camera does whose depth
+    image is not registered to its color image, and lets every later frame pass.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(name="UnregisterTheDepthOfTheFirstFrame")
+        self.frames_seen = 0
+        """
+        How many frames passed through it.
+        """
+
+    def update(self) -> py_trees.common.Status:
+        if self.frames_seen == 0:
+            depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
+            self.get_cas().set(CASViews.DEPTH_IMAGE, depth[::2, ::2])
+        self.frames_seen += 1
+        return py_trees.common.Status.SUCCESS
+
+
+@dataclass
+class AnalysisEngineWithAnUnregisteredFirstFrame(AnalysisEngine):
+    """
+    The cube localization, its first frame with a depth image not registered to the
+    color image.
+    """
+
+    def perception_annotators(self) -> list[Behaviour]:
+        annotators = super().perception_annotators()
+        [preprocessor_index] = [
+            index
+            for index, annotator in enumerate(annotators)
+            if isinstance(annotator, ImagePreprocessorAnnotator)
+        ]
+        annotators.insert(preprocessor_index, UnregisterTheDepthOfTheFirstFrame())
+        return annotators
+
+
+def ask_for_an_answer(node, client: ActionClient):
+    """
+    :param node: The node the client is created on.
+    :param client: The client of RoboKudo's query action, its server up.
+    :return: How the query for any object ended: its status and its result.
+    """
+    query_messages = pytest.importorskip("robokudo_msgs.action")
+    executor = SingleThreadedExecutor(context=node.context)
+    executor.add_node(node)
+    goal_handle_future = client.send_goal_async(query_messages.Query.Goal())
+    executor.spin_until_future_complete(goal_handle_future, timeout_sec=30.0)
+    result_future = goal_handle_future.result().get_result_async()
+    executor.spin_until_future_complete(result_future, timeout_sec=30.0)
+    executor.remove_node(node)
+    return result_future.result()
+
+
+@pytest.mark.parametrize("cube_scene", [0], indirect=True)
+def test_a_query_after_one_on_an_unregistered_depth_image_is_answered(
+    node, cube_scene: CubeScene
+) -> None:
+    """
+    The query seeing the unregistered depth image is aborted naming the cause, and the
+    pipeline goes on answering: the next frame is registered and its cubes are found.
+    """
+    query_messages = pytest.importorskip("robokudo_msgs.action")
+    service = QueryService(
+        analysis_engine=AnalysisEngineWithAnUnregisteredFirstFrame(),
+        world=cube_scene.world,
+    )
+    service.start()
+    client = ActionClient(node, query_messages.Query, "robokudo/query")
+    assert client.wait_for_server(timeout_sec=10.0)
+
+    unusable = ask_for_an_answer(node, client)
+    answered = ask_for_an_answer(node, client)
+    client.destroy()
+    service.stop()
+
+    assert unusable.status == GoalStatus.STATUS_ABORTED
+    assert answered.status == GoalStatus.STATUS_SUCCEEDED
+    answered_colors = {
+        color for designator in answered.result.res for color in designator.color
+    }
+    for cube in cube_scene.cubes:
+        assert cube.color_name.name.lower() in answered_colors
