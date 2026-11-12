@@ -363,7 +363,6 @@ class Detection:
             + root_T_body[2, 3]
         )
         lowest = float(np.min(heights))
-        highest = float(np.max(heights))
         middle_x, middle_y, middle_z = root_T_body[:3, 3]
         tops = [
             (float(box.max_z), surface)
@@ -374,7 +373,7 @@ class Detection:
             ).bounding_boxes
             if box.min_x <= middle_x <= box.max_x
             and box.min_y <= middle_y <= box.max_y
-            and self._stands_in(box, lowest, middle_z, highest)
+            and self._stands_in(box, lowest, middle_z)
         ]
         if not tops:
             return None
@@ -385,23 +384,23 @@ class Detection:
         )
 
     def _stands_in(
-        self, box: VolumetricBoundingBox, lowest: float, middle: float, highest: float
+        self, box: VolumetricBoundingBox, lowest: float, middle: float
     ) -> bool:
         """
         :param box: A box of a supporting surface, in the world frame, under the body's
             middle.
         :param lowest: The height of the body's lowest point.
         :param middle: The height of the body's middle.
-        :param highest: The height of the body's highest point.
         :return: Whether the body stands on the box with its lowest point inside it, by
             more than :attr:`resting_tolerance`: the box's top lies above the body's
-            lowest point and below its middle, or, deeper, below its highest point
-            while the box's bottom lies below the body's lowest point, so that the body
-            sticks out of the box's top only.
+            lowest point and below its middle, or, deeper, the box's bottom lies below
+            the body's lowest point, so that the body sticks out of the box's top or
+            lies inside the box entirely. A body seen entirely below the box, or
+            reaching into it from below, does not stand on it.
         """
         if box.max_z <= lowest + self.resting_tolerance:
             return False
-        return box.max_z <= middle or (box.max_z < highest and box.min_z <= lowest)
+        return box.max_z <= middle or box.min_z <= lowest
 
     @staticmethod
     def _with_z_up_and_x_towards(

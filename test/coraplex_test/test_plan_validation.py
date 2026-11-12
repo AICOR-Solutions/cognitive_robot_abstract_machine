@@ -625,3 +625,83 @@ def test_a_cube_seen_deep_inside_the_table_is_raised_onto_it(
     assert lowest_height(cube, validation.copied_world) == pytest.approx(
         scene.tracy.table.top_z + clearance, abs=1e-6
     )
+
+
+def test_a_cube_seen_completely_inside_the_table_is_raised_onto_it(
+    cube_on_the_table: CubeOnTheTable,
+):
+    """
+    A cube cannot be in the table, even where the camera reports all of it inside.
+    """
+    scene = cube_on_the_table
+    validation = sunk_cube_validation(scene, depth=0.06)
+
+    check = validation.check_detection(
+        cube_query(validation, scene, scene.table_region())
+    )
+
+    assert check.verdict is ValidationVerdict.VALID
+    [cube] = check.found
+    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    assert lowest_height(cube, validation.copied_world) == pytest.approx(
+        scene.tracy.table.top_z + clearance, abs=1e-6
+    )
+
+
+def table_box(scene: CubeOnTheTable) -> VolumetricBoundingBox:
+    """
+    :return: The box of Tracy's table body, in the world frame.
+    """
+    return scene.tracy.table.root.collision.as_bounding_box_collection_in_frame(
+        scene.world.root
+    ).bounding_box()
+
+
+def sunk_detection(scene: CubeOnTheTable, x: float, depth: float) -> Detection:
+    """
+    :return: A detection of the cube upright at `x`, its centre `depth` metres lower
+        than a cube resting on the table.
+    """
+    return Detection(
+        semantic_annotation=HasGraspCandidates,
+        pose=Pose.from_xyz_rpy(
+            x=x,
+            y=0.1,
+            z=scene.tracy.table.top_z + scene.edge_length / 2 - depth,
+            reference_frame=scene.world.root,
+        ),
+    )
+
+
+def test_a_cube_seen_inside_the_table_with_its_centre_beyond_the_edge_stays_where_it_was_seen(
+    cube_on_the_table: CubeOnTheTable,
+):
+    """
+    The cube does not stand on the table: it reaches into the table's side.
+    """
+    scene = cube_on_the_table
+    detection = sunk_detection(scene, x=table_box(scene).max_x + 0.01, depth=0.004)
+
+    detection.write_into(scene.cube, scene.world, trust_orientation=True)
+
+    assert detection.depth_inside_surface(scene.cube, scene.world) is None
+    assert lowest_height(scene.cube, scene.world) == pytest.approx(
+        scene.tracy.table.top_z - 0.004, abs=1e-6
+    )
+
+
+def test_a_cube_seen_entirely_below_the_table_stays_where_it_was_seen(
+    cube_on_the_table: CubeOnTheTable,
+):
+    """
+    A cube under the table is possible: it is not inside the table it would stand on.
+    """
+    scene = cube_on_the_table
+    below = table_box(scene).min_z - scene.edge_length - 0.01
+    depth = scene.tracy.table.top_z - below
+    detection = sunk_detection(scene, x=0.55, depth=depth)
+
+    detection.write_into(scene.cube, scene.world, trust_orientation=True)
+
+    assert detection.depth_inside_surface(scene.cube, scene.world) is None
+    assert lowest_height(scene.cube, scene.world) == pytest.approx(below, abs=1e-6)
