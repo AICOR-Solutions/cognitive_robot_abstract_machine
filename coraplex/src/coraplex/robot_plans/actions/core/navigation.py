@@ -542,10 +542,16 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
     Level of the building the robot should end up on.
     """
 
-    exit_clearance: float = 0.5
+    exit_clearance: float = 0.7
     """
     Distance the robot keeps from the elevator's opening after driving out, on top of
     half the cabin's depth.
+    """
+
+    cabin_pose_threshold: float = 0.15
+    """
+    How far the robot may be from the pose facing the doors inside the cabin, in meters
+    and in radians, to count as arrived there.
     """
 
     def create_steps(self) -> list[StatechartNode]:
@@ -567,7 +573,10 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
                 ),
             ),
             *self.reattach(self.robot.root, self.elevator.root),
-            NavigateAction(target_location=self._pose_facing_doors),
+            NavigateAction(
+                target_location=self._pose_facing_doors,
+                base_pose_threshold=self.cabin_pose_threshold,
+            ),
             SayAction(
                 text=ElevatorRideAnnouncement.RIDING.verbalize(
                     current_floor, self.target_floor

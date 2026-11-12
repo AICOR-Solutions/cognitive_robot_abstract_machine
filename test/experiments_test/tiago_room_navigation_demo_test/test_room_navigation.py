@@ -6,6 +6,7 @@ from typing_extensions import Iterator
 from cramph.context import ContextExtension
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
+    NavigateAction,
     PathPlanningNavigateAction,
 )
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
@@ -111,6 +112,23 @@ def test_a_room_on_another_level_is_reached_by_riding_the_elevator(
     assert drive_to_room.target.to_np() == pytest.approx(
         west_office.floor_centre.to_np()
     )
+
+
+def test_the_ride_turns_to_the_doors_within_its_cabin_pose_threshold(
+    lobby_demonstration, lobby_extensions
+):
+    world = world_of(lobby_extensions)
+    ride = ElevatorNavigation(
+        elevator=world.get_semantic_annotations_by_type(Elevator)[0],
+        target_floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
+    )
+
+    expand(ride, lobby_extensions)
+
+    [turn_to_the_doors] = [
+        step for step in ride.nodes if isinstance(step, NavigateAction)
+    ]
+    assert turn_to_the_doors.base_pose_threshold == ride.cabin_pose_threshold
 
 
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_extensions):
