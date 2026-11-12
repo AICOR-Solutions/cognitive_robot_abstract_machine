@@ -53,7 +53,6 @@ from typing_extensions import Any, Self, TYPE_CHECKING
 from coraplex.datastructures.enums import DetectionGrounding, PerceptionSource
 from coraplex.exceptions import (
     AmbiguousDetection,
-    PerceivedObjectInsideSurface,
     PerceivedObjectNotInWorld,
     PerceptionSourceDidNotAnswer,
     PerceptionSourceFailed,
@@ -217,13 +216,6 @@ class Detection:
     perception source measured none.
     """
 
-    maximum_raise_onto_surface: float = 0.01
-    """
-    How far inside, in metres, the supporting surface it stands on this detection may
-    put an object that is then raised onto the surface; one it puts deeper inside is
-    refused, see :class:`~coraplex.exceptions.PerceivedObjectInsideSurface`.
-    """
-
     resting_tolerance: float = 1e-6
     """
     How far, in metres, an object may reach into the surface it stands on and still
@@ -291,26 +283,17 @@ class Detection:
         """
         Move ``body`` to where this detection saw it, raised to
         :attr:`clearance_above_surface` above the supporting surface it stands on where
-        the detection puts it partly inside, and give it the detected color unless it
-        shows that color already.
+        the detection puts it inside, however deep, and give it the detected color
+        unless it shows that color already.
 
         :param body: The body that was seen.
         :param world: The world holding the body.
         :param trust_orientation: Whether to also apply the detected orientation, see
             :meth:`apply_to`.
-        :raises PerceivedObjectInsideSurface: When the detection puts the body deeper
-            inside the surface it stands on than :attr:`maximum_raise_onto_surface`.
         """
         origin = self.perceived_origin(body, world, trust_orientation)
         inside = self.depth_inside_surface(body, world, trust_orientation)
         if inside is not None:
-            if not inside.is_raisable:
-                raise PerceivedObjectInsideSurface(
-                    object_name=body.name.name,
-                    surface_name=inside.surface.root.name.name,
-                    depth=inside.depth,
-                    maximum_raise=inside.maximum_raise,
-                )
             origin = world.transform(
                 HomogeneousTransformationMatrix.from_xyz_rpy(
                     z=inside.depth + self.clearance_above_surface,
@@ -366,10 +349,9 @@ class Detection:
         :param trust_orientation: Whether the detected orientation is applied, see
             :meth:`apply_to`.
         :return: How far ``body``, where this detection puts it, lies inside the
-            highest supporting surface it stands on: a surface under the body's middle
-            whose top lies below that middle and above the body's lowest point, by more
-            than :attr:`resting_tolerance`; None when the body lies inside none, or has
-            no collision shapes to lie inside one with.
+            highest supporting surface it stands on, see :meth:`_stands_in`; None when
+            the body lies inside none, or has no collision shapes to lie inside one
+            with.
         """
         if not body.collision.shapes:
             return None
@@ -381,6 +363,7 @@ class Detection:
             + root_T_body[2, 3]
         )
         lowest = float(np.min(heights))
+        highest = float(np.max(heights))
         middle_x, middle_y, middle_z = root_T_body[:3, 3]
         tops = [
             (float(box.max_z), surface)
@@ -391,7 +374,7 @@ class Detection:
             ).bounding_boxes
             if box.min_x <= middle_x <= box.max_x
             and box.min_y <= middle_y <= box.max_y
-            and lowest + self.resting_tolerance < box.max_z <= middle_z
+            and self._stands_in(box, lowest, middle_z, highest)
         ]
         if not tops:
             return None
@@ -399,8 +382,26 @@ class Detection:
         return DepthInsideSurface(
             surface=surface,
             depth=top - lowest,
-            maximum_raise=self.maximum_raise_onto_surface,
         )
+
+    def _stands_in(
+        self, box: VolumetricBoundingBox, lowest: float, middle: float, highest: float
+    ) -> bool:
+        """
+        :param box: A box of a supporting surface, in the world frame, under the body's
+            middle.
+        :param lowest: The height of the body's lowest point.
+        :param middle: The height of the body's middle.
+        :param highest: The height of the body's highest point.
+        :return: Whether the body stands on the box with its lowest point inside it, by
+            more than :attr:`resting_tolerance`: the box's top lies above the body's
+            lowest point and below its middle, or, deeper, below its highest point
+            while the box's bottom lies below the body's lowest point, so that the body
+            sticks out of the box's top only.
+        """
+        if box.max_z <= lowest + self.resting_tolerance:
+            return False
+        return box.max_z <= middle or (box.max_z < highest and box.min_z <= lowest)
 
     @staticmethod
     def _with_z_up_and_x_towards(
@@ -482,19 +483,6 @@ class DepthInsideSurface:
     """
     How far, in metres, the object's lowest point lies below the surface's top.
     """
-
-    maximum_raise: float
-    """
-    How far, in metres, the object may be raised onto the surface, see
-    :attr:`Detection.maximum_raise_onto_surface`.
-    """
-
-    @property
-    def is_raisable(self) -> bool:
-        """
-        Whether the object lies shallow enough inside the surface to be raised onto it.
-        """
-        return self.depth <= self.maximum_raise
 
 
 @dataclass

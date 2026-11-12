@@ -290,47 +290,6 @@ class PerceivedObjectNotInWorld(PerceptionExceptionWithSemanticAnnotation):
 
 
 @dataclass
-class PerceivedObjectInsideSurface(PerceptionException, PlanFailure):
-    """
-    Raised when a detection puts an object deeper inside the supporting surface it
-    stands on than it may be raised onto it, so the detection is refused.
-    """
-
-    object_name: str
-    """
-    The name of the object's body.
-    """
-
-    surface_name: str
-    """
-    The name of the surface's body.
-    """
-
-    depth: float
-    """
-    How far, in metres, the object's lowest point lay below the surface's top.
-    """
-
-    maximum_raise: float
-    """
-    How far, in metres, an object may be raised onto the surface it stands on.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"{self.object_name} was reported {self.depth * 1000:.1f} mm inside the "
-            f"{self.surface_name}, deeper than the {self.maximum_raise * 1000:g} mm it "
-            f"may be raised onto it; the detection was refused."
-        )
-
-    def suggest_correction(self) -> str:
-        return (
-            "check the camera's calibration against the table, and the size the "
-            "perception reports for the object."
-        )
-
-
-@dataclass
 class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a detection's annotation describes several bodies, so the perceived pose

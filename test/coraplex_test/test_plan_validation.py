@@ -13,11 +13,7 @@ import numpy as np
 import pytest
 
 from coraplex.datastructures.enums import DetectionGrounding
-from coraplex.exceptions import (
-    NothingPerceived,
-    PerceivedObjectInsideSurface,
-    UnidentifiedDetections,
-)
+from coraplex.exceptions import NothingPerceived, UnidentifiedDetections
 from coraplex.perception import (
     Detection,
     PerceptionInterface,
@@ -610,15 +606,22 @@ def test_a_cube_seen_above_the_table_stays_where_it_was_seen(
     )
 
 
-def test_a_cube_seen_deeper_inside_the_table_than_it_may_be_raised_is_refused(
+def test_a_cube_seen_deep_inside_the_table_is_raised_onto_it(
     cube_on_the_table: CubeOnTheTable,
 ):
+    """
+    A cube cannot be inside the table, however deep the camera reports it there.
+    """
     scene = cube_on_the_table
-    limit = Detection(HasGraspCandidates, Pose()).maximum_raise_onto_surface
-    validation = sunk_cube_validation(scene, depth=limit + 0.002)
+    validation = sunk_cube_validation(scene, depth=0.04)
 
-    with pytest.raises(PerceivedObjectInsideSurface) as refusal:
-        validation.check_detection(cube_query(validation, scene, scene.table_region()))
+    check = validation.check_detection(
+        cube_query(validation, scene, scene.table_region())
+    )
 
-    assert refusal.value.depth == pytest.approx(limit + 0.002, abs=1e-6)
-    assert refusal.value.maximum_raise == limit
+    assert check.verdict is ValidationVerdict.VALID
+    [cube] = check.found
+    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    assert lowest_height(cube, validation.copied_world) == pytest.approx(
+        scene.tracy.table.top_z + clearance, abs=1e-6
+    )
