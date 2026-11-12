@@ -26,6 +26,7 @@ from semantic_digital_twin.reasoning.robot_predicates import VisibleTo
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
+    HasSupportingSurface,
     IsPerceivable,
 )
 from semantic_digital_twin.specifications.connections import (
@@ -52,6 +53,7 @@ from typing_extensions import Any, Self, TYPE_CHECKING
 from coraplex.datastructures.enums import DetectionGrounding, PerceptionSource
 from coraplex.exceptions import (
     AmbiguousDetection,
+    PerceivedObjectInsideSurface,
     PerceivedObjectNotInWorld,
     PerceptionSourceDidNotAnswer,
     PerceptionSourceFailed,
@@ -215,6 +217,27 @@ class Detection:
     perception source measured none.
     """
 
+    maximum_raise_onto_surface: float = 0.01
+    """
+    How far inside, in metres, the supporting surface it stands on this detection may
+    put an object that is then raised onto the surface; one it puts deeper inside is
+    refused, see :class:`~coraplex.exceptions.PerceivedObjectInsideSurface`.
+    """
+
+    resting_tolerance: float = 1e-6
+    """
+    How far, in metres, an object may reach into the surface it stands on and still
+    count as resting on it, so that one seen exactly on the surface, up to rounding, is
+    left where it was seen.
+    """
+
+    clearance_above_surface: float = 0.001
+    """
+    How far, in metres, an object raised onto the surface it stands on is put above
+    it: an object exactly on the surface touches it, which collision avoidance counts
+    as a collision once the object is held.
+    """
+
     def apply_to(
         self,
         world: World,
@@ -266,13 +289,52 @@ class Detection:
 
     def write_into(self, body: Body, world: World, trust_orientation: bool) -> None:
         """
-        Move ``body`` to where this detection saw it and give it the detected color
-        unless it shows that color already.
+        Move ``body`` to where this detection saw it, raised to
+        :attr:`clearance_above_surface` above the supporting surface it stands on where
+        the detection puts it partly inside, and give it the detected color unless it
+        shows that color already.
 
         :param body: The body that was seen.
         :param world: The world holding the body.
         :param trust_orientation: Whether to also apply the detected orientation, see
             :meth:`apply_to`.
+        :raises PerceivedObjectInsideSurface: When the detection puts the body deeper
+            inside the surface it stands on than :attr:`maximum_raise_onto_surface`.
+        """
+        origin = self.perceived_origin(body, world, trust_orientation)
+        inside = self.depth_inside_surface(body, world, trust_orientation)
+        if inside is not None:
+            if not inside.is_raisable:
+                raise PerceivedObjectInsideSurface(
+                    object_name=body.name.name,
+                    surface_name=inside.surface.root.name.name,
+                    depth=inside.depth,
+                    maximum_raise=inside.maximum_raise,
+                )
+            origin = world.transform(
+                HomogeneousTransformationMatrix.from_xyz_rpy(
+                    z=inside.depth + self.clearance_above_surface,
+                    reference_frame=world.root,
+                )
+                @ world.transform(origin, world.root),
+                origin.reference_frame,
+            )
+        body.parent_connection.origin = origin
+        if self.color is not None and self.color not in body.visual.color_names():
+            with world.modify_world():
+                body.update_visual_color(self.color.representative_color)
+
+    def perceived_origin(
+        self, body: Body, world: World, trust_orientation: bool
+    ) -> HomogeneousTransformationMatrix:
+        """
+        :param body: The body that was seen.
+        :param world: The world holding the body.
+        :param trust_orientation: Whether to also apply the detected orientation, see
+            :meth:`apply_to`.
+        :return: The origin of ``body``'s parent connection that puts it where this
+            detection saw it: upright, see :meth:`_with_z_up_and_x_towards`, or in its
+            present orientation when the detected one is not trusted.
         """
         robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
@@ -284,22 +346,61 @@ class Detection:
         )
 
         if trust_orientation:
-            body.parent_connection.origin = detected_global_pose
-        else:
-            parent_T_object = world.transform(
-                detected_global_pose, body.parent_connection.parent
-            )
-            parent_origin = body.parent_connection.origin
-            body.parent_connection.origin = (
-                HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                    point=parent_T_object.position,
-                    rotation_matrix=parent_origin.rotation_matrix,
-                    reference_frame=body.parent_connection.parent,
-                )
-            )
-        if self.color is not None and self.color not in body.visual.color_names():
-            with world.modify_world():
-                body.update_visual_color(self.color.representative_color)
+            return detected_global_pose
+        parent_T_object = world.transform(
+            detected_global_pose, body.parent_connection.parent
+        )
+        parent_origin = body.parent_connection.origin
+        return HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            point=parent_T_object.position,
+            rotation_matrix=parent_origin.rotation_matrix,
+            reference_frame=body.parent_connection.parent,
+        )
+
+    def depth_inside_surface(
+        self, body: Body, world: World, trust_orientation: bool = True
+    ) -> DepthInsideSurface | None:
+        """
+        :param body: The body that was seen.
+        :param world: The world holding the body and the surfaces it may stand on.
+        :param trust_orientation: Whether the detected orientation is applied, see
+            :meth:`apply_to`.
+        :return: How far ``body``, where this detection puts it, lies inside the
+            highest supporting surface it stands on: a surface under the body's middle
+            whose top lies below that middle and above the body's lowest point, by more
+            than :attr:`resting_tolerance`; None when the body lies inside none, or has
+            no collision shapes to lie inside one with.
+        """
+        if not body.collision.shapes:
+            return None
+        root_T_body = world.transform(
+            self.perceived_origin(body, world, trust_orientation), world.root
+        ).to_np()
+        heights = (
+            body.collision.combined_mesh.vertices @ root_T_body[2, :3]
+            + root_T_body[2, 3]
+        )
+        lowest = float(np.min(heights))
+        middle_x, middle_y, middle_z = root_T_body[:3, 3]
+        tops = [
+            (float(box.max_z), surface)
+            for surface in world.get_semantic_annotations_by_type(HasSupportingSurface)
+            if surface.root is not body
+            for box in surface.root.collision.as_bounding_box_collection_in_frame(
+                world.root
+            ).bounding_boxes
+            if box.min_x <= middle_x <= box.max_x
+            and box.min_y <= middle_y <= box.max_y
+            and lowest + self.resting_tolerance < box.max_z <= middle_z
+        ]
+        if not tops:
+            return None
+        top, surface = max(tops, key=lambda found: found[0])
+        return DepthInsideSurface(
+            surface=surface,
+            depth=top - lowest,
+            maximum_raise=self.maximum_raise_onto_surface,
+        )
 
     @staticmethod
     def _with_z_up_and_x_towards(
@@ -362,6 +463,38 @@ class Detection:
         if len(bodies) > 1:
             raise AmbiguousDetection(self.semantic_annotation, len(bodies))
         return candidates
+
+
+@dataclass
+class DepthInsideSurface:
+    """
+    How far a detection puts an object inside the supporting surface it stands on, such
+    as a cube a camera whose calibration is a few millimetres off sees sunk into the
+    table.
+    """
+
+    surface: HasSupportingSurface
+    """
+    The surface the object stands on.
+    """
+
+    depth: float
+    """
+    How far, in metres, the object's lowest point lies below the surface's top.
+    """
+
+    maximum_raise: float
+    """
+    How far, in metres, the object may be raised onto the surface, see
+    :attr:`Detection.maximum_raise_onto_surface`.
+    """
+
+    @property
+    def is_raisable(self) -> bool:
+        """
+        Whether the object lies shallow enough inside the surface to be raised onto it.
+        """
+        return self.depth <= self.maximum_raise
 
 
 @dataclass

@@ -13,8 +13,17 @@ import numpy as np
 import pytest
 
 from coraplex.datastructures.enums import DetectionGrounding
-from coraplex.exceptions import NothingPerceived, UnidentifiedDetections
-from coraplex.perception import PerceptionQuery, WorldPerception
+from coraplex.exceptions import (
+    NothingPerceived,
+    PerceivedObjectInsideSurface,
+    UnidentifiedDetections,
+)
+from coraplex.perception import (
+    Detection,
+    PerceptionInterface,
+    PerceptionQuery,
+    WorldPerception,
+)
 from coraplex.plans.failures import (
     MotionViolatedCollisionAvoidance,
     MotionWouldBreakSafetyLimit,
@@ -482,3 +491,134 @@ def test_a_detection_finding_nothing_fails_as_not_perceived(
 
     assert check.verdict is ValidationVerdict.FAILED
     assert check.cause is FailureCause.NOT_PERCEIVED
+
+
+# %% a cube seen inside the table
+
+
+@dataclass
+class PerceptionSeeingTheCubeSunk(PerceptionInterface):
+    """
+    Reports the cube upright where it stands, but its centre lower by a depth, as a
+    camera whose calibration is a few millimetres off sees a cube on the table.
+    """
+
+    scene: CubeOnTheTable
+    """
+    The scene whose cube is seen.
+    """
+
+    depth: float
+    """
+    How far below its resting height the cube's centre is reported, in metres.
+    """
+
+    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+        resting = query.world.rebind_world_entities(self.scene.cube).global_pose
+        return [
+            Detection(
+                semantic_annotation=HasGraspCandidates,
+                pose=Pose.from_xyz_rpy(
+                    x=float(resting.x),
+                    y=float(resting.y),
+                    z=float(resting.z) - self.depth,
+                    reference_frame=query.world.root,
+                ),
+            )
+        ]
+
+
+def sunk_cube_validation(
+    scene: CubeOnTheTable, depth: float, collision_avoidance: bool = False
+) -> PlanValidation:
+    """
+    :return: A validation of a plan of Tracy perceiving the cube `depth` metres lower
+        than it rests, avoiding collisions as a run does where `collision_avoidance`.
+    """
+    return PlanValidation(
+        world=scene.world,
+        extensions=scene.extensions,
+        perception=PerceptionSeeingTheCubeSunk(scene=scene, depth=depth),
+        collision_avoidance=collision_avoidance,
+    )
+
+
+def lowest_height(body: Body, world: World) -> float:
+    """
+    :return: The height of the body's lowest point in `world`.
+    """
+    return float(
+        body.collision.as_bounding_box_collection_in_frame(world.root)
+        .bounding_box()
+        .min_z
+    )
+
+
+def test_a_cube_seen_a_few_millimetres_inside_the_table_moves_clear_once_held(
+    cube_on_the_table: CubeOnTheTable,
+):
+    """
+    A pick puts its cube under the tool frame once the gripper closed; a cube the
+    detection left inside the table is then part of the robot inside its table, which
+    collision avoidance stops the next motion for, as on the real Tracy on 2026-11-12.
+    """
+    scene = cube_on_the_table
+    validation = sunk_cube_validation(scene, depth=0.004, collision_avoidance=True)
+    copy = validation.copied_world
+    tracy = copy.rebind_world_entities(scene.tracy)
+    validation.check_detection(cube_query(validation, scene, scene.table_region()))
+    copy.move_branch(
+        copy.rebind_world_entities(scene.cube), tracy.left_arm.end_effector.tool_frame
+    )
+
+    check = validation.check(ParkArmsAction(arms=list(tracy.all_arms)))
+
+    assert check.verdict is ValidationVerdict.VALID, check.failure
+
+
+def test_a_cube_seen_a_few_millimetres_inside_the_table_is_raised_onto_it(
+    cube_on_the_table: CubeOnTheTable,
+):
+    scene = cube_on_the_table
+    validation = sunk_cube_validation(scene, depth=0.004)
+
+    check = validation.check_detection(
+        cube_query(validation, scene, scene.table_region())
+    )
+
+    assert check.verdict is ValidationVerdict.VALID
+    [cube] = check.found
+    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    assert lowest_height(cube, validation.copied_world) == pytest.approx(
+        scene.tracy.table.top_z + clearance, abs=1e-6
+    )
+
+
+def test_a_cube_seen_above_the_table_stays_where_it_was_seen(
+    cube_on_the_table: CubeOnTheTable,
+):
+    scene = cube_on_the_table
+    validation = sunk_cube_validation(scene, depth=-0.003)
+
+    check = validation.check_detection(
+        cube_query(validation, scene, scene.table_region())
+    )
+
+    [cube] = check.found
+    assert lowest_height(cube, validation.copied_world) == pytest.approx(
+        scene.tracy.table.top_z + 0.003, abs=1e-6
+    )
+
+
+def test_a_cube_seen_deeper_inside_the_table_than_it_may_be_raised_is_refused(
+    cube_on_the_table: CubeOnTheTable,
+):
+    scene = cube_on_the_table
+    limit = Detection(HasGraspCandidates, Pose()).maximum_raise_onto_surface
+    validation = sunk_cube_validation(scene, depth=limit + 0.002)
+
+    with pytest.raises(PerceivedObjectInsideSurface) as refusal:
+        validation.check_detection(cube_query(validation, scene, scene.table_region()))
+
+    assert refusal.value.depth == pytest.approx(limit + 0.002, abs=1e-6)
+    assert refusal.value.maximum_raise == limit
