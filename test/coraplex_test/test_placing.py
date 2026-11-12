@@ -9,6 +9,9 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from semantic_digital_twin.robots.robot_parts import Arm
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
+from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world_description.world_entity import Body
 from krrood_spatial_math.spatial_types import Pose
 
 from ..conftest import SAMPLING_SEED
@@ -167,6 +170,20 @@ def test_a_refused_place_names_the_object_by_its_body_and_asks_for_a_pick_up(
     assert milk.root.name.name.replace("_", " ") in message
     assert type(milk).__name__ not in message
     assert "pick-up" in message
+
+
+def test_a_refused_place_asks_for_the_pick_up_before_placing_the_object():
+    """
+    The refusal asks for the pick-up before the object is placed, not before a place
+    a person may read as a location.
+    """
+    cube = HasGraspCandidates(root=Body(name=PrefixedName("red_cube")))
+
+    refusal = ObjectIsNotHeld(cube)
+
+    assert refusal.suggest_correction() == (
+        "put a pick-up of the red cube before placing it."
+    )
 
 
 # %% the arm that places

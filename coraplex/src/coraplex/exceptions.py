@@ -247,7 +247,7 @@ class ObjectIsNotHeld(DataclassException):
         return f"no arm holds the {self.shown_object_name} to place it."
 
     def suggest_correction(self) -> str:
-        return f"put a pick-up of the {self.shown_object_name} before this place."
+        return f"put a pick-up of the {self.shown_object_name} before placing it."
 
     @property
     def shown_object_name(self) -> str:
