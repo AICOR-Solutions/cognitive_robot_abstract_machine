@@ -411,7 +411,7 @@ class StillProgressing(EndedByOwner, CompositeNode):
     The task or goal whose progress is watched.
     """
 
-    timeout: timedelta = timedelta(seconds=5)
+    timeout: timedelta = timedelta(seconds=15)
     """
     Simulated time without progress after which this turns ``False``.
     """
