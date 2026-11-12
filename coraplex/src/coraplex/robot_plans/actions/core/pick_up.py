@@ -33,6 +33,23 @@ from krrood_spatial_math.spatial_types import Pose
 
 logger = logging.getLogger(__name__)
 
+SETTLED_POSITION_THRESHOLD = 0.001
+"""
+How near, in metres, the tool center point has to have come to a grasp before the
+fingers are done closing on the object, tighter than the threshold an approach ends at.
+
+A pick-up puts the object under the gripper once the fingers closed: were the arm still
+on its way onto the grasp then, a gripper whose fingers close at once would carry the
+object on down into what it stands on.
+"""
+
+SETTLED_ORIENTATION_THRESHOLD = 0.005
+"""
+How near, in rad, the tool center point's orientation has to have come to a grasp's
+before the fingers are done closing on the object, see
+:data:`SETTLED_POSITION_THRESHOLD`.
+"""
+
 
 @dataclass(kw_only=True, eq=False)
 class HasGraspChoice:
@@ -286,7 +303,8 @@ class GraspingAction(
         """
         :param closing_goal: A new node closing the gripper on the object.
         :return: A new step running `closing_goal` while the gripper is kept at the
-            grasp, whatever else moves the robot meanwhile.
+            grasp, whatever else moves the robot meanwhile, until the fingers closed and
+            the gripper settled at the grasp, see :data:`SETTLED_POSITION_THRESHOLD`.
         """
         return Parallel(
             nodes=[
@@ -296,6 +314,8 @@ class GraspingAction(
                         self.grasp.grasp_pose, self.arm.end_effector, self.grasp
                     ).grasp,
                     self.arm,
+                    position_threshold=SETTLED_POSITION_THRESHOLD,
+                    orientation_threshold=SETTLED_ORIENTATION_THRESHOLD,
                 ),
             ]
         )

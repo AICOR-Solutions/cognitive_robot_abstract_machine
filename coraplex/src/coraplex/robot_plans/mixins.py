@@ -246,6 +246,8 @@ class MovesToolCenterPoint(Action, ABC):
         max_linear_velocity: float | None = None,
         max_angular_velocity: float | None = None,
         near_the_object: bool = False,
+        position_threshold: float | None = None,
+        orientation_threshold: float | None = None,
     ) -> MotionStatechartNode:
         """
         :param target: Where the tool center point should end up.
@@ -255,6 +257,11 @@ class MovesToolCenterPoint(Action, ABC):
         :param near_the_object: Whether the motion comes onto the object or leaves it,
             which follows a straight line where the action
             :attr:`moves_straight_near_the_object`.
+        :param position_threshold: How near, in metres, the tool center point has to
+            come to `target` for the goal to be reached; None for
+            :attr:`position_threshold`.
+        :param orientation_threshold: How near, in rad, its orientation has to come;
+            None for :attr:`orientation_threshold`.
         :return: The goal moving the tool center point there, together with whatever
             speed caps were asked for, and the task keeping the base still, see :meth:`~coraplex.robot_plans.actions.base.Action.keep_base_still`.
             A goal that is a parallel of its tasks holds them itself; any other is put in
@@ -267,7 +274,20 @@ class MovesToolCenterPoint(Action, ABC):
         )
         accompanying.extend(self.keep_base_still())
         goal = self._reach_target(
-            target, root, tip, near_the_object and self.moves_straight_near_the_object
+            target,
+            root,
+            tip,
+            near_the_object and self.moves_straight_near_the_object,
+            (
+                self.position_threshold
+                if position_threshold is None
+                else position_threshold
+            ),
+            (
+                self.orientation_threshold
+                if orientation_threshold is None
+                else orientation_threshold
+            ),
         )
         if not accompanying:
             return goal
@@ -283,9 +303,13 @@ class MovesToolCenterPoint(Action, ABC):
         root: KinematicStructureEntity,
         tip: KinematicStructureEntity,
         straight: bool,
+        position_threshold: float,
+        orientation_threshold: float,
     ) -> MotionStatechartNode:
         """
         :param straight: Whether `tip` moves along a straight line.
+        :param position_threshold: How near, in metres, `tip` has to come to `target`.
+        :param orientation_threshold: How near, in rad, its orientation has to come.
         :return: The task that brings `tip` to `target`.
         """
         pose_goal_type = CartesianPoseStraight if straight else CartesianPose
@@ -293,8 +317,8 @@ class MovesToolCenterPoint(Action, ABC):
             root_link=root,
             tip_link=tip,
             goal_pose=target,
-            translation_threshold=self.position_threshold,
-            orientation_threshold=self.orientation_threshold,
+            translation_threshold=position_threshold,
+            orientation_threshold=orientation_threshold,
         )
 
     @staticmethod

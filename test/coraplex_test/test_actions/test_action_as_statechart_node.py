@@ -18,6 +18,8 @@ from coraplex.robot_plans.actions.base import (
 )
 from coraplex.robot_plans.actions.core.container import OpenAction
 from coraplex.robot_plans.actions.core.pick_up import (
+    SETTLED_ORIENTATION_THRESHOLD,
+    SETTLED_POSITION_THRESHOLD,
     FixateObjectAction,
     GraspingAction,
     PickUpAction,
@@ -696,6 +698,31 @@ def test_a_pick_up_and_its_grasp_and_reach_let_the_gripper_touch(
         [rule] = action.temporary_collision_rules
         assert rule.end_effector is robot.left_arm.end_effector
     assert nodes_of_type(pick_up, UpdateTemporaryCollisionRules) == []
+
+
+def test_a_grasp_closes_only_once_the_gripper_settled_at_the_grasp(
+    pr2_apartment_context,
+) -> None:
+    """
+    The object is put under the gripper once the fingers closed; a gripper still on its
+    way onto the grasp then would carry it on into what it stands on.
+    """
+    world, robot, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+
+    _expanded(pick_up, extensions)
+
+    [grasping] = nodes_of_type(pick_up, GraspingAction)
+    reach, closing = grasping.nodes
+    [holding] = nodes_of_type(closing, CartesianPose)
+    assert holding.translation_threshold == SETTLED_POSITION_THRESHOLD
+    assert holding.orientation_threshold == SETTLED_ORIENTATION_THRESHOLD
+    assert SETTLED_POSITION_THRESHOLD < grasping.position_threshold
+    assert all(
+        approach.translation_threshold == grasping.position_threshold
+        for approach in nodes_of_type(reach, CartesianPose)
+    )
 
 
 def test_a_place_lets_the_gripper_holding_its_object_touch(
