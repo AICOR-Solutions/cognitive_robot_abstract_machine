@@ -112,6 +112,11 @@ class TiagoTopic(StrEnum):
     Topic name on which the lidar readings are published
     """
 
+    INITIAL_POSE = "initialpose"
+    """
+    Topic the robot's localization takes a new estimate of the robot's pose on.
+    """
+
 
 class TiagoAction(StrEnum):
     TEXT_TO_SPEECH = "/skill/say"

@@ -30,6 +30,7 @@ from giskardpy.motion_statechart.ros2_nodes.griplink import (
     GriplinkFlexActionServerTask,
     GriplinkPresetActionServerTask,
 )
+from giskardpy.motion_statechart.ros2_nodes.localization import PublishInitialPose
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import NavigateActionServerTask
 from giskardpy.motion_statechart.ros2_nodes.topic_monitor import (
     PublishOnStart,
@@ -60,6 +61,7 @@ class RosName(StrEnum):
     NAVIGATION_ACTION = "navigate"
     GRIP_ACTION = "grip"
     FLEXGRIP_ACTION = "flexgrip"
+    INITIAL_POSE_TOPIC = "initialpose"
 
 
 def _cases() -> list[NodeRoundTripCase]:
@@ -87,6 +89,15 @@ def _cases() -> list[NodeRoundTripCase]:
             PublishOnStart,
             lambda world: [
                 PublishOnStart(topic_name=RosName.WRENCH_TOPIC, msg=WrenchStamped())
+            ],
+        ),
+        NodeRoundTripCase(
+            PublishInitialPose,
+            lambda world: [
+                PublishInitialPose(
+                    topic_name=RosName.INITIAL_POSE_TOPIC,
+                    base=world.get_kinematic_structure_entity_by_name("tip"),
+                )
             ],
         ),
         NodeRoundTripCase(

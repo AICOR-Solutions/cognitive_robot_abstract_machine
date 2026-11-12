@@ -23,25 +23,30 @@ from coraplex.plans.executors import (
     RealRobotPlanExecutor,
     SimulatedPlanExecutor,
 )
+from coraplex.datastructures.enums import InsertionPosition
 from coraplex.plans.plan_transformation import (
     ConfigurationTransformation,
     PlanRewriting,
+    SequentialInsertion,
 )
 from coraplex.robot_plans.actions.core.navigation import (
     DrivesBase,
     ElevatorNavigation,
+    NavigateAction,
 )
 from cramph.context import ContextExtension, StatechartContext
 from cramph.executor import StatechartExecutor, TickingExecutorExtension
+from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from experiments.tiago_arise_gazebo.elevator_drive import ElevatorDrive, SimulatorTopic
+from giskardpy.motion_statechart.ros2_nodes.localization import PublishInitialPose
 from semantic_digital_twin.input_synchronization import WorldStateInputs
 from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
 from semantic_digital_twin.predefined_maps.arise_office import (
     AriseOfficeBuilding,
 )
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.robots.tiago import Tiago
+from semantic_digital_twin.robots.tiago import Tiago, TiagoTopic
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     FirstFloor,
@@ -135,6 +140,41 @@ class ArriveWithinTheAccuracyOfTheRealBase(ConfigurationTransformation[DrivesBas
 
     def apply(self, plan_node: DrivesBase) -> None:
         plan_node.base_pose_threshold = self.base_pose_threshold
+
+
+@dataclass
+class RelocalizeFacingTheElevatorDoors(SequentialInsertion[ElevatorNavigation]):
+    """
+    Publishes where the world holds the robot as the new pose estimate of its
+    localization, right after the robot turned towards the elevator's doors in the
+    cabin.
+    """
+
+    topic_name: str = TiagoTopic.INITIAL_POSE
+    """
+    Topic the localization takes a new estimate of the robot's pose on.
+    """
+
+    @property
+    def position(self) -> InsertionPosition:
+        return InsertionPosition.AFTER
+
+    def is_applicable(self, plan_node: ElevatorNavigation) -> bool:
+        return True
+
+    def anchor(self, plan_node: ElevatorNavigation) -> StatechartNode:
+        """
+        :return: The step turning the robot towards the doors inside the cabin.
+        """
+        [turn_to_the_doors] = [
+            step for step in plan_node.nodes if isinstance(step, NavigateAction)
+        ]
+        return turn_to_the_doors
+
+    def nodes_to_insert(self, plan_node: ElevatorNavigation) -> list[StatechartNode]:
+        return [
+            PublishInitialPose(topic_name=self.topic_name, base=plan_node.robot.root)
+        ]
 
 
 # %% demonstration
@@ -251,7 +291,12 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
                 self._follow_elevator_drive(elevator)
             return [
                 RobotAccess(robot),
-                PlanRewriting(transformations=[ArriveWithinTheAccuracyOfTheRealBase()]),
+                PlanRewriting(
+                    transformations=[
+                        ArriveWithinTheAccuracyOfTheRealBase(),
+                        RelocalizeFacingTheElevatorDoors(),
+                    ]
+                ),
             ]
         if self.elevator_operator is None:
             self.elevator_operator = ElevatorOperator(
