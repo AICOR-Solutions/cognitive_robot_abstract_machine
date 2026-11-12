@@ -488,10 +488,12 @@ class ElevatorRideAnnouncement(StrEnum):
     """
 
     WAITING_AT_DOORS = (
-        "I am in front of the elevator and waiting for it on the {current_floor}."
+        "I am in front of the elevator on the {current_floor}. "
+        "Can you open the elevator for me?"
     )
     """
-    Said once the robot stands in front of the elevator's doors.
+    Said once the robot stands in front of the elevator's doors, asking for help with
+    opening them.
     """
 
     RIDING = "I am inside the elevator and riding to the {target_floor}."

@@ -324,6 +324,27 @@ def test_a_room_counts_once_the_person_confirms_it(room_requests, scripted_perso
 
 
 @pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
+def test_the_robot_says_that_it_goes_when_a_room_is_confirmed(
+    room_requests, scripted_person
+):
+    with person_asking_for_the_room(room_requests, scripted_person):
+        room_requests.wait_for_confirmed_room(timeout=5.0)
+
+    [_, _, acknowledgement] = scripted_person.wait_for_sentences(3)
+    assert acknowledgement == RoomRequestAnnouncement.ACCEPTING
+
+
+def test_the_robot_does_not_name_the_room_when_it_goes():
+    """
+    The robot hearing itself name a room would take that for a new request.
+    """
+    assert (
+        RoomRequestAnnouncement.ACCEPTING.verbalize(east_office_upstairs())
+        == RoomRequestAnnouncement.ACCEPTING
+    )
+
+
+@pytest.mark.parametrize("scripted_person", [[PersonAnswer.YES]], indirect=True)
 def test_a_refused_room_is_forgotten(room_requests, scripted_person):
     scripted_person.room_confirmations = [PersonAnswer.NO]
     with person_asking_for_the_room(room_requests, scripted_person):
