@@ -510,7 +510,7 @@ class ElevatorRideAnnouncement(StrEnum):
     opening them.
     """
 
-    RIDING = "I am inside the elevator and riding to the {target_floor}."
+    RIDING = "I am inside the Elevator, can you press the button for the {target_floor}."
     """
     Said once the robot has boarded the cabin.
     """
