@@ -271,7 +271,7 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
 
     1. Turn towards the goal position, without driving
     2. Drive to goal position, steering towards it
-    3. Orient to goal orientation
+    3. Turn to the goal orientation, without driving
     """
 
     mobile_base: MobileBase[DifferentialDrive]
@@ -298,14 +298,6 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
                     BaseHeading(name=f"{self.name}/step2/heading", **task_parameters),
                 ],
             ),
-            Parallel(
-                name=f"{self.name}/step3",
-                nodes=[
-                    BasePosition(name=f"{self.name}/step3/position", **task_parameters),
-                    BaseOrientation(
-                        name=f"{self.name}/step3/orientation", **task_parameters
-                    ),
-                ],
-            ),
+            BaseOrientation(name=f"{self.name}/step3", **task_parameters),
         ]
         self.sequence = Sequence(name=f"{self.name}/sequence", nodes=steps)

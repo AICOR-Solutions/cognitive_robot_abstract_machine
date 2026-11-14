@@ -47,7 +47,7 @@ class NavigateToRoomAction(SequentialAction):
     The room the robot should end up in.
     """
 
-    elevator_waiting_distance: float = 1.5
+    elevator_waiting_distance: float = 1.6
     """
     How far in front of the elevator's doors the robot drives before riding it.
     """

@@ -17,7 +17,7 @@ from coraplex.robot_plans.actions.base import (
 )
 from coraplex.robot_plans.actions.core.speech import SayAction
 from coraplex.robot_plans.mixins import ReattachesBranches
-from cramph.composites import PausedUntilTrue
+from cramph.composites import PausedUntilTrue, Sequence
 from giskardpy.motion_statechart.goals.base_pose_goals import (
     MobileBasePoseGoal,
     DifferentialDriveBaseGoal,
@@ -48,7 +48,10 @@ from semantic_digital_twin.world_description.geometry import VolumetricBoundingB
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
 )
-from semantic_digital_twin.world_description.world_entity import Region
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+    Region,
+)
 
 # %% driving the base
 
@@ -330,7 +333,7 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class PassDoorAction(SequentialAction):
+class PassDoorAction(ReattachesBranches, SequentialAction):
     """
     Drives the robot through a doorway towards a destination: it lines up in front of
     the doorway on the side away from the destination, waits until its lidar sees a
@@ -369,6 +372,12 @@ class PassDoorAction(SequentialAction):
     such as elevator doors still open on the floor the robot boarded at.
     """
 
+    robot_parent_while_passing: KinematicStructureEntity | None = None
+    """
+    The entity the robot is moved under once the passage is clear, before it drives
+    through, or None to leave the robot where it hangs.
+    """
+
     def create_steps(self) -> list[StatechartNode]:
         side = self._destination_side
         steps = [
@@ -378,13 +387,18 @@ class PassDoorAction(SequentialAction):
         ]
         if self.waiting_announcement is not None:
             steps.append(SayAction(text=self.waiting_announcement))
-        steps.append(
-            PausedUntilTrue(
-                monitor=self._passage_clear(),
-                monitored_node=NavigateAction(
-                    target_location=self._pose_at(side * self.exit_distance, side)
-                ),
+        passing = NavigateAction(
+            target_location=self._pose_at(side * self.exit_distance, side)
+        )
+        if self.robot_parent_while_passing is not None:
+            passing = Sequence(
+                nodes=[
+                    *self.reattach(self.robot.root, self.robot_parent_while_passing),
+                    passing,
+                ]
             )
+        steps.append(
+            PausedUntilTrue(monitor=self._passage_clear(), monitored_node=passing)
         )
         return steps
 
@@ -494,13 +508,17 @@ class ElevatorRideAnnouncement(StrEnum):
     """
 
     WAITING_AT_DOORS = (
-        "I am in front of the elevator and waiting for it on the {current_floor}."
+        "I am in front of the elevator on the {current_floor}. "
+        "Can you open the elevator for me?"
     )
     """
-    Said once the robot stands in front of the elevator's doors.
+    Said once the robot stands in front of the elevator's doors, asking for help with
+    opening them.
     """
 
-    RIDING = "I am inside the elevator and riding to the {target_floor}."
+    RIDING = (
+        "I am inside the Elevator, can you press the button for the {target_floor}."
+    )
     """
     Said once the robot has boarded the cabin.
     """
@@ -529,6 +547,9 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
     in once its lidar sees the doors open, turns towards the doors and drives out once
     its lidar saw them close and open again.
 
+    From boarding until the doors open again the cabin carries the robot; once it drives
+    out, the robot hangs from the entity it hung from before the ride.
+
     .. warning:: The robot leaves at the first floor the doors open on after closing,
         whether or not it is :attr:`target_floor`.
 
@@ -546,15 +567,22 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
     Level of the building the robot should end up on.
     """
 
-    exit_clearance: float = 0.5
+    exit_clearance: float = 0.7
     """
     Distance the robot keeps from the elevator's opening after driving out, on top of
     half the cabin's depth.
     """
 
+    cabin_pose_threshold: float = 0.15
+    """
+    How far the robot may be from the pose facing the doors inside the cabin, in meters
+    and in radians, to count as arrived there.
+    """
+
     def create_steps(self) -> list[StatechartNode]:
         half_cabin_depth = float(self.elevator.scale.x) / 2
         current_floor = self._current_floor
+        robot_parent_before_the_ride = self.robot.root.parent_kinematic_structure_entity
         return [
             SayAction(
                 text=ElevatorRideAnnouncement.DEPARTING.verbalize(
@@ -571,7 +599,10 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
                 ),
             ),
             *self.reattach(self.robot.root, self.elevator.root),
-            NavigateAction(target_location=self._pose_facing_doors),
+            NavigateAction(
+                target_location=self._pose_facing_doors,
+                base_pose_threshold=self.cabin_pose_threshold,
+            ),
             SayAction(
                 text=ElevatorRideAnnouncement.RIDING.verbalize(
                     current_floor, self.target_floor
@@ -583,8 +614,8 @@ class ElevatorNavigation(ReattachesBranches, SequentialAction):
                 approach_distance=half_cabin_depth,
                 exit_distance=self.exit_clearance,
                 doorway_closes_first=True,
+                robot_parent_while_passing=robot_parent_before_the_ride,
             ),
-            *self.reattach(self.robot.root, self.world.root),
             SayAction(
                 text=ElevatorRideAnnouncement.ARRIVED.verbalize(
                     current_floor, self.target_floor

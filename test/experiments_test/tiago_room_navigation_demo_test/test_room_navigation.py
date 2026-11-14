@@ -8,9 +8,18 @@ from cramph.composites import StatementNode
 from cramph.context import ContextExtension
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
+    NavigateAction,
     PathPlanningNavigateAction,
 )
-from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
+from coraplex.plans.plan_transformation import PlanRewriting
+from experiments.tiago_elevator_demo.demo import (
+    RelocalizeFacingTheElevatorDoors,
+    TiagoElevatorRideDemonstration,
+)
+from giskardpy.motion_statechart.ros2_nodes.localization import (
+    LoadMap,
+    PublishInitialPose,
+)
 from experiments.tiago_room_navigation_demo.demo import (
     TiagoIAIOfficeRoomNavigationDemonstration,
     TiagoRoomNavigationDemonstration,
@@ -52,7 +61,14 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_of
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
 
-from ...plan_running import context_of, expand, run_plan, world_of
+from ...plan_running import (
+    context_of,
+    expand,
+    run_plan,
+    simulated_executor,
+    statechart_of,
+    world_of,
+)
 
 # %% Tiago standing in the lobby
 
@@ -181,6 +197,46 @@ def test_the_ride_to_a_room_keeps_the_elevator_exit_clearance(
     ]
 
     assert ride.exit_clearance == action.elevator_exit_clearance
+
+
+def test_the_ride_turns_to_the_doors_within_its_cabin_pose_threshold(
+    lobby_demonstration, lobby_extensions
+):
+    world = world_of(lobby_extensions)
+    ride = ElevatorNavigation(
+        elevator=world.get_semantic_annotations_by_type(Elevator)[0],
+        target_floor=world.get_semantic_annotations_by_type(FirstFloor)[0],
+    )
+
+    expand(ride, lobby_extensions)
+
+    [turn_to_the_doors] = [
+        step for step in ride.nodes if isinstance(step, NavigateAction)
+    ]
+    assert turn_to_the_doors.base_pose_threshold == ride.cabin_pose_threshold
+
+
+def test_the_ride_to_a_room_on_another_level_relocalizes_on_the_target_floors_map(
+    lobby_demonstration, lobby_extensions
+):
+    world = world_of(lobby_extensions)
+    west_office = lobby_demonstration.office.get_room(
+        world, FirstFloor, AriseOfficeRoom.WEST_OFFICE
+    )
+    action = NavigateToRoomAction(target_room=west_office)
+    transformation = RelocalizeFacingTheElevatorDoors(
+        floor_map_urls={FirstFloor: "/maps/first_floor.yaml"}
+    )
+    executor = simulated_executor(
+        [*lobby_extensions, PlanRewriting(transformations=[transformation])]
+    )
+
+    executor.prepare(statechart_of(executor, action))
+
+    [ride] = [step for step in action.nodes if isinstance(step, ElevatorNavigation)]
+    [map_loading] = [step for step in ride.nodes if isinstance(step, LoadMap)]
+    assert map_loading.map_url == transformation.floor_map_urls[FirstFloor]
+    assert any(isinstance(step, PublishInitialPose) for step in ride.nodes)
 
 
 def test_a_room_on_no_level_cannot_be_planned_for(lobby_extensions):

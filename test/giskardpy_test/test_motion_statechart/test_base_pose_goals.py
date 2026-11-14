@@ -143,7 +143,7 @@ def test_a_differential_drive_goal_constrains_only_x_y_and_yaw(
 
     _compiled(cylinder_bot_diff_world, goal)
 
-    assert _equality_constraint_counts(goal) == [2, 2, 1, 1, 1]
+    assert _equality_constraint_counts(goal) == [2, 1, 1, 1]
 
 
 def test_a_holonomic_base_goal_reaches_the_pose_on_the_floor_below_its_target(

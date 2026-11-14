@@ -2030,7 +2030,7 @@ class TestDiffDriveBaseGoal:
                 cylinder_bot_diff_world.root, bot
             ),
             Pose.from_xyz_rpy(x=expected_x).to_np(),
-            atol=1e-2,
+            atol=2 * DifferentialDriveBaseGoal.threshold,
         )
 
     def test_a_base_moved_onto_a_lift_drives_relative_to_the_lift(
@@ -2169,6 +2169,43 @@ class TestDiffDriveBaseGoal:
         assert recording.positions
         np.testing.assert_allclose(
             recording.positions, [start] * len(recording.positions), atol=1e-3
+        )
+
+    def test_the_last_step_only_turns_the_base(self, cylinder_bot_diff_world) -> None:
+        """
+        The goal lies ahead of the base, closer than the threshold, so the base counts
+        as arrived but could still close the gap while it turns, as it would after its
+        localisation moved it; the last step must only turn it.
+        """
+        world = cylinder_bot_diff_world
+        base = world.get_connections_by_type(DifferentialDrive)[0].child
+        recording = PositionWhileRunning(body=base)
+        executor = StatechartExecutor(
+            context=StatechartContext(world=world),
+            extensions=[MotionControl(), recording],
+        )
+        motion_statechart = Statechart(context=executor.context)
+        motion_statechart.add_node(
+            drive := DifferentialDriveBaseGoal(
+                mobile_base=world.get_semantic_annotations_by_type(MobileBase)[0],
+                goal_pose=Pose.from_xyz_rpy(
+                    x=DifferentialDriveBaseGoal.threshold / 2,
+                    yaw=np.pi / 2,
+                    reference_frame=world.root,
+                ),
+            )
+        )
+        recording.node = drive.sequence.nodes[-1]
+        motion_statechart.add_node(EndMotion.when_true(drive))
+
+        executor.compile(statechart=motion_statechart)
+        executor.tick_until_end()
+
+        assert recording.positions
+        np.testing.assert_allclose(
+            recording.positions,
+            [recording.positions[0]] * len(recording.positions),
+            atol=1e-4,
         )
 
 

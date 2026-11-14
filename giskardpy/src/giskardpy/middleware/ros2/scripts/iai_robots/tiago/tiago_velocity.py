@@ -20,7 +20,7 @@ def create_giskard() -> Giskard:
     return Giskard(
         world_config=WorldWithTiagoConfig(
             urdf=get_robot_description(),
-            translation_velocity_limit=0.3,
+            translation_velocity_limit=0.2,
             rotation_velocity_limit=0.3,
         ),
         robot_interface_config=TiagoVelocityInterface(),

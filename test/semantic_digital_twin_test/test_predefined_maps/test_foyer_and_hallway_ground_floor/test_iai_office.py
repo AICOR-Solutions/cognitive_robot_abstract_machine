@@ -14,6 +14,7 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.storey
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan import (
     OfficeRoom,
     OutlineFrame,
+    WordMisheardForRoom,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bathroom,
@@ -261,3 +262,30 @@ def test_a_sentence_names_the_most_specific_room_it_holds(
     assert [
         room.name.name for room in IAIOffice().rooms_named_in(world, sentence).values()
     ] == [expected_number]
+
+
+@pytest.mark.parametrize("misheard", list(WordMisheardForRoom))
+def test_a_sentence_with_a_word_misheard_for_room_names_the_room(
+    iai_office_world, misheard
+):
+    world, _ = iai_office_world
+
+    assert [
+        room.name.name
+        for room in IAIOffice()
+        .rooms_named_in(world, f"Go to {misheard.capitalize()} zero point three four")
+        .values()
+    ] == ["0.34"]
+
+
+@pytest.mark.parametrize("misheard", list(WordMisheardForRoom))
+def test_a_room_spoken_of_with_a_word_misheard_for_room_is_found(
+    iai_office_world, misheard
+):
+    world, _ = iai_office_world
+
+    room = IAIOffice().find_room_by_spoken_name(
+        world, f"{misheard} zero point three four"
+    )
+
+    assert room.name.name == "0.34"

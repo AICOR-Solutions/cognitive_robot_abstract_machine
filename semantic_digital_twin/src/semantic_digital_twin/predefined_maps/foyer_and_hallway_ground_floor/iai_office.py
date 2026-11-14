@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -13,6 +14,8 @@ from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.elevat
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plan import (
     FloorPlan,
     OutlineFrame,
+    SpokenSeparator,
+    WordMisheardForRoom,
 )
 from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.floor_plans.first_floor import (
     FirstFloorPlan,
@@ -252,6 +255,18 @@ class IAIOffice(ElevatorBuilding):
         world is exported with.
         """
         return elevator.movable_joint.name.name
+
+    def in_spoken_name_words(self, heard: str) -> str:
+        """
+        Differs from :meth:`ElevatorBuilding.in_spoken_name_words` in reading every
+        :class:`WordMisheardForRoom` as *room*.
+        """
+        misheard = "|".join(re.escape(word) for word in WordMisheardForRoom)
+        return re.sub(
+            rf"\b(?:{misheard})\b",
+            SpokenSeparator.ROOM,
+            super().in_spoken_name_words(heard),
+        )
 
     def _spawn_level(
         self, world: World, name: str, floor: Floor, floor_plan: FloorPlan

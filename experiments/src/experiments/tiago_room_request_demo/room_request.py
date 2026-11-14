@@ -127,6 +127,12 @@ class RoomRequestAnnouncement(StrEnum):
     Said once the robot sets off to a room it knows.
     """
 
+    ACCEPTING = "Great, thank you! I will drive there."
+    """
+    Said when a person confirmed a room, without naming it, as the robot hearing itself
+    name a room would take that for a new request.
+    """
+
     STAYING = "Okay, I will stay here."
     """
     Said when a person did not confirm a room, without naming it, as the robot hearing
@@ -345,8 +351,8 @@ class RoomRequests:
 
     def wait_for_confirmed_room(self, timeout: float) -> RequestedRoom:
         """
-        Ask which room to go to, then ask about each room requested, saying so and
-        forgetting those not confirmed.
+        Ask which room to go to, then ask about each room requested, saying whether the
+        robot goes there and forgetting those not confirmed.
 
         :param timeout: Seconds to wait at most for each request.
         :return: The first room a person confirmed.
@@ -359,6 +365,9 @@ class RoomRequests:
             if self._confirmation_asker.ask_until_answered(
                 RoomRequestAnnouncement.CONFIRMING.verbalize(requested_room.spoken_name)
             ):
+                self._speech.send_goal_async(
+                    Say.Goal(input=RoomRequestAnnouncement.ACCEPTING)
+                )
                 return requested_room
             self._speech.send_goal_async(
                 Say.Goal(input=RoomRequestAnnouncement.STAYING)

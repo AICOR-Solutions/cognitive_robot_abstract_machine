@@ -15,10 +15,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor, KinematicallySimulatedPlanExecutor
+from coraplex.plans.executors import (
+    PlanExecutor,
+    RealRobotPlanExecutor,
+    KinematicallySimulatedPlanExecutor,
+)
 from coraplex.robot_plans.actions.core.speech import SayAction
 from cramph.composites import ChildChooserAccess, Sequence
 from cramph.context import StatechartContext
+from cramph.monitors import CountSeconds
 from cramph.statechart import Statechart
 from experiments.ra_fetch_elevator_people.elevator_people import Ros4HriTopic
 from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
@@ -140,6 +145,7 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
         statechart.add_node(
             Sequence(
                 nodes=[
+                    # CountSeconds(seconds=60),
                     SayAction(
                         text=RoomRequestAnnouncement.HEADING_TO.verbalize(
                             self.requested_room.spoken_name

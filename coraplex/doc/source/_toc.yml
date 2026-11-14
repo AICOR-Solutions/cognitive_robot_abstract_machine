@@ -17,6 +17,7 @@ parts:
     - file: orm_concept.md
     - file: abstract_robot.md
     - file: motion_execution.md
+    - file: passing_doors.md
     - file: locations.rst
     - file: notebooks.md
   - caption: Adding a new Robot

@@ -40,6 +40,29 @@ class SpokenSeparator(StrEnum):
     POINT = "point"
 
 
+class WordMisheardForRoom(StrEnum):
+    """
+    Words speech recognition hears in place of *room*.
+    """
+
+    RULE = "rule"
+    RULES = "rules"
+    RUN = "run"
+    RUM = "rum"
+    RUNE = "rune"
+    RUIN = "ruin"
+    RUE = "rue"
+    ROAM = "roam"
+    ROME = "rome"
+    ROM = "rom"
+    RAUM = "raum"
+    RUHM = "ruhm"
+    BROOM = "broom"
+    GROOM = "groom"
+    ZOOM = "zoom"
+    ROOMS = "rooms"
+
+
 # %% frames
 
 
