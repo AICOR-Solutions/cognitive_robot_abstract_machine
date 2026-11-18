@@ -1694,6 +1694,45 @@ class TestVelocityTasks:
             tight_cycles >= 2 * loose_cycles
         ), f"tight ({tight_cycles}) should take >= loose ({2 * loose_cycles}) control cycles"
 
+    def test_position_velocity_limit_holds_around_the_root(
+        self, pr2_world_state_reset: World
+    ):
+        """
+        A tip moving across the root's origin, not away from it, keeps to the limit too.
+        """
+        world = pr2_world_state_reset
+        root = world.get_kinematic_structure_entity_by_name("base_footprint")
+        tip = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+        start = world.compute_forward_kinematics_np(root, tip)[:3, 3]
+        goal = CartesianPosition(
+            root_link=root,
+            tip_link=tip,
+            goal_point=Point3(*(start - [0, 0, 0.2]), reference_frame=root),
+            weight=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE,
+        )
+        limit = CartesianPositionVelocityLimit(
+            root_link=root, tip_link=tip, max_linear_velocity=0.05
+        )
+        executor = Executor(MotionStatechartContext(world=world))
+        executor.compile(motion_statechart=self._build_msc(goal, limit))
+        time_step = executor.context.qp_controller_config.control_time_step
+
+        fastest = 0.0
+        previous = start
+        for _ in range(1000):
+            executor.tick()
+            current = world.compute_forward_kinematics_np(root, tip)[:3, 3]
+            fastest = max(
+                fastest,
+                np.linalg.norm(current - previous) / time_step.total_seconds(),
+            )
+            previous = current
+            if executor.motion_statechart.is_end_motion():
+                break
+
+        assert executor.motion_statechart.is_end_motion()
+        assert fastest <= limit.max_linear_velocity * 1.05
+
 
 class TestDebugExpressions:
     """

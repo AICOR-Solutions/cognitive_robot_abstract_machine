@@ -822,20 +822,20 @@ class CartesianPositionVelocityLimit(Task):
     that evaluates whether the current translational speed is within the limit.
 
     .. warning::
-       Strict Cartesian velocity limits require as many constraints as the prediction
-       horizon size, making the optimization problem more complex. This can impact
+       Strict Cartesian velocity limits require three constraints per step of the
+       prediction horizon, making the optimization problem more complex. This can impact
        solve time especially at high control frequencies. If computation time is critical,
        consider using larger limits or reducing the prediction horizon.
     """
 
     root_link: KinematicStructureEntity = field(kw_only=True)
     """
-    Root link of the kinematic chain. 
+    Root link of the kinematic chain.
     Defines the reference frame from which the tip's motion is measured.
     """
     tip_link: KinematicStructureEntity = field(kw_only=True)
     """
-    Tip link of the kinematic chain. 
+    Tip link of the kinematic chain.
     The translational velocity of this link (expressed in the root link frame) is constrained.
     """
     max_linear_velocity: float = field(default=0.1, kw_only=True)
@@ -843,6 +843,9 @@ class CartesianPositionVelocityLimit(Task):
     Maximum allowed linear speed of the tip in meters per second (m/s).
     Default: 0.1 m/s. The enforcement ensures the Euclidean norm of the
     tip-frame translational velocity does not exceed this value.
+
+    .. note:: Each axis of the root frame is held to ``1/sqrt(3)`` of it, so a motion
+        along one axis runs at most at about 58 % of this speed.
     """
     weight: float = field(
         default=DefaultWeights.WEIGHT_ABOVE_COLLISION_AVOIDANCE, kw_only=True

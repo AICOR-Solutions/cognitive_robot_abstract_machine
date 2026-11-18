@@ -176,27 +176,30 @@ class GeometricConstraintBuilder:
         name: Optional[str] = None,
     ) -> None:
         """
-        Adds constraints to limit the translational velocity of frame_P_current.
+        Adds constraints that keep the speed of frame_P_current below max_velocity.
 
-        Be aware that the velocity is relative to frame.
+        Each axis of the frame is limited to ``max_velocity / sqrt(3)``, so the speed
+        stays below ``max_velocity`` in every direction.
+
+        .. note:: Limiting the rate of change of the point's distance from the frame's
+            origin instead would leave any motion around that origin free.
+
         :param frame_P_current: a vector describing a 3D point. It should depend on
             active dofs.
         :param max_violation: m/s
         """
-        translation_error = frame_P_current.norm()
-        translation_error = sm.if_eq_zero(
-            translation_error, sm.Scalar(0.01), translation_error
-        )
-        self.collection.add_velocity_constraint(
-            upper_velocity_limit=max_velocity,
-            lower_velocity_limit=-max_velocity,
-            quadratic_weight=quadratic_weight,
-            task_expression=translation_error,
-            lower_slack_limit=-max_violation,
-            upper_slack_limit=max_violation,
-            velocity_limit=max_velocity,
-            name=name,
-        )
+        axis_velocity = max_velocity / np.sqrt(3)
+        for i in range(3):
+            self.collection.add_velocity_constraint(
+                upper_velocity_limit=axis_velocity,
+                lower_velocity_limit=-axis_velocity,
+                quadratic_weight=quadratic_weight,
+                task_expression=frame_P_current[i],
+                lower_slack_limit=-max_violation,
+                upper_slack_limit=max_violation,
+                velocity_limit=axis_velocity,
+                name=self._indexed_constraint_name(name, i),
+            )
 
     def add_rotational_velocity_limit(
         self,
