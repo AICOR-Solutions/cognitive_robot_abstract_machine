@@ -19,6 +19,41 @@ class ForceTorqueNode(TopicSubscriberNode[WrenchStamped]):
 
     msg_type: WrenchStamped = field(init=False, default=WrenchStamped)
 
+    readings_in_agreement: int = field(default=1, kw_only=True)
+    """
+    Consecutive readings that must meet a monitor's condition, so noise alone does not.
+    """
+
+    _readings_so_far: int = field(init=False, default=0)
+    """
+    Consecutive readings that have met the condition so far.
+    """
+
+    _counted_reading: WrenchStamped | None = field(init=False, default=None)
+    """
+    The reading counted last; ticks outrun the sensor, so a reading is counted once.
+    """
+
+    def enough_readings_agree(self, reading_meets_condition: bool) -> bool:
+        """
+        Whether :attr:`readings_in_agreement` readings in a row met the condition.
+
+        .. note:: Call once per tick; it advances the count.
+
+        :param reading_meets_condition: Whether the current reading meets it.
+        """
+        if self.current_msg is not self._counted_reading:
+            self._counted_reading = self.current_msg
+            self._readings_so_far = (
+                self._readings_so_far + 1 if reading_meets_condition else 0
+            )
+        return self._readings_so_far >= self.readings_in_agreement
+
+    def on_reset(self, context: MotionStatechartContext):
+        super().on_reset(context)
+        self._readings_so_far = 0
+        self._counted_reading = None
+
     def force_as_np(self) -> np.ndarray:
         return np.array(
             [
@@ -58,7 +93,7 @@ class ForceImpactMonitor(ForceTorqueNode):
         super().on_tick(context)
         if not self.has_msg():
             return ObservationStateValues.UNKNOWN
-        if self.force_magnitude() > self.threshold:
+        if self.enough_readings_agree(self.force_magnitude() > self.threshold):
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
 
@@ -90,6 +125,6 @@ class ForceDirectionMonitor(ForceTorqueNode):
         force = Vector3.from_iterable(self.force_as_np())
         unit_direction = self.direction / self.direction.norm()
         force_along_direction = float(force.dot(unit_direction))
-        if force_along_direction > self.threshold:
+        if self.enough_readings_agree(force_along_direction > self.threshold):
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
