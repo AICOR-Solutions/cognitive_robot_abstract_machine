@@ -24,12 +24,11 @@ from experiments.tiago_room_navigation_demo.room_navigation import (
 from experiments.tiago_room_request_demo.exceptions import (
     BoardingPermissionNotGrantedError,
     ElevatorCabinTimedOutError,
-    SaySkillNotServedError,
 )
 from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
 from experiments.tiago_room_request_demo.yes_no_question import (
     YesNoAnswerInProgress,
-    YesNoQuestionAsker,
+    YesNoAsker,
 )
 from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -121,7 +120,7 @@ class BoardingStage(Enum):
 
     SKILL_SERVED = auto()
     """
-    There is somebody to ask, and the ``say`` skill has to be served.
+    There is somebody to ask, and the skill asking them has to be served.
     """
 
     ANSWER = auto()
@@ -152,7 +151,7 @@ class BoardingConversation:
     Finds the people to ask.
     """
 
-    asker: YesNoQuestionAsker
+    asker: YesNoAsker
     """
     Asks the people.
     """
@@ -222,11 +221,7 @@ class BoardingConversation:
         """
         if not self.asker.is_served:
             if self._seconds_in_stage() > self.asker.server_timeout:
-                return self._aborting(
-                    SaySkillNotServedError(
-                        self.asker.text_to_speech_action, self.asker.server_timeout
-                    )
-                )
+                return self._aborting(self.asker.not_served())
             return None
         self.answer = self.asker.ask(BoardingQuestion.ASKING_TO_BOARD, self.person_id)
         self._enter(BoardingStage.ANSWER)
@@ -320,7 +315,7 @@ class AskToBoardChooser(ChildChooser[AskToBoardNode]):
     Finds the people to ask.
     """
 
-    asker: YesNoQuestionAsker
+    asker: YesNoAsker
     """
     Asks the people.
     """

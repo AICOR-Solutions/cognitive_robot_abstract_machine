@@ -269,7 +269,11 @@ def test_the_cabin_comes_to_a_robot_waiting_on_another_level(
     robot = operated_world.get_semantic_annotations_by_type(Tiago)[0]
 
     move_robot_into(robot, elevator.waiting_areas[ground_floor])
-    ride_demonstration.elevator_operator.answer_call()
+    operator = ride_demonstration.elevator_operator
+    for _ in range(operator.call_duration - 1):
+        operator.answer_call()
+    assert not elevator.is_at_floor(ground_floor)
+    operator.answer_call()
 
     assert elevator.movable_joint.position == pytest.approx(
         elevator.drive_position_for_floor(ground_floor)

@@ -15,50 +15,26 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import (
-    PlanExecutor,
-    RealRobotPlanExecutor,
-    KinematicallySimulatedPlanExecutor,
-)
-from coraplex.robot_plans.actions.core.speech import SayAction
-from cramph.composites import ChildChooserAccess, Sequence
+from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor
+from cramph.composites import Sequence
 from cramph.context import StatechartContext
-from cramph.monitors import CountSeconds
 from cramph.statechart import Statechart
-from experiments.ra_fetch_elevator_people.elevator_people import Ros4HriTopic
-from experiments.tiago_elevator_demo.demo import TiagoElevatorRideDemonstration
 from experiments.tiago_room_navigation_demo.exceptions import (
     TargetRoomNotReachedError,
 )
-from experiments.tiago_room_request_demo.boarding_permission import (
-    AskToBoardChooser,
-    NavigateToRoomAskingToBoardAction,
+from experiments.tiago_room_request_demo.communicating_navigation import (
+    TiagoCommunicatingNavigationDemonstration,
 )
-from experiments.tiago_room_request_demo.persons_at_elevator import PersonsAtElevator
-from experiments.tiago_room_request_demo.yes_no_question import YesNoQuestionAsker
-from experiments.tiago_room_request_demo.room_request import (
-    RequestedRoom,
-    RoomRequestAnnouncement,
-    RoomRequests,
-)
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.predefined_maps.elevator_building import ElevatorBuilding
-from semantic_digital_twin.predefined_maps.foyer_and_hallway_ground_floor.iai_office import (
-    IAIOffice,
-)
+from experiments.tiago_room_request_demo.room_request import RoomRequests
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Elevator,
-    Floor,
-    Level,
-)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.world import World
 
 # %% demonstration
 
 
 @dataclass
-class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
+class TiagoRoomRequestDemonstration(TiagoCommunicatingNavigationDemonstration):
     """
     Tiago waits to be told a room of the office and confirms it, then drives there,
     asking the people at the elevator whether it may board on the way.
@@ -66,33 +42,9 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
 
     ros_node_name: str = "tiago_room_request_demo_node"
 
-    office: ElevatorBuilding = field(default_factory=IAIOffice)
-    """
-    The building the robot drives in.
-    """
-
-    odom_T_robot_start: HomogeneousTransformationMatrix = field(
-        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=-19.0, y=39.0
-        )
-    )
-    """
-    Where a simulated Tiago starts, in the elevator room of the office.
-    """
-
     room_request_timeout: float = 300.0
     """
     Seconds Tiago waits to be told a room it knows.
-    """
-
-    maximum_boarding_attempts: int = 3
-    """
-    How many times Tiago asks to board before it gives up.
-    """
-
-    requested_room: RequestedRoom | None = field(init=False, default=None)
-    """
-    The room Tiago was told to drive to, None until it was told.
     """
 
     room_requests: RoomRequests | None = field(init=False, default=None)
@@ -100,65 +52,32 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
     Listens for the room Tiago is told to drive to.
     """
 
-    persons_at_elevator: PersonsAtElevator | None = field(init=False, default=None)
-    """
-    Finds the people Tiago asks to board.
-    """
-
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Wait to be told a room and confirm it, then drive there, asking to board the
-        elevator. A simulated elevator takes Tiago to the room's level.
+        elevator. The elevator takes Tiago to the room's level.
 
         :raises NoRoomRequestedError: If nobody told a room the office has within
             :attr:`room_request_timeout`.
         """
-        robot = context.require_extension(RobotAccess).robot
-        self.persons_at_elevator = PersonsAtElevator(
-            node=self.ros_node,
-            topic_name=Ros4HriTopic.TRACKED_PERSONS,
-            elevator=context.world.get_semantic_annotations_by_type(Elevator)[0],
-        )
-        context.require_extension(ChildChooserAccess).choosers.append(
-            AskToBoardChooser(
-                persons_at_elevator=self.persons_at_elevator,
-                asker=YesNoQuestionAsker(self.ros_node, robot.text_to_speech_action),
-            )
-        )
+        self.ask_to_board_in(context)
         self.room_requests = RoomRequests(
             node=self.ros_node,
             world=context.world,
             office=self.office,
-            text_to_speech_action=robot.text_to_speech_action,
+            text_to_speech_action=context.require_extension(
+                RobotAccess
+            ).robot.text_to_speech_action,
         )
-        self.requested_room = self.room_requests.wait_for_confirmed_room(
+        requested_room = self.room_requests.wait_for_confirmed_room(
             self.room_request_timeout
         )
-        if self.elevator_operator is not None:
-            self.elevator_operator.floor = Level.under(
-                self.requested_room.room.floor.root
-            )
         # Every intent would take time from the updates of the world while the plan runs.
         self.room_requests.close()
         self.room_requests = None
+        self.head_to(requested_room, context.world)
         statechart = Statechart(context=context)
-        statechart.add_node(
-            Sequence(
-                nodes=[
-                    # CountSeconds(seconds=60),
-                    SayAction(
-                        text=RoomRequestAnnouncement.HEADING_TO.verbalize(
-                            self.requested_room.spoken_name
-                        )
-                    ),
-                    NavigateToRoomAskingToBoardAction(
-                        target_room=self.requested_room.room,
-                        elevator_arrival_threshold=self.elevator_arrival_threshold,
-                        maximum_boarding_attempts=self.maximum_boarding_attempts,
-                    ),
-                ]
-            )
-        )
+        statechart.add_node(Sequence(nodes=self.drive_to(requested_room)))
         return statechart
 
     def conclude(self, world: World) -> None:
@@ -167,16 +86,13 @@ class TiagoRoomRequestDemonstration(TiagoElevatorRideDemonstration):
             room's floor.
         """
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
-        if Floor.under(robot.root) is not self.requested_room.room.floor:
-            raise TargetRoomNotReachedError(self.requested_room.room.name.name)
+        if Floor.under(robot.root) is not self.destination.room.floor:
+            raise TargetRoomNotReachedError(self.destination.room.name.name)
 
     def tear_down(self) -> None:
         if self.room_requests is not None:
             self.room_requests.close()
             self.room_requests = None
-        if self.persons_at_elevator is not None:
-            self.persons_at_elevator.close()
-            self.persons_at_elevator = None
         super().tear_down()
 
 

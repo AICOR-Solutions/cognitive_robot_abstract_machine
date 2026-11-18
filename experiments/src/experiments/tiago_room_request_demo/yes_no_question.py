@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -19,6 +20,8 @@ from rclpy.node import Node
 from rclpy.subscription import Subscription
 from rclpy.task import Future
 from std_skills.msg import Result as SkillResult
+
+from krrood.exceptions import DataclassException
 
 from experiments.tiago_room_request_demo.exceptions import SaySkillNotServedError
 
@@ -150,10 +153,53 @@ class YesNoAnswerInProgress:
         return self.agreed
 
 
-@dataclass
-class YesNoQuestionAsker:
+class YesNoAsker(ABC):
     """
-    Asks people questions they answer with yes or no.
+    Asks people questions they answer with yes or no, through some skill, without
+    waiting for the answer.
+    """
+
+    server_timeout: float
+    """
+    Seconds to wait for the skill to be served.
+    """
+
+    @property
+    @abstractmethod
+    def is_served(self) -> bool:
+        """
+        :return: Whether the skill can be called right now.
+        """
+
+    @abstractmethod
+    def not_served(self) -> DataclassException:
+        """
+        :return: What went wrong when the skill was not served within
+            :attr:`server_timeout`.
+        """
+
+    @abstractmethod
+    def ask(self, question: str, person_id: str = "") -> YesNoAnswerInProgress:
+        """
+        Ask without waiting for the answer.
+
+        :param question: What to ask.
+        :param person_id: The ROS4HRI ID of the person to ask, anybody if empty.
+        :return: The question, which tells the answer once it is known.
+        """
+
+    @abstractmethod
+    def close(self) -> None:
+        """
+        Stop calling the skill.
+        """
+
+
+@dataclass
+class YesNoQuestionAsker(YesNoAsker):
+    """
+    Asks people questions they answer with yes or no, by saying them through the ``say``
+    skill and listening for the answer in the recognized speech.
 
     .. warning:: The recognized speech names no speaker, so anybody can answer.
     """
@@ -218,19 +264,12 @@ class YesNoQuestionAsker:
 
     @property
     def is_served(self) -> bool:
-        """
-        :return: Whether the skill can be called right now.
-        """
         return self._client.server_is_ready()
 
-    def ask(self, question: str, person_id: str = "") -> YesNoAnswerInProgress:
-        """
-        Ask without waiting for the answer.
+    def not_served(self) -> SaySkillNotServedError:
+        return SaySkillNotServedError(self.text_to_speech_action, self.server_timeout)
 
-        :param question: What to ask.
-        :param person_id: The ROS4HRI ID of the person to ask, anybody if empty.
-        :return: The question, which tells the answer once it is known.
-        """
+    def ask(self, question: str, person_id: str = "") -> YesNoAnswerInProgress:
         self._answer = YesNoAnswerInProgress(answer_timeout=self.answer_timeout)
         self._client.send_goal_async(
             Say.Goal(person_id=person_id, input=question)
@@ -249,9 +288,7 @@ class YesNoQuestionAsker:
             :attr:`server_timeout`.
         """
         if not self._client.wait_for_server(timeout_sec=self.server_timeout):
-            raise SaySkillNotServedError(
-                self.text_to_speech_action, self.server_timeout
-            )
+            raise self.not_served()
         answer = self.ask(question, person_id)
         while (agreed := answer.poll()) is None:
             time.sleep(self.answer_check_period)
@@ -259,7 +296,7 @@ class YesNoQuestionAsker:
 
     def close(self) -> None:
         """
-        Stop calling the skill and listening.
+        Differs from :meth:`YesNoAsker.close` in also no longer listening.
         """
         self._client.destroy()
         self.node.destroy_subscription(self._speech_subscription)

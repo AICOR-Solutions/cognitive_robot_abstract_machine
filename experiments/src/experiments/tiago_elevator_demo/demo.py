@@ -76,8 +76,8 @@ from semantic_digital_twin.world_description.world_entity import Region
 @dataclass
 class ElevatorOperator(TickingExecutorExtension):
     """
-    Brings an elevator's cabin to a robot waiting in front of its doors, as if the robot
-    pressed the call button.
+    Brings an elevator's cabin to a robot waiting in front of its doors after
+    :attr:`call_duration` ticks, as if the robot pressed the call button.
 
     Once the robot boards, closes the doors, drives the cabin to a floor and opens the
     doors again after :attr:`ride_duration` ticks, standing in for whatever operates the
@@ -105,6 +105,11 @@ class ElevatorOperator(TickingExecutorExtension):
     turn towards them.
     """
 
+    call_duration: int = 50
+    """
+    How many ticks a called cabin takes to arrive, during which the robot sees it away.
+    """
+
     waiting_areas: dict[Level, Region] = field(init=False)
     """
     Where the robot waits for the cabin, per level.
@@ -118,6 +123,11 @@ class ElevatorOperator(TickingExecutorExtension):
     ticks_until_doors_open: int | None = field(default=None, init=False)
     """
     How many more ticks the doors stay closed, None while the elevator is not riding.
+    """
+
+    ticks_until_cabin_arrives: int | None = field(default=None, init=False)
+    """
+    How many more ticks a called cabin takes to arrive, None while nobody calls it.
     """
 
     def __post_init__(self) -> None:
@@ -145,16 +155,25 @@ class ElevatorOperator(TickingExecutorExtension):
 
     def answer_call(self) -> None:
         """
-        Bring the cabin to the robot's level if the robot waits in front of the doors
-        there.
+        Call the cabin while the robot waits in front of the doors on a level the cabin
+        is away from, and bring it there once :attr:`call_duration` ticks passed.
         """
         level = Level.under(self.robot.root)
-        if level is None or self.elevator.is_at_floor(level):
+        if (
+            level is None
+            or self.elevator.is_at_floor(level)
+            or not InsideRegion(
+                self.robot.bodies_with_collision[0], self.waiting_areas[level]
+            )()
+        ):
+            self.ticks_until_cabin_arrives = None
             return
-        if not InsideRegion(
-            self.robot.bodies_with_collision[0], self.waiting_areas[level]
-        )():
+        if self.ticks_until_cabin_arrives is None:
+            self.ticks_until_cabin_arrives = self.call_duration
+        self.ticks_until_cabin_arrives -= 1
+        if self.ticks_until_cabin_arrives > 0:
             return
+        self.ticks_until_cabin_arrives = None
         self.elevator.serve_floor(level)
 
 
@@ -386,11 +405,7 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
         elevator = world.get_semantic_annotations_by_type(Elevator)[0]
         if self.runs_on_a_real_robot:
-            if self.elevator_operator_parameter_service is not None:
-                SimulatedElevatorOperator(
-                    node=self.ros_node,
-                    parameter_service_name=self.elevator_operator_parameter_service,
-                ).set_destination_floor(self.destination_floor_index(world))
+            self.tell_elevator_operator_the_destination(world)
             if self.elevator_inputs is None:
                 self._follow_elevator_drive(elevator)
             return [
@@ -424,6 +439,25 @@ class TiagoElevatorRideDemonstration(RobotDemonstration):
         if self.elevator_operator is not None:
             executor.extensions.append(self.elevator_operator)
         return executor
+
+    def tell_elevator_operator_the_destination(self, world: World) -> None:
+        """
+        Have whatever operates the elevator of ``world`` take Tiago to
+        :meth:`destination_level` once it boards: the :attr:`elevator_operator` of a
+        kinematic simulation, or the simulator's elevator operator in a real run with an
+        :attr:`elevator_operator_parameter_service`.
+
+        A person operating the elevator is not told.
+        """
+        if not self.runs_on_a_real_robot:
+            self.elevator_operator.floor = self.destination_level(world)
+            return
+        if self.elevator_operator_parameter_service is None:
+            return
+        SimulatedElevatorOperator(
+            node=self.ros_node,
+            parameter_service_name=self.elevator_operator_parameter_service,
+        ).set_destination_floor(self.destination_floor_index(world))
 
     def _follow_elevator_drive(self, elevator: Elevator) -> None:
         """
