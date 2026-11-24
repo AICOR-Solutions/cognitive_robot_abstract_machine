@@ -15,7 +15,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from coraplex.datastructures.enums import DetectionGrounding
-from coraplex.exceptions import NothingPerceived, UnidentifiedDetections
+from coraplex.exceptions import (
+    AmbiguousDetection,
+    NothingPerceived,
+    UnidentifiedDetections,
+)
 from coraplex.perception import (
     PerceptionInterface,
     PerceptionQuery,
@@ -128,7 +132,7 @@ class FailureCause(StrEnum):
                 return cls.COLLISION
             case NothingPerceived():
                 return cls.NOT_PERCEIVED
-            case UnidentifiedDetections():
+            case UnidentifiedDetections() | AmbiguousDetection():
                 return cls.AMBIGUOUS
             case TargetLeftFieldOfView():
                 return cls.OUT_OF_VIEW

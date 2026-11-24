@@ -40,6 +40,7 @@ from coraplex.exceptions import (
     UnidentifiedDetections,
 )
 from coraplex.perception import PerceptionTask
+from coraplex.plans.failures import PlanFailure
 from coraplex.perception import (
     ROBOKUDO_QUERY_ACTION_NAME,
     Detection,
@@ -1721,6 +1722,29 @@ def test_a_detection_in_a_box_moves_the_body_inside_it(pr2_apartment_context) ->
     run_plan(detection, extensions)
 
     assert detection.life_cycle_state == LifeCycleValues.SUCCEEDED
+
+
+def test_a_detection_that_cannot_tell_which_body_it_saw_fails_the_plan(
+    pr2_apartment_context, whole_scene_region
+) -> None:
+    """
+    What a detection sees is no mistake in the plan, so a run can recover from seeing an
+    object it cannot tell apart from another, as from any plan that did not work.
+    """
+    world, view, extensions = pr2_apartment_context
+    with world.modify_world():
+        world.add_semantic_annotation(Milk(root=world.get_body_by_name("spoon.stl")))
+    detection = DetectAction(
+        technique=DetectionTechnique.TYPES,
+        object_sem_annotation=Milk,
+        detection_box=whole_scene_region,
+        accept_first_if_multiple=True,
+    )
+
+    with pytest.raises(PlanFailure) as failed:
+        run_plan(detection, extensions)
+
+    assert type(failed.value) is AmbiguousDetection
 
 
 def test_a_detection_without_a_box_looks_as_far_to_every_side_of_the_robot(

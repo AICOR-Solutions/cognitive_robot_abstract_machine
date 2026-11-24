@@ -13,7 +13,11 @@ import numpy as np
 import pytest
 
 from coraplex.datastructures.enums import DetectionGrounding
-from coraplex.exceptions import NothingPerceived, UnidentifiedDetections
+from coraplex.exceptions import (
+    AmbiguousDetection,
+    NothingPerceived,
+    UnidentifiedDetections,
+)
 from coraplex.perception import (
     Detection,
     PerceptionInterface,
@@ -205,6 +209,7 @@ def joint_positions(world: World) -> np.ndarray:
         (RobotInCollision(), FailureCause.COLLISION),
         (NothingPerceived(HasGraspCandidates), FailureCause.NOT_PERCEIVED),
         (UnidentifiedDetections(HasGraspCandidates, 2), FailureCause.AMBIGUOUS),
+        (AmbiguousDetection(HasGraspCandidates, 2), FailureCause.AMBIGUOUS),
         (
             TargetLeftFieldOfView(
                 camera=Camera(
