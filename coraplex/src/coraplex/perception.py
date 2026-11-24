@@ -868,9 +868,8 @@ class RoboKudoPerception(PerceptionInterface):
     ) -> Detection:
         """
         Convert one RoboKudo object designator into a detection of the queried
-        annotation, which :meth:`_can_be_requested_object` narrowed it to, in the first,
-        most dominant, color reported that has a :class:`ColorName` and of the first
-        shape size reported.
+        annotation, which :meth:`_can_be_requested_object` narrowed it to, in the color
+        :meth:`_reported_color` names and of the first shape size reported.
 
         :param designator: The designator RoboKudo reported.
         :param query: The query it was answering, supplying the annotation and the
@@ -883,10 +882,7 @@ class RoboKudoPerception(PerceptionInterface):
         return Detection(
             semantic_annotation=query.semantic_annotation,
             size=None if extent is None else Scale(extent.x, extent.y, extent.z),
-            color=next(
-                (ColorName(color) for color in designator.color if color in ColorName),
-                None,
-            ),
+            color=self._reported_color(designator, query),
             pose=Pose.from_xyz_quaternion(
                 pose_stamped.pose.position.x,
                 pose_stamped.pose.position.y,
@@ -899,6 +895,28 @@ class RoboKudoPerception(PerceptionInterface):
                     world, pose_stamped.header.frame_id
                 ),
             ),
+        )
+
+    @staticmethod
+    def _reported_color(
+        designator: ObjectDesignator, query: PerceptionQuery
+    ) -> ColorName | None:
+        """
+        The color an object RoboKudo reported is seen in.
+
+        An object reported in several colors, such as a cube together with the gripper
+        holding it, is the queried color where that is among them.
+
+        :param designator: The designator RoboKudo reported.
+        :param query: The query it was answering.
+        :return: The queried color where it was reported, else the first, most dominant,
+            color reported that has a :class:`ColorName`, None when none has.
+        """
+        if query.color is not None and query.color.value in designator.color:
+            return query.color
+        return next(
+            (ColorName(color) for color in designator.color if color in ColorName),
+            None,
         )
 
     @staticmethod

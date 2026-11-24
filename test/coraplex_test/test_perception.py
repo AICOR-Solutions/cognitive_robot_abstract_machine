@@ -997,6 +997,30 @@ def test_a_robokudo_detection_carries_the_dominant_color_reported(
     assert detection.color is ColorName.RED
 
 
+def test_a_robokudo_detection_carries_the_queried_color_it_was_reported_in(
+    pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
+):
+    """
+    A red cube held by a black gripper is reported as one object, mostly black; it is
+    the red object asked for, not a black one.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting(
+        [
+            ReportedObject(
+                "",
+                PERCEIVED_MILK_POSITION,
+                [ColorName.BLACK.value, ColorName.RED.value],
+            )
+        ]
+    )
+    query = PerceptionQuery(Milk, whole_scene_region, view, world, color=ColorName.RED)
+
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+
+    assert detection.color is ColorName.RED
+
+
 def test_a_robokudo_detection_without_a_known_color_carries_none(
     pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
 ):
@@ -1218,8 +1242,8 @@ class AbortingQueryServer:
 @pytest.fixture
 def aborting_query_server(rclpy_node):
     """
-    A stand-in pipeline aborting every query with the reason the depth image of
-    Tracy's camera gives when it is not registered.
+    A stand-in pipeline aborting every query with the reason the depth image of Tracy's
+    camera gives when it is not registered.
     """
     pytest.importorskip("robokudo_msgs")
     server = AbortingQueryServer(
