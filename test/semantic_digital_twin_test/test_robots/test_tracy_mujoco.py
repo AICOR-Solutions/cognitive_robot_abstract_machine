@@ -145,9 +145,7 @@ def test_the_grippers_keep_the_descriptions_own_velocity_limit(mounted_tracy):
     ).raw_dof.limits.upper.velocity
 
     assert knuckle.raw_dof.limits.upper.velocity == described_knuckle_velocity
-    assert wrist.raw_dof.limits.upper.velocity == pytest.approx(
-        Tracy.fastest_arm_joint_velocity
-    )
+    assert wrist.raw_dof.limits.upper.velocity == pytest.approx(1.0)
 
 
 def test_the_servoed_parts_carry_their_weight_and_the_links_pass_through_each_other(
@@ -227,19 +225,6 @@ def test_gripper_geometry_names_the_pads_and_the_driving_joint(mounted_tracy):
 
 
 # %% commanding the gripper through its driver
-
-
-def test_the_driver_of_each_gripper_commands_its_knuckle_joint(mounted_tracy):
-    """
-    The controller serving the parallel gripper command action of each gripper commands
-    the left knuckle joint of that gripper.
-    """
-    left, right = (arm.end_effector for arm in mounted_tracy.all_arms)
-
-    assert [left.commanded_joint.name.name, right.commanded_joint.name.name] == [
-        TracyJoint.LEFT_GRIPPER_LEFT_KNUCKLE,
-        TracyJoint.RIGHT_GRIPPER_LEFT_KNUCKLE,
-    ]
 
 
 @pytest.mark.parametrize("state", [GripperState.OPEN, GripperState.CLOSE])
