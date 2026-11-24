@@ -189,34 +189,6 @@ class PickUpAction(
         )
         return cls(grasp=grasp, arm=arm)
 
-    def _grasp_steps(self) -> list[StatechartNode]:
-        """
-        A pick-up is a grasp the world is then told about: the object hangs off the tool
-        frame afterwards, which is what makes it move with the arm.
-
-        :return: The steps taking :attr:`grasp`, without lifting the object.
-        """
-        return [
-            GraspingAction(
-                grasp=self.grasp,
-                arm=self.arm,
-                approach_clearance=self.approach_clearance,
-                retreat_distance=self.retreat_distance,
-                pre_approach_linear_velocity=self.pre_approach_linear_velocity,
-                final_approach_linear_velocity=self.final_approach_linear_velocity,
-                grasp_closing_velocity=self.grasp_closing_velocity,
-                grasp_stall_minimum_time=self.grasp_stall_minimum_time,
-                tolerate_grasp_stall=self.tolerate_grasp_stall,
-                grasp_detection_threshold=self.grasp_detection_threshold,
-                position_threshold=self.position_threshold,
-                orientation_threshold=self.orientation_threshold,
-            ),
-            *self.reattach(
-                self.grasp.graspable.root,
-                self.arm.end_effector.tool_frame,
-            ),
-        ]
-
     def create_temporary_collision_rules(self) -> list[CollisionRule]:
         """
         :return: An allowance for the gripper to touch its object, which it is around
@@ -232,12 +204,35 @@ class PickUpAction(
             self.grasp.grasp_pose, self.arm.end_effector, self.grasp
         ).retreat
         return [
-            *self._grasp_steps(),
-            self.tool_center_point_goal(
-                lift_to_pose,
-                self.arm,
-                max_linear_velocity=self.lift_linear_velocity,
-                near_the_object=True,
+            GraspingAction(
+                grasp=self.grasp,
+                arm=self.arm,
+                approach_clearance=self.approach_clearance,
+                retreat_distance=self.retreat_distance,
+                pre_approach_linear_velocity=self.pre_approach_linear_velocity,
+                final_approach_linear_velocity=self.final_approach_linear_velocity,
+                grasp_closing_velocity=self.grasp_closing_velocity,
+                grasp_stall_minimum_time=self.grasp_stall_minimum_time,
+                tolerate_grasp_stall=self.tolerate_grasp_stall,
+                grasp_detection_threshold=self.grasp_detection_threshold,
+                position_threshold=self.position_threshold,
+                orientation_threshold=self.orientation_threshold,
+            ),
+            # The object hangs off the tool frame from here on, so it moves with the arm.
+            *self.create_steps_letting_the_object_touch_anything(
+                [
+                    *self.reattach(
+                        self.grasp.graspable.root, self.arm.end_effector.tool_frame
+                    ),
+                    self.tool_center_point_goal(
+                        lift_to_pose,
+                        self.arm,
+                        max_linear_velocity=self.lift_linear_velocity,
+                        near_the_object=True,
+                    ),
+                ],
+                self.grasp.graspable,
+                "Lift the object off",
             ),
         ]
 

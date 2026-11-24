@@ -9,8 +9,11 @@ import numpy as np
 from coraplex.robot_plans.actions.base import Action
 from cramph.node import StatechartNode
 from cramph.world_modification_nodes import MoveBranch
-from cramph.composites import Parallel
+from cramph.composites import Parallel, Sequence
 from giskardpy.motion_statechart.goals.cartesian_goals import CartesianPoseStraight
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
 from giskardpy.motion_statechart.goals.gripper import (
     MoveFingers,
     MovesGripperToConfiguration,
@@ -236,6 +239,40 @@ class MovesToolCenterPoint(Action, ABC):
             AllowCollisionBetweenGroups(
                 body_group_a=list(end_effector.bodies_with_collision),
                 body_group_b=list(touched_object.bodies_with_collision),
+            )
+        ]
+
+    def create_steps_letting_the_object_touch_anything(
+        self,
+        steps: list[StatechartNode],
+        touched_object: HasGraspCandidates,
+        name: str,
+    ) -> list[StatechartNode]:
+        """
+        :param steps: New steps taking the object off what it stands on, or setting it
+            down on something.
+        :param touched_object: The object the action acts on.
+        :param name: What the steps do, as a person reads it.
+        :return: The steps, during which `touched_object` may touch anything where only
+            the gripper may touch it, so the object is avoided outside them; the steps
+            alone otherwise, as the gripper's own rules let what it holds touch anything.
+        """
+        if not self.lets_only_its_object_touch_the_gripper:
+            return steps
+        return [
+            Parallel(
+                nodes=[
+                    Sequence(nodes=steps),
+                    UpdateTemporaryCollisionRules(
+                        temporary_rules=[
+                            AllowCollisionBetweenGroups(
+                                body_group_a=list(touched_object.bodies_with_collision),
+                                body_group_b=list(self.world.bodies_with_collision),
+                            )
+                        ]
+                    ),
+                ],
+                name=name,
             )
         ]
 

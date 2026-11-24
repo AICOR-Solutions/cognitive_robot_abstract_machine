@@ -14,7 +14,7 @@ from coraplex.exceptions import ObjectIsNotHeld
 from coraplex.querying.predicates import GripperHolds
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import SequentialAction
-from cramph.composites import Parallel, Sequence
+from cramph.composites import Parallel
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.mixins import (
     ReattachesBranches,
@@ -24,13 +24,7 @@ from coraplex.robot_plans.mixins import (
     OperatesGripper,
     PlaceTuningParameters,
 )
-from giskardpy.motion_statechart.goals.collision_avoidance import (
-    UpdateTemporaryCollisionRules,
-)
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
-from semantic_digital_twin.collision_checking.collision_rules import (
-    AllowCollisionBetweenGroups,
-)
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.reasoning.robot_predicates import is_body_gripped
@@ -118,7 +112,9 @@ class PlaceAction(
                 arm,
                 max_linear_velocity=self.transport_linear_velocity,
             ),
-            *self.create_setting_down_steps(setting_down),
+            *self.create_steps_letting_the_object_touch_anything(
+                setting_down, self.object_designator, "Set the object down"
+            ),
             # The gripper starts out around the object it has just let go of.
             self.tool_center_point_goal(
                 poses.pre_grasp,
@@ -126,38 +122,6 @@ class PlaceAction(
                 max_linear_velocity=self.retract_linear_velocity,
                 near_the_object=True,
             ),
-        ]
-
-    def create_setting_down_steps(
-        self, setting_down: list[StatechartNode]
-    ) -> list[StatechartNode]:
-        """
-        :param setting_down: The steps lowering the object onto its target, letting go
-            of it and putting it back under the world.
-        :return: The steps, during which the object may touch what it is set down on
-            where only the gripper may touch :attr:`object_designator`, so the object
-            is avoided from the transport on; the steps alone otherwise, as the
-            gripper's own rules let the object it holds touch anything.
-        """
-        if not self.lets_only_its_object_touch_the_gripper:
-            return setting_down
-        return [
-            Parallel(
-                nodes=[
-                    Sequence(nodes=setting_down),
-                    UpdateTemporaryCollisionRules(
-                        temporary_rules=[
-                            AllowCollisionBetweenGroups(
-                                body_group_a=list(
-                                    self.object_designator.bodies_with_collision
-                                ),
-                                body_group_b=list(self.world.bodies_with_collision),
-                            )
-                        ]
-                    ),
-                ],
-                name="Set the object down",
-            )
         ]
 
     def _holding_arm_and_grasp(self) -> tuple[Arm, GraspCandidate]:
