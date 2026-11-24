@@ -15,8 +15,13 @@ from ...pytest_environment import runs_in_continuous_integration
 from semantic_digital_twin.adapters.multi_sim import MujocoBuilder, MujocoSim
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.specifications.robots import RobotSpecification
-from semantic_digital_twin.datastructures.definitions import StaticJointState
+from semantic_digital_twin.datastructures.definitions import (
+    GripperState,
+    StaticJointState,
+)
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.exceptions import CommandedJointNotInJointState
 from semantic_digital_twin.robots.tracy import Tracy, TracyJoint
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
@@ -217,6 +222,47 @@ def test_gripper_geometry_names_the_pads_and_the_driving_joint(mounted_tracy):
         mounted_tracy.right_arm.end_effector.knuckle_joint.name.name
         == TracyJoint.RIGHT_GRIPPER_LEFT_KNUCKLE
     )
+
+
+# %% commanding the gripper through its driver
+
+
+def test_the_driver_of_each_gripper_commands_its_knuckle_joint(mounted_tracy):
+    """
+    The controller serving the parallel gripper command action of each gripper commands
+    the left knuckle joint of that gripper.
+    """
+    left, right = (arm.end_effector for arm in mounted_tracy.all_arms)
+
+    assert [left.commanded_joint.name.name, right.commanded_joint.name.name] == [
+        TracyJoint.LEFT_GRIPPER_LEFT_KNUCKLE,
+        TracyJoint.RIGHT_GRIPPER_LEFT_KNUCKLE,
+    ]
+
+
+@pytest.mark.parametrize("state", [GripperState.OPEN, GripperState.CLOSE])
+def test_the_driver_is_commanded_the_knuckle_joint_position_of_a_gripper_state(
+    mounted_tracy, state
+):
+    gripper = mounted_tracy.left_arm.end_effector
+    joint_state = gripper.get_joint_state_by_type(state)
+
+    assert (
+        gripper.commanded_position(joint_state)
+        == dict(joint_state.items())[gripper.knuckle_joint]
+    )
+
+
+def test_a_joint_state_without_the_commanded_joint_has_no_commanded_position(
+    mounted_tracy,
+):
+    gripper = mounted_tracy.left_arm.end_effector
+    other_knuckle = mounted_tracy._world.get_connection_by_name(
+        TracyJoint.LEFT_GRIPPER_RIGHT_KNUCKLE
+    )
+
+    with pytest.raises(CommandedJointNotInJointState):
+        gripper.commanded_position(JointState.from_mapping({other_knuckle: 0.0}))
 
 
 # %% an arm swung into a wall

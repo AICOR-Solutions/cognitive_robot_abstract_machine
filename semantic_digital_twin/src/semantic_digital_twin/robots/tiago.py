@@ -217,20 +217,19 @@ class TiagoGripper(EndEffector, HasParallelGripperCommandServer, ABC):
         mimics.
         """
 
+    @property
+    def commanded_joint(self) -> ActiveConnection1DOF:
+        return self._world.get_connection_by_name(self.finger_joint)
+
     def setup_hardware_interfaces(self):
-        connection: ActiveConnection = self._world.get_connection_by_name(
-            self.finger_joint
-        )
-        connection.has_hardware_interface = True
+        self.commanded_joint.has_hardware_interface = True
 
     def setup_joint_states(self) -> list[JointState]:
         """
         The gripper stands open with :attr:`finger_joint` at its lower limit and closed
         with it at its upper limit.
         """
-        finger_joint: ActiveConnection1DOF = self._world.get_connection_by_name(
-            self.finger_joint
-        )
+        finger_joint = self.commanded_joint
         limits = finger_joint.raw_dof.limits
 
         gripper_open = JointState.from_mapping(

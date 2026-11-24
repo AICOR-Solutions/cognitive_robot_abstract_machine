@@ -12,6 +12,8 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     TGenericRightFinger,
 )
 from semantic_digital_twin.datastructures.definitions import JointStateType
+from semantic_digital_twin.datastructures.joint_state import JointState
+from semantic_digital_twin.robots.exceptions import CommandedJointNotInJointState
 from semantic_digital_twin.robots.robot_parts import (
     EndEffector,
     HasGripperActionServers,
@@ -40,6 +42,28 @@ class HasParallelGripperCommandServer(HasGripperActionServers, ABC):
         """
         The name the driver serves the parallel gripper command action under.
         """
+
+    @property
+    @abstractmethod
+    def commanded_joint(self) -> ActiveConnection1DOF:
+        """
+        The joint whose position the server is commanded, which every other joint of the
+        gripper follows.
+        """
+
+    def commanded_position(self, joint_state: JointState) -> float:
+        """
+        :param joint_state: A joint state of this gripper.
+        :return: The position the server is commanded to bring the gripper into
+            `joint_state`: the position `joint_state` sets for :attr:`commanded_joint`,
+            in that joint's units.
+        :raises CommandedJointNotInJointState: If `joint_state` sets no position for
+            :attr:`commanded_joint`.
+        """
+        for connection, position in joint_state.items():
+            if connection is self.commanded_joint:
+                return position
+        raise CommandedJointNotInJointState(gripper=self, joint_state=joint_state)
 
     def action_topic_serving(self, state_type: JointStateType | None) -> str:
         return self.parallel_gripper_command_topic
