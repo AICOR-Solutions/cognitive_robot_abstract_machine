@@ -638,10 +638,18 @@ class Tracy(
             ]
         )
 
+    @classproperty
+    def fastest_arm_joint_velocity(cls) -> float:
+        """
+        :return: How fast, in rad/s, the fastest joint of an arm may turn; the other
+            joints of the arm are slowed down in proportion.
+        """
+        return 1.5
+
     def _setup_velocity_limits(self):
         """
-        Slow the arms down to 0.2 rad/s at their fastest joint, keeping the joints'
-        proportions.
+        Slow the arms down to :attr:`fastest_arm_joint_velocity` at their fastest joint,
+        keeping the joints' proportions.
 
         The grippers keep the description's own limits: a finger is no danger at that
         speed, and scaling it down with the arms would leave it too slow to close within
@@ -660,7 +668,7 @@ class Tracy(
         fastest_arm_velocity = max(
             connection.raw_dof.limits.upper.velocity for connection in arm_connections
         )
-        arm_scale = min(1.0, 0.2 / fastest_arm_velocity)
+        arm_scale = min(1.0, self.fastest_arm_joint_velocity / fastest_arm_velocity)
         self.tighten_dof_velocity_limits_of_1dof_connections(
             {
                 connection: connection.raw_dof.limits.upper.velocity

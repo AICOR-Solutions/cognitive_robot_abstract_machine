@@ -145,7 +145,9 @@ def test_the_grippers_keep_the_descriptions_own_velocity_limit(mounted_tracy):
     ).raw_dof.limits.upper.velocity
 
     assert knuckle.raw_dof.limits.upper.velocity == described_knuckle_velocity
-    assert wrist.raw_dof.limits.upper.velocity == pytest.approx(0.2)
+    assert wrist.raw_dof.limits.upper.velocity == pytest.approx(
+        Tracy.fastest_arm_joint_velocity
+    )
 
 
 def test_the_servoed_parts_carry_their_weight_and_the_links_pass_through_each_other(
