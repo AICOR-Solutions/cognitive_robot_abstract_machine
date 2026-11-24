@@ -16,6 +16,7 @@ import pytest
 from action_msgs.msg import GoalStatus
 from py_trees.behaviour import Behaviour
 from scipy.spatial.transform import Rotation
+from sensor_msgs.msg import Image
 
 import rclpy
 from rclpy.action import ActionClient
@@ -29,12 +30,14 @@ from robokudo.annotators.cluster_color import Color as SemanticColorName
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
+from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
 from robokudo.cas import CAS, CASViews
 from robokudo.descriptors.analysis_engines.tracy_cubes import AnalysisEngine
 from robokudo.query_service import QueryService
 from robokudo.types.annotation import PoseAnnotation, SemanticColor
 from robokudo.types.scene import ObjectHypothesis
 from robokudo.utils.annotator_helper import transform_pose_from_camera_to_world
+from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -374,6 +377,59 @@ def test_a_query_is_answered_with_the_cubes_in_the_world_frame(
         assert frame is cube_scene.world.root
         position = pose.pose.position
         assert math.dist((position.x, position.y), (cube.x, cube.y)) < 0.01
+
+
+@dataclass
+class NewestImage:
+    """
+    Keeps the newest image published on a topic.
+    """
+
+    message: Image | None = None
+    """
+    The newest image, None before one arrived.
+    """
+
+    def __call__(self, message: Image) -> None:
+        self.message = message
+
+
+def test_a_query_service_publishing_images_publishes_the_clusters_it_drew(
+    node, cube_scene: CubeScene
+) -> None:
+    """
+    What the cluster extractor drew shows people which clusters a query saw.
+    """
+    analysis_engine = AnalysisEngine()
+    pipeline = analysis_engine.implementation()
+    [cluster_extractor] = [
+        annotator
+        for annotator in pipeline.get_annotators()
+        if isinstance(annotator, PointCloudClusterExtractor)
+    ]
+    newest = NewestImage()
+    node.create_subscription(
+        Image, f"/{pipeline.name}/{cluster_extractor.name}/output_image", newest, 1
+    )
+    service = QueryService(
+        analysis_engine=analysis_engine,
+        world=cube_scene.world,
+        visualizer_types=[AllAnnotatorROSVisualizer],
+    )
+    service.start()
+    ask_for_objects(node)
+    executor = SingleThreadedExecutor(context=node.context)
+    executor.add_node(node)
+    deadline = time.monotonic() + 10.0
+    while (newest.message is None or not any(newest.message.data)) and (
+        time.monotonic() < deadline
+    ):
+        executor.spin_once(timeout_sec=0.1)
+    executor.remove_node(node)
+    service.stop()
+
+    assert newest.message is not None
+    assert any(newest.message.data)
 
 
 def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(

@@ -87,6 +87,7 @@ class TracyCubesPerceptionProcess:
                 urdf=self.read_robot_description(), prefix=""
             ).create_world(),
             thread_failed=self._stopped,
+            visualizer_types=self.settings.images.visualizer_types,
         )
         service.start()
         for signal_number in (signal.SIGINT, signal.SIGTERM):

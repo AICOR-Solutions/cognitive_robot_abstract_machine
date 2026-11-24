@@ -17,10 +17,12 @@ from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.descriptors.analysis_engines.exceptions import UnknownSettingsSection
 from robokudo.descriptors.analysis_engines.tracy_cubes import (
     AnalysisEngine,
+    PublishedImages,
     SettingsEnvironmentVariable,
     TracyCubesSettings,
 )
 from robokudo.descriptors.camera_configs.config_orbbec import OrbbecCameraConfig
+from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
 
 # %% fixtures
 
@@ -87,6 +89,19 @@ def test_the_real_camera_is_read_from_the_file(
     assert settings.real_camera == OrbbecCameraConfig(**written_settings["real_camera"])
 
 
+def test_the_published_images_are_read_from_the_file(
+    settings_file: Path, written_settings: dict
+) -> None:
+    settings = TracyCubesSettings.from_file(settings_file)
+
+    assert settings.images == PublishedImages(**written_settings["images"])
+
+
+def test_publishing_the_images_runs_the_ros_image_visualizer() -> None:
+    assert PublishedImages(publish=True).visualizer_types == [AllAnnotatorROSVisualizer]
+    assert PublishedImages(publish=False).visualizer_types == []
+
+
 def test_a_file_leaving_a_section_out_keeps_its_defaults(tmp_path: Path) -> None:
     settings_file = tmp_path / "settings.yaml"
     settings_file.write_text(yaml.safe_dump({"clusters": {"minimum_cluster_size": 7}}))
@@ -96,6 +111,7 @@ def test_a_file_leaving_a_section_out_keeps_its_defaults(tmp_path: Path) -> None
     assert settings.table_top == TracyCubesSettings().table_top
     assert settings.colors == TracyCubesSettings().colors
     assert settings.real_camera == OrbbecCameraConfig()
+    assert settings.images == PublishedImages()
 
 
 def test_a_misspelled_section_is_refused(tmp_path: Path) -> None:

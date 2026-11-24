@@ -42,6 +42,8 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
+from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
+from robokudo.vis.visualizer import Visualizer
 from semantic_digital_twin.datastructures.camera_rendering import (
     VisualColorRenderingMode,
 )
@@ -205,6 +207,36 @@ class ColorThresholds:
 
 
 @dataclass
+class PublishedImages:
+    """
+    Whether the images the annotators draw are published, so people see what a query
+    saw.
+    """
+
+    publish: bool = False
+    """
+    Whether every annotator publishes what it drew on
+    ``<pipeline>/<annotator>/output_image`` once per answered query.
+    """
+
+    @classmethod
+    def from_json(cls, data: dict[str, bool]) -> Self:
+        """
+        :param data: The entries by field name.
+        :return: The entries written in the data.
+        """
+        return cls(**data)
+
+    @property
+    def visualizer_types(self) -> list[type[Visualizer]]:
+        """
+        The visualizers the analysis engine runs with: the one publishing every
+        annotator's image where :attr:`publish` is set, else none.
+        """
+        return [AllAnnotatorROSVisualizer] if self.publish else []
+
+
+@dataclass
 class TracyCubesSettings:
     """
     The tunable settings of Tracy's cube localization, as written in its settings file.
@@ -230,6 +262,11 @@ class TracyCubesSettings:
     Topics and frames of the real camera, Tracy's Orbbec Femto Bolt.
     """
 
+    images: PublishedImages = field(default_factory=PublishedImages)
+    """
+    Whether what the annotators drew is published.
+    """
+
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
         """
@@ -250,6 +287,7 @@ class TracyCubesSettings:
             clusters=CubeClusters.from_json(data.get("clusters", {})),
             colors=ColorThresholds.from_json(data.get("colors", {})),
             real_camera=OrbbecCameraConfig(**data.get("real_camera", {})),
+            images=PublishedImages.from_json(data.get("images", {})),
         )
 
     @classmethod

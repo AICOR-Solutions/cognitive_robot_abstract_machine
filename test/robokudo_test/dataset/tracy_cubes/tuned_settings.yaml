@@ -25,3 +25,5 @@ real_camera:
   topic_camera_info: /tracy_camera/color/camera_info
   tf_from: tracy_camera_color_optical_frame
   tf_to: camera_link
+images:
+  publish: true

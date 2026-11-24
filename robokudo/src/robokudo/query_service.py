@@ -28,6 +28,7 @@ from robokudo.garden import grow_tree
 from robokudo.identifier import BBIdentifier
 from robokudo.utils.error_handling import raise_to_blackboard
 from robokudo.utils.tree import setup_with_descendants_rk
+from robokudo.vis.visualizer import Visualizer
 
 # %% Query service
 
@@ -55,6 +56,11 @@ class QueryService:
     tick_rate: float = 20.0
     """
     How often the analysis engine is ticked, in Hz.
+    """
+
+    visualizer_types: list[type[Visualizer]] = field(default_factory=list)
+    """
+    The visualizers showing what the analysis engine's annotators drew, none by default.
     """
 
     thread_failed: Event = field(default_factory=Event)
@@ -110,7 +116,10 @@ class QueryService:
         self._node = rclpy.create_node(PACKAGE_NAME)
         ROSNodeRegistry().register(self._node)
         tree = grow_tree(
-            self.analysis_engine.implementation(), node=self._node, include_gui=False
+            self.analysis_engine.implementation(),
+            node=self._node,
+            include_gui=bool(self.visualizer_types),
+            visualizer_types=self.visualizer_types,
         )
         setup_with_descendants_rk(tree)
         self._executor = MultiThreadedExecutor()
