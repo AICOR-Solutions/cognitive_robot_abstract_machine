@@ -40,8 +40,6 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
-from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
-from robokudo.vis.visualizer import Visualizer
 from semantic_digital_twin.datastructures.camera_rendering import (
     VisualColorRenderingMode,
 )
@@ -78,8 +76,7 @@ class TableTopRegion:
 
     top_height: float = 0.88
     """
-    Height above the world origin, in metres, of the table top the cubes stand on, as
-    Tracy's description has it.
+    Height above the world origin, in metres, of the table top the cubes stand on.
     """
 
     @classmethod
@@ -99,8 +96,8 @@ class CubeClusters:
 
     minimum_cluster_size: int = 100
     """
-    The fewest points between the table top's heights an area of one color needs to
-    become an object; a cube seen from Tracy's simulated camera has about a thousand.
+    The fewest points an area of one color needs to become an object; a simulated cube
+    has about a thousand.
     """
 
     @classmethod
@@ -164,31 +161,13 @@ class ColorThresholds:
 @dataclass
 class PublishedImages:
     """
-    Whether the images the annotators draw are published, so people see what a query
-    saw.
+    Whether the images the annotators draw are published.
     """
 
     publish: bool = False
     """
-    Whether every annotator publishes what it drew on
-    ``<pipeline>/<annotator>/output_image`` once per answered query.
+    Whether every annotator publishes what it drew on its ``output_image`` topic.
     """
-
-    @classmethod
-    def from_json(cls, data: dict[str, bool]) -> Self:
-        """
-        :param data: The entries by field name.
-        :return: The entries written in the data.
-        """
-        return cls(**data)
-
-    @property
-    def visualizer_types(self) -> list[type[Visualizer]]:
-        """
-        The visualizers the analysis engine runs with: the one publishing every
-        annotator's image where :attr:`publish` is set, else none.
-        """
-        return [AllAnnotatorROSVisualizer] if self.publish else []
 
 
 @dataclass
@@ -242,7 +221,7 @@ class TracyCubesSettings:
             clusters=CubeClusters.from_json(data.get("clusters", {})),
             colors=ColorThresholds.from_json(data.get("colors", {})),
             real_camera=OrbbecCameraConfig(**data.get("real_camera", {})),
-            images=PublishedImages.from_json(data.get("images", {})),
+            images=PublishedImages(**data.get("images", {})),
         )
 
     @classmethod
@@ -325,33 +304,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         :return: The annotators that read one camera frame and leave one object
             hypothesis per cube in it, each with a pose and a semantic color.
         """
-        return [
-            CollectionReaderAnnotator(
-                descriptor=CollectionReaderDescriptorFactory.create_descriptor_from_camera_configuration(
-                    self.camera
-                )
-            ),
-            ImagePreprocessorAnnotator("ImagePreprocessor"),
-            ColorClusterExtractor(descriptor=self.color_cluster_extractor_descriptor()),
-            ClusterPoseBBAnnotator(descriptor=self.pose_descriptor()),
-        ]
-
-    def pose_descriptor(self) -> ClusterPoseBBAnnotator.Descriptor:
-        """
-        :return: The configuration of the annotator placing each cube's box, which
-            reaches down to the table top, since the camera sees little of a cube's sides.
-        """
-        descriptor = ClusterPoseBBAnnotator.Descriptor()
-        descriptor.parameters.support_height = self.settings.table_top.top_height
-        return descriptor
-
-    def color_cluster_extractor_descriptor(self) -> ColorClusterExtractor.Descriptor:
-        """
-        :return: The configuration of the annotator finding the cubes by their colors,
-            from the table top, cluster and color settings.
-        """
-        descriptor = ColorClusterExtractor.Descriptor()
-        parameters = descriptor.parameters
+        extractor = ColorClusterExtractor.Descriptor()
+        parameters = extractor.parameters
         if self.settings.colors.hue_upper_bounds is not None:
             parameters.hue_upper_bounds = dict(self.settings.colors.hue_upper_bounds)
         parameters.minimum_saturation = self.settings.colors.minimum_saturation
@@ -359,4 +313,16 @@ class AnalysisEngine(AnalysisEngineInterface):
         parameters.lowest_height = self.settings.table_top.lowest_height
         parameters.highest_height = self.settings.table_top.highest_height
         parameters.minimum_points = self.settings.clusters.minimum_cluster_size
-        return descriptor
+        # the camera sees little of a cube's sides, so its box reaches down to the table
+        pose = ClusterPoseBBAnnotator.Descriptor()
+        pose.parameters.support_height = self.settings.table_top.top_height
+        return [
+            CollectionReaderAnnotator(
+                descriptor=CollectionReaderDescriptorFactory.create_descriptor_from_camera_configuration(
+                    self.camera
+                )
+            ),
+            ImagePreprocessorAnnotator("ImagePreprocessor"),
+            ColorClusterExtractor(descriptor=extractor),
+            ClusterPoseBBAnnotator(descriptor=pose),
+        ]

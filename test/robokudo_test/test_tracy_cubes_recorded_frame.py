@@ -1,6 +1,6 @@
 """
-Localizing the cubes on Tracy's table in a frame recorded by Tracy's real camera, an
-Orbbec Femto Bolt, over the polished metal table whose depth it measures poorly.
+Localizing the cubes in a frame recorded by Tracy's real camera, an Orbbec Femto Bolt,
+over the polished metal table whose depth it measures poorly.
 """
 
 from __future__ import annotations
@@ -14,29 +14,23 @@ import cv2
 import numpy as np
 import pytest
 import yaml
-from py_trees.blackboard import Blackboard
-from py_trees.common import Status
-from typing_extensions import Any, Self
 
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point2
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
-from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap, AnnotatorOutputs
-from robokudo.cas import CAS, CASViews
 from robokudo.descriptors.analysis_engines.tracy_cubes import (
     AnalysisEngine,
     TracyCubesSettings,
 )
-from robokudo.pipeline import Pipeline
-from robokudo.types.annotation import PoseAnnotation, SemanticColor
 from robokudo.types.camera import CameraObservation
-from robokudo.types.cv import ColorToDepthRatio
 from robokudo.types.scene import ObjectHypothesis
-from robokudo.utils.annotator_helper import transform_pose_from_camera_to_world
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
 from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.world_description.world_entity import Body
+
+from .test_color_cluster_extractor import perceive, pipeline_seeing
+from .test_tracy_cubes import PerceivedCube
 
 # %% the recorded frame
 
@@ -44,8 +38,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 @dataclass
 class RecordedCamera:
     """
-    The camera a frame was recorded with: its pinhole model, at the frame's resolution,
-    and its pose in Tracy's world frame.
+    The camera a frame was recorded with, as ``camera.json`` holds it.
     """
 
     width: int
@@ -80,21 +73,13 @@ class RecordedCamera:
 
     camera_position_in_world: list[float]
     """
-    Where the camera's optical frame is in the world frame, in metres.
+    Position of the camera's optical frame in the world frame, in metres.
     """
 
     camera_orientation_in_world_xyzw: list[float]
     """
-    How the camera's optical frame is turned in the world frame, as a quaternion.
+    Orientation of the camera's optical frame in the world frame, as a quaternion.
     """
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Self:
-        """
-        :param data: The camera's fields by name.
-        :return: The camera written in the data.
-        """
-        return cls(**data)
 
     def to_camera_observation(self) -> CameraObservation:
         """
@@ -131,58 +116,13 @@ class RecordedCamera:
         )
 
 
-@dataclass
-class RecordedFrame:
-    """
-    A frame of Tracy's real camera, saved at half its resolution: the color image, the
-    depth image registered to it, the camera and the settings it is perceived with.
-    """
-
-    folder: Path
-    """
-    The folder the frame is saved in.
-    """
-
-    def settings(self) -> TracyCubesSettings:
-        """
-        :return: The settings the real Tracy perceives its cubes with.
-        """
-        return TracyCubesSettings.from_file(self.folder / "settings.yaml")
-
-    def cube_positions(self) -> dict[str, np.ndarray]:
-        """
-        :return: Per cube color, where the cube stands on the table, in the world frame.
-        """
-        cubes = yaml.safe_load((self.folder / "cubes.yaml").read_text())
-        return {
-            color: np.array([position["x"], position["y"]])
-            for color, position in cubes.items()
-        }
-
-    def fill(self, cas: CAS) -> None:
-        """
-        Put the frame into a CAS, as the collection reader does with a camera's frame.
-
-        :param cas: The CAS the frame goes into.
-        """
-        camera = RecordedCamera.from_json(
-            json.loads((self.folder / "camera.json").read_text())
-        )
-        cas.camera_observation = camera.to_camera_observation()
-        cas.color_to_depth_ratio = ColorToDepthRatio(horizontal=1.0, vertical=1.0)
-        cas.set(CASViews.COLOR_IMAGE, cv2.imread(str(self.folder / "color.png")))
-        cas.set(
-            CASViews.DEPTH_IMAGE,
-            cv2.imread(str(self.folder / "depth.png"), cv2.IMREAD_UNCHANGED),
-        )
-
-
 @pytest.fixture
-def three_cubes() -> RecordedFrame:
+def three_cubes() -> Path:
     """
-    :return: A red, a yellow and a blue cube in a row across Tracy's metal table.
+    :return: The folder of a frame of a red, a yellow and a blue cube in a row, saved at
+        half resolution with the settings the real Tracy uses.
     """
-    return RecordedFrame(
+    return (
         Path(__file__).parent
         / "dataset"
         / "tracy_cubes"
@@ -190,87 +130,38 @@ def three_cubes() -> RecordedFrame:
     )
 
 
-# %% what the pipeline reports
-
-
-@dataclass
-class LocalizedCube:
-    """
-    One cube as the pipeline reports it.
-    """
-
-    color_names: list[str]
-    """
-    The semantic colors annotated on it.
-    """
-
-    position: np.ndarray
-    """
-    Its centre in the world frame, in metres.
-    """
-
-
-def localize_cubes(frame: RecordedFrame) -> list[LocalizedCube]:
-    """
-    :param frame: A recorded frame.
-    :return: The cubes the pipeline localizes in it.
-    """
-    annotators = [
-        annotator
-        for annotator in AnalysisEngine(
-            settings=frame.settings()
-        ).perception_annotators()
-        if not isinstance(annotator, CollectionReaderAnnotator)
-    ]
-    pipeline = Pipeline("TracyCubesRecordedFrame")
-    pipeline.add_children(annotators)
-    outputs = AnnotatorOutputPerPipelineMap()
-    outputs.map[pipeline.name] = AnnotatorOutputs()
-    Blackboard().set("annotator_output_pipeline_map_buffer", outputs)
-    cas = pipeline.cas
-    frame.fill(cas)
-    for annotator in annotators:
-        assert annotator.update() is Status.SUCCESS
-    cubes = []
-    for hypothesis in cas.filter_annotations_by_type(ObjectHypothesis):
-        [pose] = [
-            annotation
-            for annotation in hypothesis.annotations
-            if type(annotation) is PoseAnnotation
-        ]
-        cubes.append(
-            LocalizedCube(
-                color_names=[
-                    annotation.color
-                    for annotation in hypothesis.annotations
-                    if isinstance(annotation, SemanticColor)
-                ],
-                position=np.asarray(
-                    transform_pose_from_camera_to_world(cas, pose).translation
-                ),
-            )
-        )
-    return cubes
-
-
 # %% the cubes on the metal table
 
 
-def test_every_cube_on_the_metal_table_is_found_once_in_its_color(
-    three_cubes: RecordedFrame,
+def test_every_cube_on_the_metal_table_is_found_once_where_it_stands(
+    three_cubes: Path,
 ) -> None:
-    cubes = localize_cubes(three_cubes)
+    settings = TracyCubesSettings.from_file(three_cubes / "settings.yaml")
+    annotators = [
+        annotator
+        for annotator in AnalysisEngine(settings=settings).perception_annotators()
+        if not isinstance(annotator, CollectionReaderAnnotator)
+    ]
+    camera = RecordedCamera(**json.loads((three_cubes / "camera.json").read_text()))
+    expected = yaml.safe_load((three_cubes / "cubes.yaml").read_text())
 
-    assert sorted(cube.color_names for cube in cubes) == sorted(
-        [color] for color in three_cubes.cube_positions()
+    cas = perceive(
+        pipeline_seeing(
+            annotators,
+            camera.to_camera_observation(),
+            cv2.imread(str(three_cubes / "color.png")),
+            cv2.imread(str(three_cubes / "depth.png"), cv2.IMREAD_UNCHANGED),
+        )
     )
 
-
-def test_every_cube_on_the_metal_table_is_found_within_one_and_a_half_centimetres_of_where_it_stands(
-    three_cubes: RecordedFrame,
-) -> None:
-    cubes = localize_cubes(three_cubes)
-
-    for color, position in three_cubes.cube_positions().items():
-        [cube] = [cube for cube in cubes if cube.color_names == [color]]
+    cubes = [
+        PerceivedCube.from_hypothesis(hypothesis, cas)
+        for hypothesis in cas.filter_annotations_by_type(ObjectHypothesis)
+    ]
+    assert sorted(cube.color_names for cube in cubes) == sorted(
+        [color] for color in expected
+    )
+    for cube in cubes:
+        [color] = cube.color_names
+        position = [expected[color]["x"], expected[color]["y"]]
         assert np.linalg.norm(cube.position[:2] - position) < 0.015

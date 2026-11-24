@@ -47,18 +47,13 @@ class HasParallelGripperCommandServer(HasGripperActionServers, ABC):
     @abstractmethod
     def commanded_joint(self) -> ActiveConnection1DOF:
         """
-        The joint whose position the server is commanded, which every other joint of the
-        gripper follows.
+        The joint the server commands, which every other joint of the gripper follows.
         """
 
     def commanded_position(self, joint_state: JointState) -> float:
         """
-        :param joint_state: A joint state of this gripper.
-        :return: The position the server is commanded to bring the gripper into
-            `joint_state`: the position `joint_state` sets for :attr:`commanded_joint`,
-            in that joint's units.
-        :raises CommandedJointNotInJointState: If `joint_state` sets no position for
-            :attr:`commanded_joint`.
+        :return: The position `joint_state` sets for :attr:`commanded_joint`.
+        :raises CommandedJointNotInJointState: If it sets none.
         """
         for connection, position in joint_state.items():
             if connection is self.commanded_joint:

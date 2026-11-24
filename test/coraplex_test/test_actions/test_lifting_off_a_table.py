@@ -1,8 +1,5 @@
 """
-Picking up a cube off Tracy's table, its gripper letting only the cube touch it: the
-cube stands on the table until it is lifted, wherever a camera measuring its height a
-little short put it, so the table is no collision to avoid until the lift took the cube
-off it.
+Picking a cube up off Tracy's table, which the cube may touch until it is lifted off.
 """
 
 from __future__ import annotations
@@ -30,13 +27,12 @@ from ...plan_running import statechart_of
 @dataclass
 class TicksCheckingTheHeldCubeAgainst(TickingExecutorExtension):
     """
-    Records every tick at whose start collision avoidance checks a cube held by a
-    gripper against another body.
+    Records the ticks at whose start a held cube is checked for collision with a body.
     """
 
     cube: Body
     """
-    The cube.
+    The cube picked up.
     """
 
     end_effector: EndEffector
@@ -51,8 +47,7 @@ class TicksCheckingTheHeldCubeAgainst(TickingExecutorExtension):
 
     ticks: list[int] = field(default_factory=list)
     """
-    The ticks at whose start the gripper held the cube and the cube was checked against
-    :attr:`other_body`.
+    The ticks recorded.
     """
 
     def before_tick(self, executor: StatechartExecutor) -> None:

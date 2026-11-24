@@ -300,10 +300,7 @@ class PerceivedObjectNotInWorld(PerceptionExceptionWithSemanticAnnotation):
 class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation, PlanFailure):
     """
     Raised when a detection's annotation describes several bodies, so the perceived pose
-    cannot be assigned to one of them.
-
-    What was seen decides this, so a running plan can recover from it like from any
-    attempt that did not work.
+    cannot be assigned to one of them; a plan failure, as what was seen decides it.
     """
 
     body_count: int

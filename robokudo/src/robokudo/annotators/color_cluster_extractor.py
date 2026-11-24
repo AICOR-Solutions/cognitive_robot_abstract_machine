@@ -36,8 +36,7 @@ if TYPE_CHECKING:
 @dataclass
 class ColorArea:
     """
-    A connected area of pixels of one chromatic color, and the points the depth image
-    holds under it.
+    A connected area of pixels of one chromatic color and the points under it.
     """
 
     color: Color
@@ -54,37 +53,8 @@ class ColorArea:
         default_factory=open3d.geometry.PointCloud
     )
     """
-    The points under the area, in the camera frame, that lie between the heights the
-    objects are looked for at.
+    The points under the area between the heights, in the camera frame.
     """
-
-    def to_object_hypothesis(self, identifier: str, source: str) -> ObjectHypothesis:
-        """
-        :param identifier: The identifier the hypothesis takes.
-        :param source: The name of the annotator that found the area.
-        :return: An object of the area's points, outlined by its region and annotated
-            with its color.
-        """
-        hypothesis = ObjectHypothesis()
-        hypothesis.id = identifier
-        hypothesis.source = source
-        hypothesis.points = self.points
-        left, top, width, height = cv2.boundingRect(self.outline)
-        hypothesis.roi.roi.pos.x = left
-        hypothesis.roi.roi.pos.y = top
-        hypothesis.roi.roi.width = width
-        hypothesis.roi.roi.height = height
-        mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.drawContours(
-            mask, [self.outline], -1, 255, cv2.FILLED, offset=(-left, -top)
-        )
-        hypothesis.roi.mask = mask
-        color = SemanticColor()
-        color.color = self.color.name.lower()
-        color.source = source
-        color.ratio = 1.0
-        hypothesis.annotations.append(color)
-        return hypothesis
 
 
 # %% annotator
@@ -92,9 +62,8 @@ class ColorArea:
 
 class ColorClusterExtractor(BaseAnnotator):
     """
-    Turns every connected area of one chromatic color in the color image into an object
-    of that color, holding the points of the depth image under the area that lie between
-    two heights in the world frame. Needs the point cloud's camera model in the CAS.
+    Turns every connected area of one chromatic color into an object of that color,
+    holding the points under it that lie between two heights in the world frame.
     """
 
     class Descriptor(BaseAnnotator.Descriptor):
@@ -113,8 +82,7 @@ class ColorClusterExtractor(BaseAnnotator):
                     color_parameters.chromatic_hue_upper_bounds()
                 )
                 """
-                Per chromatic color, the hue on OpenCV's full scale a pixel lies below to
-                take it, tried from red to magenta; hues above magenta's are red again.
+                Per chromatic color, the hue (0 to 255) a pixel lies below to take it.
                 """
                 self.minimum_saturation: int = color_parameters.min_saturation_color
                 """
@@ -130,18 +98,15 @@ class ColorClusterExtractor(BaseAnnotator):
                 """
                 self.edge_width: int = 4
                 """
-                How many pixels at an area's edge are left out, since their depth may be
-                that of what lies behind.
+                Pixels left out at an area's edge, whose depth may be the background's.
                 """
                 self.lowest_height: float = -math.inf
                 """
-                Height in the world frame, in metres, below which no point of an object
-                lies.
+                World height, in metres, below which no point of an object lies.
                 """
                 self.highest_height: float = math.inf
                 """
-                Height in the world frame, in metres, above which no point of an object
-                lies.
+                World height, in metres, above which no point of an object lies.
                 """
                 self.minimum_points: int = 100
                 """
@@ -149,13 +114,11 @@ class ColorClusterExtractor(BaseAnnotator):
                 """
                 self.outlier_neighbors: int = 20
                 """
-                How many neighbors a point's distance to them is averaged over, to leave
-                out the points of an area far from the others.
+                How many neighbors a point's distance is averaged over to find outliers.
                 """
                 self.outlier_standard_deviations: float = 2.0
                 """
-                How many standard deviations above the mean a point's average distance to
-                its neighbors may lie before it is left out.
+                How far above the mean neighbor distance a point may lie, in deviations.
                 """
                 self.depth_truncation: float = 9.0
                 """
@@ -188,29 +151,38 @@ class ColorClusterExtractor(BaseAnnotator):
         for area in areas:
             area.points = self.points_under(area, color_image, depth_image)
             if len(area.points.points) < self.descriptor.parameters.minimum_points:
-                self.draw_area(
-                    drawing,
-                    area,
-                    ClusterColorAnnotator.color_name_to_bgr_values[Color.GREY],
-                    1,
-                )
+                self.draw_area(drawing, area, Color.GREY, 1)
                 continue
-            cas.annotations.append(area.to_object_hypothesis(str(objects), self.name))
-            objects += 1
-            self.draw_area(
-                drawing,
-                area,
-                ClusterColorAnnotator.color_name_to_bgr_values[area.color],
-                3,
+            hypothesis = ObjectHypothesis()
+            hypothesis.id = str(objects)
+            hypothesis.source = self.name
+            hypothesis.points = area.points
+            left, top, width, height = cv2.boundingRect(area.outline)
+            hypothesis.roi.roi.pos.x, hypothesis.roi.roi.pos.y = left, top
+            hypothesis.roi.roi.width, hypothesis.roi.roi.height = width, height
+            hypothesis.roi.mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.drawContours(
+                hypothesis.roi.mask,
+                [area.outline],
+                -1,
+                255,
+                cv2.FILLED,
+                offset=(-left, -top),
             )
+            color = SemanticColor()
+            color.color = area.color.name.lower()
+            color.source = self.name
+            color.ratio = 1.0
+            hypothesis.annotations.append(color)
+            cas.annotations.append(hypothesis)
+            objects += 1
+            self.draw_area(drawing, area, area.color, 3)
         self.get_annotator_output_struct().set_image(drawing)
         self.feedback_message = (
             f"{objects} objects of {len(areas)} color areas in "
             f"{default_timer() - start:.3f}s"
         )
         return Status.SUCCESS
-
-    # %% naming pixels by color
 
     def color_areas(self, color_image: npt.NDArray) -> list[ColorArea]:
         """
@@ -219,7 +191,15 @@ class ColorClusterExtractor(BaseAnnotator):
         """
         parameters = self.descriptor.parameters
         colors = sorted(parameters.hue_upper_bounds, key=lambda color: color.value)
-        named = self.chromatic_colors(color_image, colors)
+        hue, saturation, value = cv2.split(
+            cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV_FULL)
+        )
+        bounds = [parameters.hue_upper_bounds[color] for color in colors]
+        named = np.searchsorted(bounds, hue, side="right") % len(bounds)
+        named[
+            (saturation <= parameters.minimum_saturation)
+            | (value <= parameters.minimum_value)
+        ] = -1
         speck = np.ones((parameters.speck_size, parameters.speck_size), np.uint8)
         areas = []
         for index, color in enumerate(colors):
@@ -232,44 +212,18 @@ class ColorClusterExtractor(BaseAnnotator):
             areas.extend(ColorArea(color, outline) for outline in outlines)
         return areas
 
-    def chromatic_colors(
-        self, color_image: npt.NDArray, colors: list[Color]
-    ) -> npt.NDArray:
-        """
-        :param color_image: A color image, blue first.
-        :param colors: The chromatic colors with a hue bound, from red to magenta.
-        :return: Per pixel, the index in the colors of the one it takes, -1 where it is
-            too pale or too dark to take one.
-        """
-        parameters = self.descriptor.parameters
-        hsv = cv2.cvtColor(color_image, cv2.COLOR_BGR2HSV_FULL)
-        hue, saturation, value = hsv[..., 0], hsv[..., 1], hsv[..., 2]
-        bounds = np.array([parameters.hue_upper_bounds[color] for color in colors])
-        named = np.searchsorted(bounds, hue, side="right")
-        named[named == len(bounds)] = 0
-        named[
-            (saturation <= parameters.minimum_saturation)
-            | (value <= parameters.minimum_value)
-        ] = -1
-        return named
-
-    # %% the points under an area
-
     def points_under(
         self, area: ColorArea, color_image: npt.NDArray, depth_image: npt.NDArray
     ) -> open3d.geometry.PointCloud:
         """
-        :param area: An area of the color image.
         :param color_image: The color image, blue first, registered to the depth image.
-        :param depth_image: The depth image.
-        :return: The points under the area, its edge left out, in the camera frame,
-            those far from the others and those outside the heights left out.
+        :return: The points under the area, in the camera frame, without its edge, the
+            outliers and the points outside the heights.
         """
         parameters = self.descriptor.parameters
         mask = np.zeros(depth_image.shape[:2], dtype=np.uint8)
         cv2.drawContours(mask, [area.outline], -1, 255, cv2.FILLED)
-        edge = np.ones((2 * parameters.edge_width + 1,) * 2, np.uint8)
-        mask = cv2.erode(mask, edge)
+        mask = cv2.erode(mask, np.ones((2 * parameters.edge_width + 1,) * 2, np.uint8))
         if np.count_nonzero(mask) < parameters.minimum_points:
             return open3d.geometry.PointCloud()
         masked_depth = np.where(mask == 255, depth_image, 0)
@@ -295,41 +249,25 @@ class ColorClusterExtractor(BaseAnnotator):
             nb_neighbors=parameters.outlier_neighbors,
             std_ratio=parameters.outlier_standard_deviations,
         )
-        return points.select_by_index(np.flatnonzero(self.between_the_heights(points)))
-
-    def between_the_heights(self, points: open3d.geometry.PointCloud) -> npt.NDArray:
-        """
-        :param points: Points in the camera frame.
-        :return: Per point, whether its height in the world frame lies between
-            :attr:`Parameters.lowest_height` and :attr:`Parameters.highest_height`.
-        """
         camera_to_world = get_camera_to_world_transform_matrix(self.get_cas())
         heights = (
             np.asarray(points.points) @ camera_to_world[2, :3] + camera_to_world[2, 3]
         )
-        return (heights >= self.descriptor.parameters.lowest_height) & (
-            heights <= self.descriptor.parameters.highest_height
+        return points.select_by_index(
+            np.flatnonzero(
+                (heights >= parameters.lowest_height)
+                & (heights <= parameters.highest_height)
+            )
         )
 
-    # %% what it drew
-
     def draw_area(
-        self,
-        drawing: npt.NDArray,
-        area: ColorArea,
-        outline_color: tuple[int, ...],
-        thickness: int,
+        self, drawing: npt.NDArray, area: ColorArea, color: Color, thickness: int
     ) -> None:
         """
-        Outline an area on the drawing and write its color and number of points next to
-        it.
-
-        :param drawing: The image drawn on, blue first.
-        :param area: The area.
-        :param outline_color: The color of the outline and the text, blue first.
-        :param thickness: The outline's thickness in pixels.
+        Outline an area on the drawing in a color and write its color and point count.
         """
-        cv2.drawContours(drawing, [area.outline], -1, outline_color, thickness)
+        bgr = ClusterColorAnnotator.color_name_to_bgr_values[color]
+        cv2.drawContours(drawing, [area.outline], -1, bgr, thickness)
         left, top, _, _ = cv2.boundingRect(area.outline)
         cv2.putText(
             drawing,
@@ -337,6 +275,6 @@ class ColorClusterExtractor(BaseAnnotator):
             (left, max(top - 6, 12)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            outline_color,
+            bgr,
             1,
         )

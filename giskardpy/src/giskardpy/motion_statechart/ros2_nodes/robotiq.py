@@ -56,8 +56,7 @@ class RobotiqGripperActionServerTask(
 
     target_position: float
     """
-    The position the server is to bring the joint it commands to, in that joint's units,
-    see :meth:`HasParallelGripperCommandServer.commanded_position`.
+    See :meth:`HasParallelGripperCommandServer.commanded_position`.
     """
 
     target_velocity: float = 10.0

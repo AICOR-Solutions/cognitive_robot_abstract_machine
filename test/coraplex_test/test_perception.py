@@ -1002,8 +1002,7 @@ def test_a_robokudo_detection_carries_the_queried_color_it_was_reported_in(
     pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
 ):
     """
-    A red cube held by a black gripper is reported as one object, mostly black; it is
-    the red object asked for, not a black one.
+    A red cube held by a black gripper is reported mostly black, yet is the red one.
     """
     world, view, extensions = pr2_apartment_context
     query_server_reporting(
@@ -1728,8 +1727,7 @@ def test_a_detection_that_cannot_tell_which_body_it_saw_fails_the_plan(
     pr2_apartment_context, whole_scene_region
 ) -> None:
     """
-    What a detection sees is no mistake in the plan, so a run can recover from seeing an
-    object it cannot tell apart from another, as from any plan that did not work.
+    Seeing an object that cannot be told apart from another is recoverable.
     """
     world, view, extensions = pr2_apartment_context
     with world.modify_world():

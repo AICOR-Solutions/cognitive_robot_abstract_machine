@@ -379,27 +379,9 @@ def test_a_query_is_answered_with_the_cubes_in_the_world_frame(
         assert math.dist((position.x, position.y), (cube.x, cube.y)) < 0.01
 
 
-@dataclass
-class NewestImage:
-    """
-    Keeps the newest image published on a topic.
-    """
-
-    message: Image | None = None
-    """
-    The newest image, None before one arrived.
-    """
-
-    def __call__(self, message: Image) -> None:
-        self.message = message
-
-
 def test_a_query_service_publishing_images_publishes_the_color_areas_it_drew(
     node, cube_scene: CubeScene
 ) -> None:
-    """
-    What the color cluster extractor drew shows people which areas of color a query saw.
-    """
     analysis_engine = AnalysisEngine()
     pipeline = analysis_engine.implementation()
     [color_cluster_extractor] = [
@@ -407,11 +389,11 @@ def test_a_query_service_publishing_images_publishes_the_color_areas_it_drew(
         for annotator in pipeline.get_annotators()
         if isinstance(annotator, ColorClusterExtractor)
     ]
-    newest = NewestImage()
+    images: list[Image] = []
     node.create_subscription(
         Image,
         f"/{pipeline.name}/{color_cluster_extractor.name}/output_image",
-        newest,
+        images.append,
         1,
     )
     service = QueryService(
@@ -424,15 +406,12 @@ def test_a_query_service_publishing_images_publishes_the_color_areas_it_drew(
     executor = SingleThreadedExecutor(context=node.context)
     executor.add_node(node)
     deadline = time.monotonic() + 10.0
-    while (newest.message is None or not any(newest.message.data)) and (
-        time.monotonic() < deadline
-    ):
+    while not (images and any(images[-1].data)) and time.monotonic() < deadline:
         executor.spin_once(timeout_sec=0.1)
     executor.remove_node(node)
     service.stop()
 
-    assert newest.message is not None
-    assert any(newest.message.data)
+    assert any(images[-1].data)
 
 
 def test_a_query_for_a_color_is_answered_with_the_cube_of_that_color_only(

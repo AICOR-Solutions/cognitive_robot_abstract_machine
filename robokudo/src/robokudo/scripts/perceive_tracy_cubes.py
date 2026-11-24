@@ -31,6 +31,7 @@ from robokudo.descriptors.analysis_engines.tracy_cubes import (
 from robokudo.query_service import QueryService
 from robokudo.utils.logging_configuration import configure_logging
 from robokudo.utils.module_loader import ModuleLoader
+from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
 from semantic_digital_twin.adapters.urdf import URDFParser
 
 # %% Process
@@ -87,7 +88,9 @@ class TracyCubesPerceptionProcess:
                 urdf=self.read_robot_description(), prefix=""
             ).create_world(),
             thread_failed=self._stopped,
-            visualizer_types=self.settings.images.visualizer_types,
+            visualizer_types=(
+                [AllAnnotatorROSVisualizer] if self.settings.images.publish else []
+            ),
         )
         service.start()
         for signal_number in (signal.SIGINT, signal.SIGTERM):

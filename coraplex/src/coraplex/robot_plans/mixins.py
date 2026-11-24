@@ -249,13 +249,9 @@ class MovesToolCenterPoint(Action, ABC):
         name: str,
     ) -> list[StatechartNode]:
         """
-        :param steps: New steps taking the object off what it stands on, or setting it
-            down on something.
-        :param touched_object: The object the action acts on.
-        :param name: What the steps do, as a person reads it.
-        :return: The steps, during which `touched_object` may touch anything where only
-            the gripper may touch it, so the object is avoided outside them; the steps
-            alone otherwise, as the gripper's own rules let what it holds touch anything.
+        :return: `steps`, during which `touched_object` may touch anything, where only
+            the gripper may touch it otherwise; `steps` alone when the gripper may touch
+            anything.
         """
         if not self.lets_only_its_object_touch_the_gripper:
             return steps

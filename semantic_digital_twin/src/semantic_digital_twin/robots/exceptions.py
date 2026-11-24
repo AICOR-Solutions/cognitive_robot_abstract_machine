@@ -350,18 +350,17 @@ class StartPoseWithoutMobileBaseError(UsageError):
 @dataclass
 class CommandedJointNotInJointState(UsageError):
     """
-    Raised when a gripper is to be commanded into a joint state that sets no position
-    for the joint its driver commands.
+    Raised when a joint state sets no position for the joint a gripper's driver commands.
     """
 
     gripper: HasParallelGripperCommandServer
     """
-    The gripper whose driver commands a single joint.
+    The gripper commanded.
     """
 
     joint_state: JointState
     """
-    The joint state without a position for that joint.
+    The joint state without that position.
     """
 
     def error_message(self) -> str:

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 # %% Imports
 import numpy as np
+import pytest
 
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.types.annotation import BoundingBox3DAnnotation
@@ -22,46 +23,26 @@ from .test_color_cluster_extractor import (
 # %% objects standing on a surface
 
 
-def box_of_a_square_seen_at(
-    depth_millimetres: int, pose_annotator: ClusterPoseBBAnnotator
-) -> BoundingBox3DAnnotation:
+@pytest.mark.parametrize("support_height, bottom_height", [(0.85, 0.85), (None, 0.9)])
+def test_a_box_reaches_down_to_the_surface_its_object_stands_on(
+    support_height: float | None, bottom_height: float
+) -> None:
     """
-    :param depth_millimetres: How far the square is from the camera, so how high it is
-        in the world.
-    :param pose_annotator: The annotator placing the box.
-    :return: The box placed around the square's points.
+    The square's points are 0.9 m high; without a surface the box spans them only.
     """
+    pose_annotator = ClusterPoseBBAnnotator()
+    pose_annotator.descriptor.parameters.support_height = support_height
+    frame = Frame([ColoredSquare(Hue.RED, left=80, top=80, depth_millimetres=900)])
+
     cas = perceive(
-        Frame(
-            [
-                ColoredSquare(
-                    Hue.RED, left=80, top=80, depth_millimetres=depth_millimetres
-                )
-            ]
-        ),
-        [extractor_below_the_surface(), pose_annotator],
+        frame.create_pipeline([extractor_below_the_surface(), pose_annotator])
     )
+
     [hypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
     [box] = [
         annotation
         for annotation in hypothesis.annotations
         if isinstance(annotation, BoundingBox3DAnnotation)
     ]
-    return box
-
-
-def test_a_box_reaches_down_to_the_surface_its_object_stands_on() -> None:
-    pose_annotator = ClusterPoseBBAnnotator()
-    pose_annotator.descriptor.parameters.support_height = 0.85
-
-    box = box_of_a_square_seen_at(900, pose_annotator)
-
-    assert np.isclose(box.z_length, 0.9 - 0.85)
-    assert np.isclose(box.pose.translation[2], (0.9 + 0.85) / 2)
-
-
-def test_without_a_surface_a_box_spans_its_points_only() -> None:
-    box = box_of_a_square_seen_at(900, ClusterPoseBBAnnotator())
-
-    assert np.isclose(box.z_length, 0.0)
-    assert np.isclose(box.pose.translation[2], 0.9)
+    assert np.isclose(box.z_length, 0.9 - bottom_height)
+    assert np.isclose(box.pose.translation[2], (0.9 + bottom_height) / 2)

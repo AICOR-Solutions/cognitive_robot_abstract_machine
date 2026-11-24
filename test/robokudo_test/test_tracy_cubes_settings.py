@@ -21,7 +21,6 @@ from robokudo.descriptors.analysis_engines.tracy_cubes import (
     TracyCubesSettings,
 )
 from robokudo.descriptors.camera_configs.config_orbbec import OrbbecCameraConfig
-from robokudo.vis.ros_visualizer import AllAnnotatorROSVisualizer
 
 # %% fixtures
 
@@ -88,11 +87,6 @@ def test_the_published_images_are_read_from_the_file(
     settings = TracyCubesSettings.from_file(settings_file)
 
     assert settings.images == PublishedImages(**written_settings["images"])
-
-
-def test_publishing_the_images_runs_the_ros_image_visualizer() -> None:
-    assert PublishedImages(publish=True).visualizer_types == [AllAnnotatorROSVisualizer]
-    assert PublishedImages(publish=False).visualizer_types == []
 
 
 def test_a_file_leaving_a_section_out_keeps_its_defaults(tmp_path: Path) -> None:

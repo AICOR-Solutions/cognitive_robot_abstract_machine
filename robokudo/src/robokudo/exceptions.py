@@ -531,8 +531,7 @@ class DepthImageNotRegistered(AnalysisPreconditionError):
 @dataclass
 class DepthNotMeasured(AnalysisPreconditionError):
     """
-    Raised when a depth image holds no measured distance, so nothing in the frame can be
-    placed.
+    Raised when a depth image holds no measured distance.
     """
 
     context: str

@@ -84,8 +84,8 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
 
                 self.support_height: float | None = None
                 """
-                Height in the world frame, in metres, of the surface the objects stand
-                on, down to which every box reaches; None bounds a box by its points.
+                World height, in metres, of the surface every box reaches down to; None
+                bounds a box by its points.
                 """
 
         # Overwrite the parameters explicitly to enable auto-completion

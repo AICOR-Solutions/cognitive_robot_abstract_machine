@@ -103,16 +103,12 @@ class ClusterColorAnnotator(BaseAnnotator):
                 """
                 Per chromatic color, the hue on OpenCV's full scale (0 to 255) a pixel
                 lies below to take it, tried from red to magenta; hues above magenta's
-                bound are red again.
-
-                None divides the hue circle evenly.
+                bound are red again. None divides the hue circle evenly.
                 """
 
             def chromatic_hue_upper_bounds(self) -> dict[Color, float]:
                 """
-                :return: Per chromatic color, from red to magenta, the hue a pixel lies
-                    below to take it: :attr:`hue_upper_bounds`, else the hue circle
-                    divided evenly.
+                :return: :attr:`hue_upper_bounds`, or else the evenly divided hue circle.
                 """
                 if self.hue_upper_bounds is not None:
                     return dict(self.hue_upper_bounds)
