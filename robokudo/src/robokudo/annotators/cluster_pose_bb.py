@@ -82,6 +82,12 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
                 self.bounding_box_visualization_color: tuple[int, int, int] = (0, 0, 0)
                 """RGB color for box visualization"""
 
+                self.support_height: float | None = None
+                """
+                Height in the world frame, in metres, of the surface the objects stand
+                on, down to which every box reaches; None bounds a box by its points.
+                """
+
         # Overwrite the parameters explicitly to enable auto-completion
         parameters = Parameters()
 
@@ -185,6 +191,8 @@ class ClusterPoseBBAnnotator(BaseAnnotator):
             max_x, max_y, max_z = numpy.asarray(cluster_cloud_in_world.points).max(
                 axis=0
             )
+            if self.descriptor.parameters.support_height is not None:
+                min_z = self.descriptor.parameters.support_height
 
             # Calculate 2d point set by ignoring z-axis for every row in the cluster points
             # Multiply by 1000 to create image coordinates from meters
