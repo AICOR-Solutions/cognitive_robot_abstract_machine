@@ -1,0 +1,13 @@
+# Tracy's cube localization as on the real Tracy (2026-11-24): its blue cube has a hue of
+# about 147, which the evenly divided hue circle names cyan.
+table_top:
+  lowest_height: 0.8
+  highest_height: 1.1
+colors:
+  hue_upper_bounds:
+    red: 22
+    yellow: 65
+    green: 108
+    cyan: 130
+    blue: 193
+    magenta: 236

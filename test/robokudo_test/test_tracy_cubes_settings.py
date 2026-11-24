@@ -11,9 +11,8 @@ import pytest
 import yaml
 
 from robokudo.annotators.cluster_color import ClusterColorAnnotator, Color
-from robokudo.annotators.plane import PlaneAnnotator
-from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
-from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
+from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
+from robokudo.annotators.color_cluster_extractor import ColorClusterExtractor
 from robokudo.descriptors.analysis_engines.exceptions import UnknownSettingsSection
 from robokudo.descriptors.analysis_engines.tracy_cubes import (
     AnalysisEngine,
@@ -54,10 +53,7 @@ def test_the_table_top_and_clusters_are_read_from_the_file(
     table_top = written_settings["table_top"]
     assert settings.table_top.lowest_height == table_top["lowest_height"]
     assert settings.table_top.highest_height == table_top["highest_height"]
-    assert (
-        settings.table_top.plane_distance_threshold
-        == table_top["plane_distance_threshold"]
-    )
+    assert settings.table_top.top_height == table_top["top_height"]
     assert (
         settings.clusters.minimum_cluster_size
         == written_settings["clusters"]["minimum_cluster_size"]
@@ -76,9 +72,6 @@ def test_the_color_thresholds_are_read_from_the_file(
     }
     assert settings.colors.minimum_saturation == colors["minimum_saturation"]
     assert settings.colors.minimum_value == colors["minimum_value"]
-    assert settings.colors.maximum_value_black == colors["maximum_value_black"]
-    assert settings.colors.minimum_value_white == colors["minimum_value_white"]
-    assert settings.colors.minimum_color_share == colors["minimum_color_share"]
 
 
 def test_the_real_camera_is_read_from_the_file(
@@ -129,9 +122,6 @@ def test_the_default_colors_are_the_annotators_defaults() -> None:
     assert colors.hue_upper_bounds is None
     assert colors.minimum_saturation == parameters.min_saturation_color
     assert colors.minimum_value == parameters.min_value_color
-    assert colors.maximum_value_black == parameters.max_value_black
-    assert colors.minimum_value_white == parameters.min_value_white
-    assert colors.minimum_color_share == parameters.ratio_annotation_threshold
 
 
 # %% the analysis engine
@@ -162,27 +152,28 @@ def test_the_annotators_take_the_thresholds_of_the_settings(
 
     annotators = AnalysisEngine(settings=settings).perception_annotators()
 
-    [crop] = [a for a in annotators if isinstance(a, PointcloudCropAnnotator)]
-    [plane] = [a for a in annotators if isinstance(a, PlaneAnnotator)]
-    [clusters] = [a for a in annotators if isinstance(a, PointCloudClusterExtractor)]
-    [colors] = [a for a in annotators if isinstance(a, ClusterColorAnnotator)]
-    assert crop.descriptor.parameters.min_z == settings.table_top.lowest_height
-    assert crop.descriptor.parameters.max_z == settings.table_top.highest_height
+    [extractor] = [a for a in annotators if isinstance(a, ColorClusterExtractor)]
+    [pose_annotator] = [a for a in annotators if isinstance(a, ClusterPoseBBAnnotator)]
     assert (
-        plane.descriptor.parameters.distance_threshold
-        == settings.table_top.plane_distance_threshold
+        pose_annotator.descriptor.parameters.support_height
+        == settings.table_top.top_height
     )
+    parameters = extractor.descriptor.parameters
+    assert parameters.lowest_height == settings.table_top.lowest_height
+    assert parameters.highest_height == settings.table_top.highest_height
+    assert parameters.minimum_points == settings.clusters.minimum_cluster_size
+    assert parameters.hue_upper_bounds == settings.colors.hue_upper_bounds
+    assert parameters.minimum_saturation == settings.colors.minimum_saturation
+    assert parameters.minimum_value == settings.colors.minimum_value
+
+
+def test_without_hue_bounds_the_cubes_are_named_by_the_evenly_divided_hue_circle() -> (
+    None
+):
+    annotators = AnalysisEngine(settings=TracyCubesSettings()).perception_annotators()
+
+    [extractor] = [a for a in annotators if isinstance(a, ColorClusterExtractor)]
     assert (
-        clusters.descriptor.parameters.min_cluster_count
-        == settings.clusters.minimum_cluster_size
-    )
-    assert colors.color_hue_positions == settings.colors.hue_upper_bounds
-    color_parameters = colors.descriptor.parameters
-    assert color_parameters.min_saturation_color == settings.colors.minimum_saturation
-    assert color_parameters.min_value_color == settings.colors.minimum_value
-    assert color_parameters.max_value_black == settings.colors.maximum_value_black
-    assert color_parameters.min_value_white == settings.colors.minimum_value_white
-    assert (
-        color_parameters.ratio_annotation_threshold
-        == settings.colors.minimum_color_share
+        extractor.descriptor.parameters.hue_upper_bounds
+        == ClusterColorAnnotator.Descriptor.Parameters().chromatic_hue_upper_bounds()
     )

@@ -1,0 +1,12 @@
+# Where the cubes stand in Tracy's world frame, in metres, worked out from the color image
+# alone: each cube's color area cast onto the plane of the cube tops (table top 0.88 m
+# plus the 5 cm edge), its centre half an edge in from the top face's far edges.
+red:
+  x: 0.694
+  y: 0.393
+yellow:
+  x: 0.700
+  y: -0.001
+blue:
+  x: 0.702
+  y: -0.404

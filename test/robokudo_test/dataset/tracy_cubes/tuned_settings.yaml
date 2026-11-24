@@ -2,7 +2,7 @@
 table_top:
   lowest_height: 0.75
   highest_height: 1.05
-  plane_distance_threshold: 0.012
+  top_height: 0.9
 clusters:
   minimum_cluster_size: 250
 colors:
@@ -15,9 +15,6 @@ colors:
     magenta: 230
   minimum_saturation: 80
   minimum_value: 50
-  maximum_value_black: 40
-  minimum_value_white: 150
-  minimum_color_share: 0.3
 real_camera:
   topic_color: /tracy_camera/color/image_raw
   color_hints: raw

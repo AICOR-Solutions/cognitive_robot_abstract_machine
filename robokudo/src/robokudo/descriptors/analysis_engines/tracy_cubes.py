@@ -3,9 +3,9 @@ Analysis engine localizing the cubes on Tracy's table through Tracy's fixed came
 
 It answers queries with one object designator per cube: its pose in the world frame,
 upright with its yaw known up to a quarter turn, and its semantic color. A query naming
-a color is answered with the cubes of that color only, whatever type it names. Only
-existing annotators are used: plane, cluster extraction, cluster color and bounding-box
-pose. Its thresholds come from a settings file, so they can be tuned without a rebuild.
+a color is answered with the cubes of that color only, whatever type it names. A cube is
+an area of one color in the color image, placed by the depth under it. Its thresholds
+come from a settings file, so they can be tuned without a rebuild.
 """
 
 from __future__ import annotations
@@ -24,10 +24,8 @@ from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_color import ClusterColorAnnotator, Color
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
+from robokudo.annotators.color_cluster_extractor import ColorClusterExtractor
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
-from robokudo.annotators.plane import PlaneAnnotator
-from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
-from robokudo.annotators.pointcloud_crop import PointcloudCropAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
 from robokudo.descriptors.analysis_engines.exceptions import UnknownSettingsSection
@@ -65,24 +63,23 @@ class SettingsEnvironmentVariable(StrEnum):
 @dataclass
 class TableTopRegion:
     """
-    Where the points of the table top and of the cubes on it lie.
+    Where the points of the cubes on the table lie.
     """
 
     lowest_height: float = 0.8
     """
-    Height above the world origin, in metres, below which no point belongs to the table
-    top or to a cube on it.
+    Height above the world origin, in metres, below which no point belongs to a cube.
     """
 
     highest_height: float = 1.1
     """
-    Height above the world origin, in metres, above which no point belongs to the table
-    top or to a cube on it.
+    Height above the world origin, in metres, above which no point belongs to a cube.
     """
 
-    plane_distance_threshold: float = 0.005
+    top_height: float = 0.88
     """
-    How far, in metres, a point may lie from the table plane and still belong to it.
+    Height above the world origin, in metres, of the table top the cubes stand on, as
+    Tracy's description has it.
     """
 
     @classmethod
@@ -97,13 +94,13 @@ class TableTopRegion:
 @dataclass
 class CubeClusters:
     """
-    Which clusters of points above the table become objects.
+    Which areas of one color become objects.
     """
 
     minimum_cluster_size: int = 100
     """
-    The fewest points a cluster above the table needs to become an object; a cube seen
-    from Tracy's simulated camera has about a thousand.
+    The fewest points between the table top's heights an area of one color needs to
+    become an object; a cube seen from Tracy's simulated camera has about a thousand.
     """
 
     @classmethod
@@ -118,8 +115,7 @@ class CubeClusters:
 @dataclass
 class ColorThresholds:
     """
-    How the pixels of a cluster are named by color, on OpenCV's full HSV scale (0 to
-    255), and how many of them a color needs to be annotated.
+    How pixels are named by color, on OpenCV's full HSV scale (0 to 255).
     """
 
     hue_upper_bounds: dict[Color, float] | None = None
@@ -146,34 +142,6 @@ class ColorThresholds:
     The brightness a pixel must exceed to be named by its hue.
     """
 
-    maximum_value_black: int = field(
-        default_factory=lambda: (
-            ClusterColorAnnotator.Descriptor.Parameters().max_value_black
-        )
-    )
-    """
-    The brightness up to which a pixel without a hue is black.
-    """
-
-    minimum_value_white: int = field(
-        default_factory=lambda: (
-            ClusterColorAnnotator.Descriptor.Parameters().min_value_white
-        )
-    )
-    """
-    The brightness above which a pixel without a hue is white; between black and white
-    it is grey.
-    """
-
-    minimum_color_share: float = field(
-        default_factory=lambda: (
-            ClusterColorAnnotator.Descriptor.Parameters().ratio_annotation_threshold
-        )
-    )
-    """
-    The share of a cluster's pixels a color must exceed to be annotated on it.
-    """
-
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Self:
         """
@@ -191,19 +159,6 @@ class ColorThresholds:
                 for color_name, bound in hue_upper_bounds.items()
             },
         )
-
-    def create_annotator(self) -> ClusterColorAnnotator:
-        """
-        :return: An annotator naming the colors of clusters by these thresholds.
-        """
-        descriptor = ClusterColorAnnotator.Descriptor()
-        descriptor.parameters.hue_upper_bounds = self.hue_upper_bounds
-        descriptor.parameters.min_saturation_color = self.minimum_saturation
-        descriptor.parameters.min_value_color = self.minimum_value
-        descriptor.parameters.max_value_black = self.maximum_value_black
-        descriptor.parameters.min_value_white = self.minimum_value_white
-        descriptor.parameters.ratio_annotation_threshold = self.minimum_color_share
-        return ClusterColorAnnotator(descriptor=descriptor)
 
 
 @dataclass
@@ -249,7 +204,7 @@ class TracyCubesSettings:
 
     clusters: CubeClusters = field(default_factory=CubeClusters)
     """
-    Which clusters above the table become cubes.
+    Which areas of one color become cubes.
     """
 
     colors: ColorThresholds = field(default_factory=ColorThresholds)
@@ -318,7 +273,7 @@ class TracyCubesSettings:
 @dataclass
 class AnalysisEngine(AnalysisEngineInterface):
     """
-    Localizes the cubes standing on Tracy's table and names their colors.
+    Localizes the cubes standing on Tracy's table by their colors.
     """
 
     camera: BaseCameraConfig = field(
@@ -370,19 +325,6 @@ class AnalysisEngine(AnalysisEngineInterface):
         :return: The annotators that read one camera frame and leave one object
             hypothesis per cube in it, each with a pose and a semantic color.
         """
-        crop = PointcloudCropAnnotator.Descriptor()
-        crop.parameters.relative_to_world = True
-        crop.parameters.min_z = self.settings.table_top.lowest_height
-        crop.parameters.max_z = self.settings.table_top.highest_height
-        plane = PlaneAnnotator.Descriptor()
-        plane.parameters.distance_threshold = (
-            self.settings.table_top.plane_distance_threshold
-        )
-        plane.parameters.random_seed = 0
-        clusters = PointCloudClusterExtractor.Descriptor()
-        clusters.parameters.min_cluster_count = (
-            self.settings.clusters.minimum_cluster_size
-        )
         return [
             CollectionReaderAnnotator(
                 descriptor=CollectionReaderDescriptorFactory.create_descriptor_from_camera_configuration(
@@ -390,9 +332,31 @@ class AnalysisEngine(AnalysisEngineInterface):
                 )
             ),
             ImagePreprocessorAnnotator("ImagePreprocessor"),
-            PointcloudCropAnnotator(descriptor=crop),
-            PlaneAnnotator(descriptor=plane),
-            PointCloudClusterExtractor(descriptor=clusters),
-            self.settings.colors.create_annotator(),
-            ClusterPoseBBAnnotator(),
+            ColorClusterExtractor(descriptor=self.color_cluster_extractor_descriptor()),
+            ClusterPoseBBAnnotator(descriptor=self.pose_descriptor()),
         ]
+
+    def pose_descriptor(self) -> ClusterPoseBBAnnotator.Descriptor:
+        """
+        :return: The configuration of the annotator placing each cube's box, which
+            reaches down to the table top, since the camera sees little of a cube's sides.
+        """
+        descriptor = ClusterPoseBBAnnotator.Descriptor()
+        descriptor.parameters.support_height = self.settings.table_top.top_height
+        return descriptor
+
+    def color_cluster_extractor_descriptor(self) -> ColorClusterExtractor.Descriptor:
+        """
+        :return: The configuration of the annotator finding the cubes by their colors,
+            from the table top, cluster and color settings.
+        """
+        descriptor = ColorClusterExtractor.Descriptor()
+        parameters = descriptor.parameters
+        if self.settings.colors.hue_upper_bounds is not None:
+            parameters.hue_upper_bounds = dict(self.settings.colors.hue_upper_bounds)
+        parameters.minimum_saturation = self.settings.colors.minimum_saturation
+        parameters.minimum_value = self.settings.colors.minimum_value
+        parameters.lowest_height = self.settings.table_top.lowest_height
+        parameters.highest_height = self.settings.table_top.highest_height
+        parameters.minimum_points = self.settings.clusters.minimum_cluster_size
+        return descriptor

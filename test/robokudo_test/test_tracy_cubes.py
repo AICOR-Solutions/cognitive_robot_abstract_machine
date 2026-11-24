@@ -30,7 +30,7 @@ from robokudo.annotators.cluster_color import Color as SemanticColorName
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
-from robokudo.annotators.pointcloud_cluster_extractor import PointCloudClusterExtractor
+from robokudo.annotators.color_cluster_extractor import ColorClusterExtractor
 from robokudo.cas import CAS, CASViews
 from robokudo.descriptors.analysis_engines.tracy_cubes import AnalysisEngine
 from robokudo.query_service import QueryService
@@ -394,22 +394,25 @@ class NewestImage:
         self.message = message
 
 
-def test_a_query_service_publishing_images_publishes_the_clusters_it_drew(
+def test_a_query_service_publishing_images_publishes_the_color_areas_it_drew(
     node, cube_scene: CubeScene
 ) -> None:
     """
-    What the cluster extractor drew shows people which clusters a query saw.
+    What the color cluster extractor drew shows people which areas of color a query saw.
     """
     analysis_engine = AnalysisEngine()
     pipeline = analysis_engine.implementation()
-    [cluster_extractor] = [
+    [color_cluster_extractor] = [
         annotator
         for annotator in pipeline.get_annotators()
-        if isinstance(annotator, PointCloudClusterExtractor)
+        if isinstance(annotator, ColorClusterExtractor)
     ]
     newest = NewestImage()
     node.create_subscription(
-        Image, f"/{pipeline.name}/{cluster_extractor.name}/output_image", newest, 1
+        Image,
+        f"/{pipeline.name}/{color_cluster_extractor.name}/output_image",
+        newest,
+        1,
     )
     service = QueryService(
         analysis_engine=analysis_engine,
