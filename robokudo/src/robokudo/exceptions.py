@@ -529,6 +529,28 @@ class DepthImageNotRegistered(AnalysisPreconditionError):
 
 
 @dataclass
+class DepthNotMeasured(AnalysisPreconditionError):
+    """
+    Raised when a depth image holds no measured distance, so nothing in the frame can be
+    placed.
+    """
+
+    context: str
+    """
+    What needed the depth.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.context} found no measured distance in the depth image."
+
+    def suggest_correction(self) -> str:
+        return (
+            "check that the depth camera is running and sees the scene, not too close or "
+            "too far."
+        )
+
+
+@dataclass
 class ImageContourMissing(AnalysisPreconditionError):
     """
     Raised when an algorithm requires an image contour but none was found.
