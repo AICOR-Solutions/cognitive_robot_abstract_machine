@@ -148,9 +148,10 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         park_state = self.park_joint_state()
         joint_goal = JointPositionList(goal_state=park_state)
         if self.max_joint_velocity is None:
-            return [joint_goal]
+            return [joint_goal, *self.keep_base_still()]
         return [
             joint_goal,
+            *self.keep_base_still(),
             JointVelocityLimit(
                 connections=list(park_state.connections),
                 max_velocity=self.max_joint_velocity,

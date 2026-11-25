@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
+from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -15,7 +16,7 @@ from semantic_digital_twin.robots.pr2 import PR2Joint
 from semantic_digital_twin.robots.robot_parts import AbstractRobotPart, Neck
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
-from ...plan_running import run_plan
+from ...plan_running import run_plan, simulated_executor, statechart_of
 
 # %% parked states of the torso and the neck
 
@@ -60,3 +61,23 @@ def test_parking_the_arms_parks_a_torso_and_a_neck_that_declare_parked_states(
 
     assert torso_lift.position == pytest.approx(0.1, abs=0.01)
     assert head_pan.position == pytest.approx(0.4, abs=0.01)
+
+
+# %% where the base stands while the arms park
+
+
+def test_parking_the_arms_holds_a_mobile_base_where_it_stands(
+    pr2_apartment_context,
+) -> None:
+    """
+    Collision avoidance buys clearance by driving a free base, which carries the parked
+    arms into whatever the robot stands at.
+    """
+    world, pr2, extensions = pr2_apartment_context
+    park = ParkArmsAction(arms=pr2.all_arms)
+    executor = simulated_executor(extensions)
+
+    executor.compile(statechart_of(executor, park))
+
+    [hold] = park.statechart.get_nodes_by_type(HoldPose)
+    assert (hold.root_link, hold.tip_link) == (world.root, pr2.root)
