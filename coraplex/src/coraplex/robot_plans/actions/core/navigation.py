@@ -26,7 +26,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from semantic_digital_twin.exceptions import MissingMovableJointError
 from semantic_digital_twin.reasoning.predicates import InsideOf
-from semantic_digital_twin.robots.robot_parts import Camera
+from semantic_digital_twin.robots.robot_parts import Camera, Neck
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Level,
     Elevator,
@@ -41,6 +41,7 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.world_entity import Body
 
 # %% driving the base
 
@@ -106,12 +107,29 @@ class LookAtAction(ParallelAction):
     def create_steps(self) -> list[StatechartNode]:
         camera = self.camera or self.robot.get_default_camera()
         pointing = Pointing(
-            root_link=self.robot.get_torso().root,
+            root_link=self._camera_turned_from(camera),
             tip_link=camera.root,
             goal_point=self._world_P_target(),
             pointing_axis=camera.viewing_direction,
         )
         return [pointing, *self.keep_base_still()]
+
+    def _camera_turned_from(self, camera: Camera) -> Body:
+        """
+        :param camera: The camera that looks.
+        :return: The torso's root, so a torso that lifts or turns helps the head; the
+            root of the neck `camera` hangs from instead where the torso costs more to
+            move than any other joint, so a humanoid does not bend its waist to look.
+        """
+        torso = self.robot.get_torso()
+        if torso.motion_cost <= 1.0:
+            return torso.root
+        for neck in self.robot._robot_parts:
+            if isinstance(neck, Neck) and camera.root in (
+                self.world.get_kinematic_structure_entities_of_branch(neck.root)
+            ):
+                return neck.root
+        return torso.root
 
     def _world_P_target(self) -> Point3:
         """
