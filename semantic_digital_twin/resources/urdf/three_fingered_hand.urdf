@@ -1,0 +1,101 @@
+<robot name="three_fingered_hand">
+    <!-- A palm with a thumb on one side and two fingers of unequal spacing on the other,
+         each curling about the palm's y axis towards the opposite side. -->
+    <link name="palm">
+        <collision>
+            <geometry>
+                <box size="0.1 0.08 0.02"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="tool_frame_joint" type="fixed">
+        <parent link="palm"/>
+        <child link="tool_frame"/>
+        <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    </joint>
+    <link name="tool_frame"/>
+
+    <joint name="thumb_joint" type="revolute">
+        <parent link="palm"/>
+        <child link="thumb_link"/>
+        <origin xyz="-0.04 0.0 0.01" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="0.0" upper="1.2" effort="10.0" velocity="1.0"/>
+    </joint>
+    <link name="thumb_link">
+        <collision>
+            <origin xyz="0 0 0.03" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.015 0.015 0.06"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="thumb_tip_joint" type="fixed">
+        <parent link="thumb_link"/>
+        <child link="thumb_tip"/>
+        <origin xyz="0 0 0.07" rpy="0 0 0"/>
+    </joint>
+    <link name="thumb_tip">
+        <collision>
+            <geometry>
+                <box size="0.015 0.015 0.02"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="index_joint" type="revolute">
+        <parent link="palm"/>
+        <child link="index_link"/>
+        <origin xyz="0.04 0.03 0.01" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.2" upper="0.0" effort="10.0" velocity="1.0"/>
+    </joint>
+    <link name="index_link">
+        <collision>
+            <origin xyz="0 0 0.03" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.015 0.015 0.06"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="index_tip_joint" type="fixed">
+        <parent link="index_link"/>
+        <child link="index_tip"/>
+        <origin xyz="0 0 0.07" rpy="0 0 0"/>
+    </joint>
+    <link name="index_tip">
+        <collision>
+            <geometry>
+                <box size="0.015 0.015 0.02"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="middle_joint" type="revolute">
+        <parent link="palm"/>
+        <child link="middle_link"/>
+        <origin xyz="0.04 -0.01 0.01" rpy="0 0 0"/>
+        <axis xyz="0 1 0"/>
+        <limit lower="-1.2" upper="0.0" effort="10.0" velocity="1.0"/>
+    </joint>
+    <link name="middle_link">
+        <collision>
+            <origin xyz="0 0 0.03" rpy="0 0 0"/>
+            <geometry>
+                <box size="0.015 0.015 0.06"/>
+            </geometry>
+        </collision>
+    </link>
+    <joint name="middle_tip_joint" type="fixed">
+        <parent link="middle_link"/>
+        <child link="middle_tip"/>
+        <origin xyz="0 0 0.07" rpy="0 0 0"/>
+    </joint>
+    <link name="middle_tip">
+        <collision>
+            <geometry>
+                <box size="0.015 0.015 0.02"/>
+            </geometry>
+        </collision>
+    </link>
+</robot>
