@@ -7,13 +7,21 @@ from __future__ import annotations
 
 import pytest
 
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
+from cramph.composites import Sequence
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPosition,
+    HoldPose,
+)
+from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.pr2 import PR2Joint
-from semantic_digital_twin.robots.robot_parts import AbstractRobotPart, Neck
+from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
+from semantic_digital_twin.robots.robot_parts import AbstractRobotPart, Arm, Neck
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
 from ...plan_running import run_plan, simulated_executor, statechart_of
@@ -81,3 +89,108 @@ def test_parking_the_arms_holds_a_mobile_base_where_it_stands(
 
     [hold] = park.statechart.get_nodes_by_type(HoldPose)
     assert (hold.root_link, hold.tip_link) == (world.root, pr2.root)
+
+
+# %% raising the arms clear of a table before they fold
+
+
+@pytest.fixture
+def left_arm_declaring_a_raised_state(pr2_apartment_context, monkeypatch):
+    """
+    The PR2's left arm, declaring a raised state that lifts its shoulder.
+    """
+    world, pr2, extensions = pr2_apartment_context
+    arm = pr2.all_arms[0]
+    raised = JointState.from_mapping(
+        name=PrefixedName("raised", prefix=arm.name.name),
+        mapping={arm.active_connections[1]: -0.3},
+        state_type=StaticJointState.RAISED,
+    )
+    monkeypatch.setattr(arm, "joint_states", [*arm.joint_states, raised])
+    return arm
+
+
+def compiled_park(plan: list, extensions) -> ParkArmsAction:
+    """
+    :return: The last step of `plan`, a park, once `plan` is compiled.
+    """
+    executor = simulated_executor(extensions)
+    executor.compile(statechart_of(executor, Sequence(nodes=plan)))
+    return plan[-1]
+
+
+def goals_of_park(park: ParkArmsAction, goal_type: type) -> list:
+    """
+    :return: The goals of `goal_type` below the compiled `park`.
+    """
+    return [
+        node
+        for node in park.statechart.get_nodes_by_type(goal_type)
+        if park in node.path
+    ]
+
+
+def pick_up_the_milk(world: World, arm: Arm) -> PickUpAction:
+    """
+    :return: A pick-up of the milk carton in the apartment with `arm`.
+    """
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    return PickUpAction(grasp=GraspCandidate.from_body_origin(milk), arm=arm)
+
+
+def root_P_tool_in_state(
+    world: World, robot_root, arm: Arm, state_type: StaticJointState
+) -> list[float]:
+    """
+    :return: Where the tool frame of `arm` stands in `robot_root`'s frame with the arm
+        in its joint state of `state_type`.
+    """
+    with world.reset_state_context():
+        arm.get_joint_state_by_type(state_type).apply_to(world)
+        return world.compute_forward_kinematics_np(
+            robot_root, arm.end_effector.tool_frame
+        )[:3, 3]
+
+
+def test_an_arm_that_reached_is_drawn_back_through_its_raised_state_before_it_parks(
+    pr2_apartment_context, left_arm_declaring_a_raised_state
+) -> None:
+    """
+    Folded straight into its parked state, an arm reaching over a table sweeps its hand
+    down through the tabletop; drawn straight to where its raised state holds the hand
+    and from there straight to where its parked state does, the hand stays above it.
+    """
+    world, pr2, extensions = pr2_apartment_context
+    arm = left_arm_declaring_a_raised_state
+    park = ParkArmsAction(arms=pr2.all_arms)
+
+    compiled_park([pick_up_the_milk(world, arm), park], extensions)
+
+    raising, lowering = goals_of_park(park, CartesianPosition)
+    [parking] = goals_of_park(park, JointPositionList)
+    for goal, state_type in (
+        (raising, StaticJointState.RAISED),
+        (lowering, StaticJointState.PARK),
+    ):
+        assert (goal.root_link, goal.tip_link) == (
+            pr2.root,
+            arm.end_effector.tool_frame,
+        )
+        assert goal.goal_point.to_np()[:3] == pytest.approx(
+            root_P_tool_in_state(world, pr2.root, arm, state_type)
+        )
+    assert park.statechart.get_preceding_nodes_by_type(parking, CartesianPosition)[
+        :2
+    ] == [lowering, raising]
+
+
+def test_an_arm_that_did_not_reach_parks_straight(
+    pr2_apartment_context, left_arm_declaring_a_raised_state
+) -> None:
+    world, pr2, extensions = pr2_apartment_context
+    other_arm = pr2.all_arms[1]
+    park = ParkArmsAction(arms=pr2.all_arms)
+
+    compiled_park([pick_up_the_milk(world, other_arm), park], extensions)
+
+    assert goals_of_park(park, CartesianPosition) == []

@@ -10,8 +10,14 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionForEndEffector,
 )
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
-from semantic_digital_twin.robots.robot_parts import Arm, EndEffector, Neck, Torso
-from krrood_spatial_math.spatial_types import Pose
+from semantic_digital_twin.robots.robot_parts import (
+    AbstractRobotPart,
+    Arm,
+    EndEffector,
+    Neck,
+    Torso,
+)
+from krrood_spatial_math.spatial_types import Point3, Pose
 
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.robot_plans.actions.base import (
@@ -20,16 +26,18 @@ from coraplex.robot_plans.actions.base import (
     SequentialAction,
 )
 from coraplex.robot_plans.actions.core.exceptions import WidthBeyondGripperOpening
+from coraplex.robot_plans.actions.core.pick_up import HasGraspChoice
 from coraplex.robot_plans.mixins import (
     HasMaxJointVelocity,
     MovesToolCenterPoint,
     OperatesGripper,
 )
-from cramph.composites import Sequence
+from cramph.composites import Parallel, Sequence
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
+    CartesianPosition,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import (
     JointPositionList,
@@ -146,7 +154,7 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
 
     def create_steps(self) -> list[StatechartNode]:
         park_state = self.park_joint_state()
-        joint_goal = JointPositionList(goal_state=park_state)
+        joint_goal = self._through_raised_arms(JointPositionList(goal_state=park_state))
         if self.max_joint_velocity is None:
             return [joint_goal, *self.keep_base_still()]
         return [
@@ -157,6 +165,58 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
                 max_velocity=self.max_joint_velocity,
             ),
         ]
+
+    def _through_raised_arms(self, parking: JointPositionList) -> StatechartNode:
+        """
+        :param parking: The goal folding the arms into their park position.
+        :return: `parking`, after a goal raising the arms that declare a
+            :attr:`~semantic_digital_twin.datastructures.definitions.StaticJointState.RAISED`
+            state that took a grasp earlier in the plan, which draw their hands straight
+            to where that state holds them and from there straight to where the parked
+            state does: back over a table they reached over, then down beside it.
+        """
+        reaching_arms = {
+            reach.arm
+            for reach in self.statechart.get_preceding_nodes_by_type(
+                self, HasGraspChoice
+            )
+        }
+        raised_arms = [
+            arm
+            for arm in self.arms
+            if arm in reaching_arms
+            and arm.has_joint_state_of_type(StaticJointState.RAISED)
+        ]
+        if not raised_arms:
+            return parking
+        raising, lowering = (
+            Parallel(
+                nodes=[
+                    CartesianPosition(
+                        root_link=self.robot.root,
+                        tip_link=arm.end_effector.tool_frame,
+                        goal_point=self._tool_position_in_state(arm, state_type),
+                    )
+                    for arm in raised_arms
+                ]
+            )
+            for state_type in (StaticJointState.RAISED, StaticJointState.PARK)
+        )
+        return Sequence(nodes=[raising, lowering, parking])
+
+    def _tool_position_in_state(self, arm: Arm, state_type: StaticJointState) -> Point3:
+        """
+        :param arm: An arm declaring a joint state of `state_type`.
+        :param state_type: The joint state to stand the arm in.
+        :return: Where the arm's tool frame stands with the arm in that state, in the
+            robot's root frame.
+        """
+        with self.world.reset_state_context():
+            arm.get_joint_state_by_type(state_type).apply_to(self.world)
+            return self.world.transform(
+                target_frame=self.robot.root,
+                spatial_object=Point3(reference_frame=arm.end_effector.tool_frame),
+            )
 
     def park_joint_state(self) -> JointState:
         """
@@ -170,10 +230,24 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
             if isinstance(part, (Torso, Neck))
             and part.has_joint_state_of_type(StaticJointState.PARK)
         ]
+        return self._joint_state_of_parts(
+            [*self.arms, *parked_body_parts], StaticJointState.PARK
+        )
+
+    @staticmethod
+    def _joint_state_of_parts(
+        parts: list[AbstractRobotPart], state_type: StaticJointState
+    ) -> JointState:
+        """
+        :param parts: Robot parts that each declare a joint state of `state_type`.
+        :param state_type: The joint state to put the parts into.
+        :return: One joint state putting every part into its joint state of
+            `state_type`.
+        """
         connections = []
         target_values = []
-        for part in [*self.arms, *parked_body_parts]:
-            joint_state = part.get_joint_state_by_type(StaticJointState.PARK)
+        for part in parts:
+            joint_state = part.get_joint_state_by_type(state_type)
             connections.extend(joint_state.connections)
             target_values.extend(joint_state.target_values)
         return JointState(connections=connections, target_values=target_values)

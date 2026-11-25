@@ -48,6 +48,12 @@ class TorsoState(JointStateType):
 class StaticJointState(JointStateType):
     PARK = auto()
 
+    RAISED = auto()
+    """
+    An arm bent up close to the body, its hand above a table the robot works at, which
+    the arm passes through on its way into :attr:`PARK` where it declares it.
+    """
+
 
 class JointName(StrEnum):
     """
