@@ -10,7 +10,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionForEndEffector,
 )
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
-from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
+from semantic_digital_twin.robots.robot_parts import Arm, EndEffector, Neck, Torso
 from krrood_spatial_math.spatial_types import Pose
 
 from coraplex.datastructures.trajectory import PoseTrajectory
@@ -160,12 +160,19 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
     def park_joint_state(self) -> JointState:
         """
         :return: The joint state that puts every arm this action parks into its park
-            position.
+            position, and the robot's torso and neck too where they declare one, so a
+            humanoid that bent its waist or turned its head to reach parks upright.
         """
+        parked_body_parts = [
+            part
+            for part in self.robot._robot_parts
+            if isinstance(part, (Torso, Neck))
+            and part.has_joint_state_of_type(StaticJointState.PARK)
+        ]
         connections = []
         target_values = []
-        for arm in self.arms:
-            joint_state = arm.get_joint_state_by_type(StaticJointState.PARK)
+        for part in [*self.arms, *parked_body_parts]:
+            joint_state = part.get_joint_state_by_type(StaticJointState.PARK)
             connections.extend(joint_state.connections)
             target_values.extend(joint_state.target_values)
         return JointState(connections=connections, target_values=target_values)
