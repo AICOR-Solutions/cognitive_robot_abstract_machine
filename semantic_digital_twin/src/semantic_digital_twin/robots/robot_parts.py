@@ -984,6 +984,13 @@ class Torso(KinematicChain, ABC):
     of freedom to its attachments, such as arms or the neck.
     """
 
+    motion_cost: float = field(default=1.0, kw_only=True)
+    """
+    How much more moving the torso's joints costs a motion controller than moving any
+    other joint: above one for a humanoid that keeps its balance by reaching with its
+    arms rather than bending its waist.
+    """
+
 
 @dataclass(eq=False)
 class Arm(KinematicChain, HasEndEffector[TGenericEndEffector], ABC):

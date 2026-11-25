@@ -41,6 +41,7 @@ from cramph.orm.ormatic_interface import StatechartMappingDAO
 from krrood.ormatic.data_access_objects.helper import to_dao
 from sqlalchemy import select
 from giskardpy.motion_control import MotionControl
+from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.motion_statechart.exceptions import CollisionViolatedError
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
@@ -65,6 +66,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.derivatives import Derivatives
 from ..conftest import physically_simulated_executor
 from ...plan_running import (
     robot_extensions,
@@ -599,3 +601,47 @@ def test_a_second_executor_on_a_context_leaves_the_rewriting_of_the_first_alone(
 
     assert first.context.require_extension(PlanRewriting) is rewriting
     assert rewriting.transformations == transformations
+
+
+# %% weighing the robot's joints
+
+
+def test_the_controller_weighs_the_torsos_joints_by_its_motion_cost(
+    pr2_apartment_context, monkeypatch
+) -> None:
+    """
+    A torso that costs more to move than an arm leaves a reach to the arm.
+    """
+    world, robot_view, extensions = pr2_apartment_context
+    torso = robot_view.get_torso()
+    monkeypatch.setattr(torso, "motion_cost", 50.0)
+    unweighed = QPControllerConfig.create_with_fast_simulation_defaults()
+    torso_dofs = [
+        dof for connection in torso.active_connections for dof in connection.active_dofs
+    ]
+    [arm_dof] = [
+        dof
+        for dof in world.degrees_of_freedom
+        if dof.name.name == PR2Joint.LEFT_ELBOW_FLEX
+    ]
+
+    executor = simulated_executor(extensions)
+
+    [motion_control] = [
+        extension
+        for extension in executor.extensions
+        if isinstance(extension, MotionControl)
+    ]
+    config = motion_control.qp_controller_config
+    for dof in torso_dofs:
+        assert config.get_degree_of_freedom_weight(
+            dof.name, Derivatives.velocity
+        ) == pytest.approx(
+            unweighed.get_degree_of_freedom_weight(dof.name, Derivatives.velocity)
+            * torso.motion_cost
+        )
+    assert config.get_degree_of_freedom_weight(
+        arm_dof.name, Derivatives.velocity
+    ) == pytest.approx(
+        unweighed.get_degree_of_freedom_weight(arm_dof.name, Derivatives.velocity)
+    )

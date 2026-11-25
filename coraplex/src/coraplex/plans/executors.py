@@ -66,6 +66,7 @@ from giskardpy.motion_statechart.monitors.safety_monitors import SafetyEnvelope
 from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecutor
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from semantic_digital_twin.world_description.derivatives import Derivatives
 from krrood.symbolic_math.symbolic_math import logic_or
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
 
@@ -386,8 +387,31 @@ class SimulatedPlanExecutor(PlanExecutor, StatechartExecutor, ABC):
     def default_executor_extensions(self) -> list[ExecutorExtension]:
         return [
             RosNodeAccess(self.ros_node),
-            MotionControl(qp_controller_config=self.create_qp_controller_config()),
+            MotionControl(qp_controller_config=self.robot_qp_controller_config()),
         ]
+
+    def robot_qp_controller_config(self) -> QPControllerConfig:
+        """
+        :return: :meth:`create_qp_controller_config`, with the joints of the robot's
+            torso weighed by its
+            :attr:`~semantic_digital_twin.robots.robot_parts.Torso.motion_cost`.
+        """
+        config = self.create_qp_controller_config()
+        robot_access = self.context.get_extension(RobotAccess)
+        if robot_access is None:
+            return config
+        torso = robot_access.robot.get_torso_if_specified()
+        if torso is None:
+            return config
+        for connection in torso.active_connections:
+            for dof in connection.active_dofs:
+                config.set_dof_weight(
+                    dof.name,
+                    Derivatives.velocity,
+                    config.get_degree_of_freedom_weight(dof.name, Derivatives.velocity)
+                    * torso.motion_cost,
+                )
+        return config
 
     @abstractmethod
     def create_qp_controller_config(self) -> QPControllerConfig:
