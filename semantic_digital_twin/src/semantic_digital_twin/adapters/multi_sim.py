@@ -2797,10 +2797,16 @@ class MujocoBuilder(MultiSimBuilder):
             mtl_name=copy_file_path.with_suffix(".mtl").name,
         )
         copy_file_path.write_text(text)
+        # a material named by a path, as a USD stage names it by its prim, would name a
+        # file outside the asset folder; MuJoCo reads the image by the copy's own path
+        resource_paths = {
+            resource_name: copy_file_path.parent / Path(resource_name).name
+            for resource_name in resources
+        }
         for resource_name, content in resources.items():
-            (copy_file_path.parent / resource_name).write_bytes(content)
+            resource_paths[resource_name].write_bytes(content)
         images = [
-            str(copy_file_path.parent / resource_name)
+            str(resource_paths[resource_name])
             for resource_name in resources
             if not resource_name.endswith(".mtl")
         ]

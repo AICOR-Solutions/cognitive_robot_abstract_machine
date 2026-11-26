@@ -1906,6 +1906,37 @@ def test_a_textured_mesh_written_as_glb_keeps_its_texture(tmp_path):
     assert Image.open(texture.file).convert("RGB").getpixel((0, 0)) == texture_color
 
 
+def test_a_glb_whose_material_is_named_by_a_path_keeps_its_texture(tmp_path):
+    """
+    A GLB converted from a USD stage names its material by the prim path, such as
+    ``/root/Table/surface/Material``; its texture is written into the asset folder,
+    never to that path.
+    """
+    texture_color = (30, 90, 150)
+    tetrahedron = trimesh.Trimesh(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        faces=[[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]],
+        process=False,
+    )
+    tetrahedron.visual = trimesh.visual.TextureVisuals(
+        uv=numpy.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]),
+        material=trimesh.visual.material.PBRMaterial(
+            name="/root/Table/surface/Material",
+            baseColorTexture=Image.new("RGB", (4, 4), color=texture_color),
+        ),
+    )
+    glb_file = tmp_path / "table.glb"
+    tetrahedron.export(glb_file)
+    world = _world_with_meshes(visual_file=str(glb_file), collision_file=str(glb_file))
+    builder = MujocoBuilder()
+
+    builder.build_world(world=world, file_path=str(tmp_path / "scene.xml"))
+
+    [texture] = builder.spec.textures
+    assert not texture.file.startswith("/root/")
+    assert Image.open(texture.file).convert("RGB").getpixel((0, 0)) == texture_color
+
+
 # %% stepped simulation
 
 
