@@ -145,6 +145,14 @@ class ContactParameters(UniqueSimulatorProperty):
     :meth:`create_for_surface`) never resets an impedance declared elsewhere.
     """
 
+    margin: float | None = None
+    """
+    How far from the shape, in metres, a contact already pushes back: the thickness of a
+    soft pad the shape's own geometry leaves out, such as a fingertip's.
+
+    ``None`` leaves whatever a geometry already declares untouched.
+    """
+
     @classmethod
     def create_for_grasped_object(
         cls,
@@ -202,8 +210,8 @@ class ContactParameters(UniqueSimulatorProperty):
         """
         Declare these parameters on every collision geometry of every body that has
         collision geometry, in place: a geometry without contact parameters gets a copy
-        of these, one that has some keeps its own stiffness and impedance where these
-        leave them open.
+        of these, one that has some keeps its own stiffness, impedance and margin where
+        these leave them open.
 
         :param bodies: The bodies to modify.
         """
@@ -220,3 +228,5 @@ class ContactParameters(UniqueSimulatorProperty):
                     existing.stiffness = self.stiffness
                 if self.impedance is not None:
                     existing.impedance = self.impedance
+                if self.margin is not None:
+                    existing.margin = self.margin

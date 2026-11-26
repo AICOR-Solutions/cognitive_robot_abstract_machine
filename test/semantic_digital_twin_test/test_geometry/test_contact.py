@@ -78,6 +78,30 @@ def test_a_surface_leaves_the_geometrys_own_stiffness_and_impedance():
     assert own.impedance is None
 
 
+def test_a_margin_reaches_a_geometry_with_contact_parameters_of_its_own():
+    body = Body(name=PrefixedName("fingertip"))
+    shape = Box(origin=HomogeneousTransformationMatrix(), scale=Scale(1, 1, 1))
+    body.collision = ShapeCollection([shape], reference_frame=body)
+    own = ContactParameters(friction=ContactFriction())
+    shape.add_simulator_property(own)
+
+    ContactParameters(friction=ContactFriction(), margin=0.004).apply_to([body])
+
+    assert own.margin == 0.004
+
+
+def test_a_surface_leaves_the_geometrys_own_margin():
+    body = Body(name=PrefixedName("fingertip"))
+    shape = Box(origin=HomogeneousTransformationMatrix(), scale=Scale(1, 1, 1))
+    body.collision = ShapeCollection([shape], reference_frame=body)
+    own = ContactParameters(friction=ContactFriction(), margin=0.004)
+    shape.add_simulator_property(own)
+
+    ContactParameters.create_for_surface().apply_to([body])
+
+    assert own.margin == 0.004
+
+
 def test_a_body_without_collision_geometry_is_skipped():
     body = Body(name=PrefixedName("frame"))
     shape = Box(origin=HomogeneousTransformationMatrix(), scale=Scale(1, 1, 1))

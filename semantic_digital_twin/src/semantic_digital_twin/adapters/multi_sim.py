@@ -2741,6 +2741,8 @@ class MujocoBuilder(MultiSimBuilder):
                 geom_props["solref"] = contact.stiffness.to_list()
             if contact.impedance is not None:
                 geom_props["solimp"] = contact.impedance.to_list()
+            if contact.margin is not None:
+                geom_props["margin"] = contact.margin
         mujoco_geom = shape.get_simulator_property_of_type(MujocoGeom)
         if mujoco_geom is not None:
             mujoco_geom_props = mujoco_geom.to_dict()

@@ -33,7 +33,10 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.contact import ContactParameters
+from semantic_digital_twin.world_description.contact import (
+    ContactFriction,
+    ContactParameters,
+)
 from semantic_digital_twin.world_description.geometry import (
     Box,
     Scale,
@@ -684,6 +687,33 @@ def test_a_simulated_body_weighs_what_its_inertial_says_not_what_its_shapes_woul
         simulation.stop_simulation()
 
     assert simulated_mass == pytest.approx(link.inertial.mass)
+
+
+def test_a_simulated_geom_pushes_back_from_the_margin_of_its_contact_parameters():
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("root"))
+        world.add_body(root)
+        link = Body(
+            name=PrefixedName("link"),
+            collision=ShapeCollection([Box(scale=Scale(1, 1, 1))]),
+        )
+        contact = ContactParameters(friction=ContactFriction(), margin=0.004)
+        contact.apply_to([link])
+        world.add_kinematic_structure_entity(link)
+        world.add_connection(FixedConnection(parent=root, child=link))
+
+    simulation = MujocoSim(world=world, headless=True)
+    simulation.start_stepped_simulation()
+    model = simulation.simulator._mj_model
+    margins = [
+        float(model.geom_margin[geom])
+        for geom in range(model.ngeom)
+        if model.geom_bodyid[geom] == model.body("link").id
+    ]
+    simulation.stop_simulation()
+
+    assert margins == [pytest.approx(contact.margin)]
 
 
 def test_builder_keeps_a_visual_only_geom_contactless_despite_its_bitmasks(tmp_path):
