@@ -5,6 +5,7 @@ controller's pace, and in physics it stands rather than holding a pose while it 
 
 from __future__ import annotations
 
+import math
 from dataclasses import fields
 
 import pytest
@@ -16,11 +17,7 @@ from coraplex.robot_plans.plan_transformations import WalkTheBaseOnItsLegs
 from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.goals.base_pose_goals import WalkingBaseGoal
-from giskardpy.motion_statechart.tasks.cartesian_tasks import (
-    CartesianPositionVelocityLimit,
-    CartesianRotationVelocityLimit,
-    HoldPose,
-)
+from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
@@ -92,16 +89,19 @@ def test_a_physics_run_walks_walking_robots():
 
 
 def test_a_walking_base_stands_where_the_context_lets_it(robot_on_a_leg):
+    """
+    The base is not walked back to where it started, however far it swayed.
+    """
     action = navigation_of(robot_on_a_leg, WalkingBasesStand())
 
-    assert [type(task) for task in action.keep_base_still()] == [
-        CartesianPositionVelocityLimit,
-        CartesianRotationVelocityLimit,
-    ]
-    assert all(
-        task.max_linear_velocity == 0.0
-        for task in action.keep_base_still()
-        if isinstance(task, CartesianPositionVelocityLimit)
+    [stand] = action.keep_base_still()
+
+    assert isinstance(stand, HoldPose)
+    assert stand.cruise_linear_velocity == NavigateAction.creeping_velocity
+    assert stand.cruise_angular_velocity == NavigateAction.creeping_velocity
+    assert (stand.translation_threshold, stand.orientation_threshold) == (
+        math.inf,
+        math.inf,
     )
 
 

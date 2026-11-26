@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 
@@ -19,11 +20,7 @@ from cramph.node import (
     expanded_child_field,
 )
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
-from giskardpy.motion_statechart.tasks.cartesian_tasks import (
-    CartesianPositionVelocityLimit,
-    CartesianRotationVelocityLimit,
-    HoldPose,
-)
+from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.patterns.field_metadata import JSONMetadata
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
@@ -125,6 +122,14 @@ class Action(CompositeNode, ABC):
         """
         return self.context.require_extension(RobotAccess).controlled_root
 
+    @classproperty
+    def creeping_velocity(cls) -> float:
+        """
+        How fast, in metres or radians per second, a standing base that walks on legs is
+        led back to where it stood: slow enough for its controller to keep standing.
+        """
+        return 0.001
+
     def keep_base_still(self) -> list[MotionStatechartNode]:
         """
         :return: The task holding the robot's base where it stands, empty when the robot
@@ -146,18 +151,15 @@ class Action(CompositeNode, ABC):
             and self.context.get_extension(WalkingBasesStand) is not None
         ):
             return [
-                CartesianPositionVelocityLimit(
+                HoldPose(
                     name="base stands",
                     root_link=self.world.root,
                     tip_link=robot.root,
-                    max_linear_velocity=0.0,
-                ),
-                CartesianRotationVelocityLimit(
-                    name="base does not turn",
-                    root_link=self.world.root,
-                    tip_link=robot.root,
-                    max_angular_velocity=0.0,
-                ),
+                    cruise_linear_velocity=self.creeping_velocity,
+                    cruise_angular_velocity=self.creeping_velocity,
+                    translation_threshold=math.inf,
+                    orientation_threshold=math.inf,
+                )
             ]
         return [
             HoldPose(name="hold base", root_link=self.world.root, tip_link=robot.root)
