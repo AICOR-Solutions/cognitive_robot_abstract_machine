@@ -197,7 +197,7 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
             Parallel(
                 nodes=[
                     CartesianPosition(
-                        root_link=self.robot.root,
+                        root_link=arm.root,
                         tip_link=arm.end_effector.tool_frame,
                         goal_point=self._tool_position_in_state(arm, state_type),
                     )
@@ -220,7 +220,7 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         parked = self._tool_position_in_state(arm, StaticJointState.PARK).to_np()[:3]
         raised = self._tool_position_in_state(arm, StaticJointState.RAISED).to_np()[:3]
         now = self.world.transform(
-            target_frame=self.robot.root,
+            target_frame=arm.root,
             spatial_object=Point3(reference_frame=arm.end_effector.tool_frame),
         ).to_np()[:3]
         return bool(np.linalg.norm(now - parked) > np.linalg.norm(raised - parked))
@@ -230,12 +230,13 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         :param arm: An arm declaring a joint state of `state_type`.
         :param state_type: The joint state to stand the arm in.
         :return: Where the arm's tool frame stands with the arm in that state, in the
-            robot's root frame.
+            frame of the arm's root, so a torso bent or turned while the hand is drawn
+            back neither helps nor hinders it.
         """
         with self.world.reset_state_context():
             arm.get_joint_state_by_type(state_type).apply_to(self.world)
             return self.world.transform(
-                target_frame=self.robot.root,
+                target_frame=arm.root,
                 spatial_object=Point3(reference_frame=arm.end_effector.tool_frame),
             )
 

@@ -140,16 +140,16 @@ def pick_up_the_milk(world: World, arm: Arm) -> PickUpAction:
 
 
 def root_P_tool_in_state(
-    world: World, robot_root, arm: Arm, state_type: StaticJointState
+    world: World, root, arm: Arm, state_type: StaticJointState
 ) -> list[float]:
     """
-    :return: Where the tool frame of `arm` stands in `robot_root`'s frame with the arm
-        in its joint state of `state_type`.
+    :return: Where the tool frame of `arm` stands in `root`'s frame with the arm in its
+        joint state of `state_type`.
     """
     with world.reset_state_context():
         arm.get_joint_state_by_type(state_type).apply_to(world)
         return world.compute_forward_kinematics_np(
-            robot_root, arm.end_effector.tool_frame
+            root, arm.end_effector.tool_frame
         )[:3, 3]
 
 
@@ -174,11 +174,11 @@ def test_an_arm_that_reached_is_drawn_back_through_its_raised_state_before_it_pa
         (lowering, StaticJointState.PARK),
     ):
         assert (goal.root_link, goal.tip_link) == (
-            pr2.root,
+            arm.root,
             arm.end_effector.tool_frame,
         )
         assert goal.goal_point.to_np()[:3] == pytest.approx(
-            root_P_tool_in_state(world, pr2.root, arm, state_type)
+            root_P_tool_in_state(world, arm.root, arm, state_type)
         )
     assert park.statechart.get_preceding_nodes_by_type(parking, CartesianPosition)[
         :2
@@ -212,10 +212,10 @@ def test_an_arm_standing_out_over_a_table_is_drawn_back_though_this_plan_did_not
     arm = left_arm_declaring_a_raised_state
     for connection in arm.active_connections:
         connection.position = 0.0
-    park_point = root_P_tool_in_state(world, pr2.root, arm, StaticJointState.PARK)
-    raised_point = root_P_tool_in_state(world, pr2.root, arm, StaticJointState.RAISED)
+    park_point = root_P_tool_in_state(world, arm.root, arm, StaticJointState.PARK)
+    raised_point = root_P_tool_in_state(world, arm.root, arm, StaticJointState.RAISED)
     tool_point = world.compute_forward_kinematics_np(
-        pr2.root, arm.end_effector.tool_frame
+        arm.root, arm.end_effector.tool_frame
     )[:3, 3]
     assert np.linalg.norm(tool_point - park_point) > np.linalg.norm(
         raised_point - park_point
