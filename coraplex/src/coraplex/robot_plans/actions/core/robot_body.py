@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
+import numpy as np
+
 from typing_extensions import Any
 
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
@@ -171,9 +173,11 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         :param parking: The goal folding the arms into their park position.
         :return: `parking`, after a goal raising the arms that declare a
             :attr:`~semantic_digital_twin.datastructures.definitions.StaticJointState.RAISED`
-            state that took a grasp earlier in the plan, which draw their hands straight
-            to where that state holds them and from there straight to where the parked
-            state does: back over a table they reached over, then down beside it.
+            state and either took a grasp earlier in the plan or hold their hands
+            farther out than that state does (see :meth:`_stands_out`), which draw their
+            hands straight to where that state holds them and from there straight to
+            where the parked state does: back over a table they reached over, then down
+            beside it.
         """
         reaching_arms = {
             reach.arm
@@ -184,8 +188,8 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         raised_arms = [
             arm
             for arm in self.arms
-            if arm in reaching_arms
-            and arm.has_joint_state_of_type(StaticJointState.RAISED)
+            if arm.has_joint_state_of_type(StaticJointState.RAISED)
+            and (arm in reaching_arms or self._stands_out(arm))
         ]
         if not raised_arms:
             return parking
@@ -203,6 +207,23 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
             for state_type in (StaticJointState.RAISED, StaticJointState.PARK)
         )
         return Sequence(nodes=[raising, lowering, parking])
+
+    def _stands_out(self, arm: Arm) -> bool:
+        """
+        A park performed as a plan of its own, as one step of a plan run step by step,
+        knows of no grasp before it; where the arm's hand stands tells instead.
+
+        :param arm: An arm declaring a raised and a parked state.
+        :return: Whether the arm's hand now stands farther from where its parked state
+            holds it than where its raised state holds it.
+        """
+        parked = self._tool_position_in_state(arm, StaticJointState.PARK).to_np()[:3]
+        raised = self._tool_position_in_state(arm, StaticJointState.RAISED).to_np()[:3]
+        now = self.world.transform(
+            target_frame=self.robot.root,
+            spatial_object=Point3(reference_frame=arm.end_effector.tool_frame),
+        ).to_np()[:3]
+        return bool(np.linalg.norm(now - parked) > np.linalg.norm(raised - parked))
 
     def _tool_position_in_state(self, arm: Arm, state_type: StaticJointState) -> Point3:
         """

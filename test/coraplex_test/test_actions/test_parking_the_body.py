@@ -5,6 +5,7 @@ do, parks those too.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
@@ -184,13 +185,44 @@ def test_an_arm_that_reached_is_drawn_back_through_its_raised_state_before_it_pa
     ] == [lowering, raising]
 
 
-def test_an_arm_that_did_not_reach_parks_straight(
+def test_an_arm_that_did_not_reach_and_stands_parked_parks_straight(
     pr2_apartment_context, left_arm_declaring_a_raised_state
 ) -> None:
     world, pr2, extensions = pr2_apartment_context
+    left_arm_declaring_a_raised_state.get_joint_state_by_type(
+        StaticJointState.PARK
+    ).apply_to(world)
     other_arm = pr2.all_arms[1]
     park = ParkArmsAction(arms=pr2.all_arms)
 
     compiled_park([pick_up_the_milk(world, other_arm), park], extensions)
 
     assert goals_of_park(park, CartesianPosition) == []
+
+
+def test_an_arm_standing_out_over_a_table_is_drawn_back_though_this_plan_did_not_reach(
+    pr2_apartment_context, left_arm_declaring_a_raised_state
+) -> None:
+    """
+    A park performed on its own, as a step of a plan run one step at a time, knows of
+    no earlier grasp; an arm whose hand stands farther from where its parked state holds
+    it than its raised state does is drawn back through its raised state all the same.
+    """
+    world, pr2, extensions = pr2_apartment_context
+    arm = left_arm_declaring_a_raised_state
+    for connection in arm.active_connections:
+        connection.position = 0.0
+    park_point = root_P_tool_in_state(world, pr2.root, arm, StaticJointState.PARK)
+    raised_point = root_P_tool_in_state(world, pr2.root, arm, StaticJointState.RAISED)
+    tool_point = world.compute_forward_kinematics_np(
+        pr2.root, arm.end_effector.tool_frame
+    )[:3, 3]
+    assert np.linalg.norm(tool_point - park_point) > np.linalg.norm(
+        raised_point - park_point
+    )
+    park = ParkArmsAction(arms=pr2.all_arms)
+
+    compiled_park([park], extensions)
+
+    raising, lowering = goals_of_park(park, CartesianPosition)
+    assert raising.tip_link is arm.end_effector.tool_frame
