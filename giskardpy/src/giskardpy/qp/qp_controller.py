@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, InitVar
+from functools import cached_property
 from typing_extensions import TYPE_CHECKING
 
 import numpy as np
@@ -45,7 +46,6 @@ class QPController:
 
     qp_data_factory: QPDataFactory = field(default=None, init=False)
     qp_solver: QPSolver = field(default=None, init=False)
-    debugger: QuadraticProgramDebugger = field(default=None, init=False)
     dof_filter: np.ndarray = field(default=None, init=False)
 
     def __post_init__(self, degrees_of_freedom: list[DegreeOfFreedom]):
@@ -76,9 +76,15 @@ class QPController:
             life_cycle_symbols=self.life_cycle_variables,
             float_variables=self.float_variables,
         )
-        self.debugger = QuadraticProgramDebugger(
-            qp_data_symbolic=self.qp_data_factory.qp_data
-        )
+
+    @cached_property
+    def debugger(self) -> QuadraticProgramDebugger:
+        """
+        The debugger naming the rows and columns of this controller's quadratic
+        program, built on first use: building it takes about a fifth of a compile, and
+        only someone debugging the controller reads it.
+        """
+        return QuadraticProgramDebugger(qp_data_symbolic=self.qp_data_factory.qp_data)
 
     def _set_active_dofs(self, degrees_of_freedom: list[DegreeOfFreedom]) -> None:
         all_active_float_variables = set().union(

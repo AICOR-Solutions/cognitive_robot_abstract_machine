@@ -224,3 +224,31 @@ def test_a_joint_is_at_rest_once_its_node_ended(prismatic_bot2: World) -> None:
 
     # Stopping leaves nothing but the rounding error of the last integration step.
     assert recording.velocities[-1] == pytest.approx(0.0, abs=1e-12)
+
+
+# %% the controller's debugger
+
+
+def test_a_compiled_controller_builds_its_debugger_only_once_asked(
+    cylinder_bot_world: World,
+) -> None:
+    root = cylinder_bot_world.root
+    tip = cylinder_bot_world.get_kinematic_structure_entity_by_name("bot")
+    goal = CartesianPosition(
+        root_link=root,
+        tip_link=tip,
+        goal_point=Point3(x=0.1, reference_frame=root),
+    )
+    executor = StatechartExecutor(
+        context=StatechartContext(world=cylinder_bot_world),
+        extensions=[MotionControl()],
+    )
+    statechart = Statechart(context=executor.context)
+    statechart.add_nodes([goal, EndMotion.when_all_true([goal])])
+
+    executor.compile(statechart)
+
+    controller = executor.require_extension(MotionControl).qp_controller
+    assert "debugger" not in vars(controller)
+    assert not controller.debugger.equality_constraints.empty
+    assert "debugger" in vars(controller)
