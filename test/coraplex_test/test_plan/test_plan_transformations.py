@@ -65,6 +65,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
     CartesianPositionStraight,
 )
+from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from krrood.entity_query_language.backends import EntityQueryLanguageGenerativeBackend
 from krrood.entity_query_language.factories import a, variable
@@ -600,7 +601,7 @@ def test_an_inserted_action_is_expanded(pr2_apartment_context):
     )
 
     [park] = [node for node in plan.descendants if isinstance(node, ParkArmsAction)]
-    assert kinds_of_the_steps_of(park) == [JointPositionList]
+    assert kinds_of_the_steps_of(park) == [JointPositionList, HoldPose]
 
 
 # %% detecting before a grasp
@@ -1040,7 +1041,7 @@ def test_the_actions_beside_the_pick_up_are_expanded(pr2_apartment_context):
     )
 
     [_, parking, _, _] = steps_of(plan)
-    assert kinds_of_the_steps_of(parking) == [JointPositionList]
+    assert kinds_of_the_steps_of(parking) == [JointPositionList, HoldPose]
 
 
 def test_the_drawer_is_opened_with_the_arm_that_picks_up(pr2_apartment_context):
