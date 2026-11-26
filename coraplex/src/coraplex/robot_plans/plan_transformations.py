@@ -49,7 +49,10 @@ from coraplex.plans.held_objects import ObjectRisesWithTheHand
 from coraplex.robot_plans.mixins import MovesToolCenterPoint, ReattachesBranches
 from cramph.composites import Sequence, StatementNode
 from cramph.node import StatechartNode
-from giskardpy.motion_statechart.goals.base_pose_goals import HolonomicBaseGoal
+from giskardpy.motion_statechart.goals.base_pose_goals import (
+    HolonomicBaseGoal,
+    WalkingBaseGoal,
+)
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
 from giskardpy.motion_statechart.goals.gripper import (
     MoveFingers,
@@ -65,6 +68,7 @@ from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from semantic_digital_twin.robots.robot_part_mixins import (
+    HasMobileBase,
     HasTwoFingers,
     PinchesWithTheThumb,
 )
@@ -607,6 +611,33 @@ class WriteTheOdometryInsteadOfCommandingAPose(WriteTheOdometryInsteadOfDriving)
 
     def is_applicable(self, plan_node: DrivesBase) -> bool:
         return issubclass(plan_node.base_goal_type, HolonomicBaseGoal)
+
+
+# %% walking the base on legs
+
+
+@dataclass
+class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
+    """
+    Walks the base of a robot that walks on legs to the poses it moves to at the pace of
+    its walking controller, and counts it as arrived within the controller's tolerance,
+    see :attr:`~semantic_digital_twin.robots.walking.WalkingController.pace`.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        robot = plan_node.robot
+        return (
+            isinstance(robot, HasMobileBase)
+            and robot.mobile_base is not None
+            and robot.mobile_base.walking_controller_type is not None
+        )
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_goal_type = WalkingBaseGoal
+        plan_node.base_pose_threshold = max(
+            plan_node.base_pose_threshold,
+            plan_node.robot.mobile_base.walking_controller_type.pace.arrival_tolerance,
+        )
 
 
 # %% detecting with the real robot's perception

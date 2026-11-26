@@ -13,7 +13,11 @@ from coraplex.exceptions import (
     MotionDidNotFinish,
     PlanNotCompiled,
 )
-from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.context_extensions import (
+    RobotAccess,
+    StatementGrounding,
+    WalkingBasesStand,
+)
 from coraplex.plans.failures import (
     CandidateLimitReached,
     EmptyUnderspecified,
@@ -31,6 +35,7 @@ from coraplex.robot_plans.plan_transformations import (
     LetContactCarryTheBodies,
     SqueezeThePinch,
     MoveStraightNearTheObject,
+    WalkTheBaseOnItsLegs,
     WriteTheOdometryInsteadOfCommandingAPose,
 )
 from coraplex.robot_plans.robot_specific_plan_transformations import (
@@ -535,6 +540,7 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
             LetContactCarryTheBodies(),
             SqueezeThePinch(),
             CheckThatTheObjectRisesWithTheHand(),
+            WalkTheBaseOnItsLegs(),
         ],
         kw_only=True,
     )
@@ -558,6 +564,13 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
                 *self.plan_adaptations,
             ]
         super().__post_init__()
+
+    def default_context_extensions(self) -> list[ContextExtension]:
+        """
+        Differs from :meth:`PlanExecutor.default_context_extensions` in letting a base
+        that walks on legs stand, see :class:`WalkingBasesStand`.
+        """
+        return [*super().default_context_extensions(), WalkingBasesStand()]
 
     def _squeeze_of_the_grippers(self) -> float:
         """

@@ -71,3 +71,12 @@ class StatementGrounding(ContextExtension):
     Seed for the locations the plan's actions sample, so a run repeats; ``None`` samples
     afresh each run.
     """
+
+
+@dataclass
+class WalkingBasesStand(ContextExtension):
+    """
+    Lets the base of a robot that walks on legs stand while an action keeps the base
+    still, instead of holding it at the pose it started at: a physically balanced base
+    sways, and holding its pose would step it about every time.
+    """

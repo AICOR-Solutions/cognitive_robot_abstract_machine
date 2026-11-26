@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, fields
 
 from typing_extensions import TYPE_CHECKING, Any, Self
 
-from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.context_extensions import RobotAccess, WalkingBasesStand
 from coraplex.plans.plan_transformation import PlanRewriting
 from krrood.ormatic.utils import classproperty
 from cramph.node import SucceedsOnObservingTrue, FailsOnObservingFalse
@@ -19,7 +19,11 @@ from cramph.node import (
     expanded_child_field,
 )
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
-from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
+from giskardpy.motion_statechart.tasks.cartesian_tasks import (
+    CartesianPositionVelocityLimit,
+    CartesianRotationVelocityLimit,
+    HoldPose,
+)
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.patterns.field_metadata import JSONMetadata
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
@@ -124,7 +128,8 @@ class Action(CompositeNode, ABC):
     def keep_base_still(self) -> list[MotionStatechartNode]:
         """
         :return: The task holding the robot's base where it stands, empty when the robot
-            has no mobile base or may move its whole body.
+            has no mobile base or may move its whole body. A base walking on legs
+            stands instead where the context lets it, see :class:`WalkingBasesStand`.
 
         A goal relative to the robot is bound when it starts, so a base that moves
         afterwards, which collision avoidance does to buy clearance, carries the goal
@@ -136,6 +141,24 @@ class Action(CompositeNode, ABC):
             or robot.mobile_base.full_body_controlled
         ):
             return []
+        if (
+            robot.mobile_base.walking_controller_type is not None
+            and self.context.get_extension(WalkingBasesStand) is not None
+        ):
+            return [
+                CartesianPositionVelocityLimit(
+                    name="base stands",
+                    root_link=self.world.root,
+                    tip_link=robot.root,
+                    max_linear_velocity=0.0,
+                ),
+                CartesianRotationVelocityLimit(
+                    name="base does not turn",
+                    root_link=self.world.root,
+                    tip_link=robot.root,
+                    max_angular_velocity=0.0,
+                ),
+            ]
         return [
             HoldPose(name="hold base", root_link=self.world.root, tip_link=robot.root)
         ]
