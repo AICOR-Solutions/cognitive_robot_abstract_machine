@@ -581,8 +581,11 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
         profiler = DegreeOfFreedomLimitProfiler(defaults)
         robot = self.context.require_extension(RobotAccess).robot
         braking_steps = max(
-            profiler.braking(degree_of_freedom).number_of_steps
-            for degree_of_freedom in robot.degrees_of_freedom_with_hardware_interface
+            (
+                profiler.braking(degree_of_freedom).number_of_steps
+                for degree_of_freedom in robot.degrees_of_freedom_with_hardware_interface
+            ),
+            default=0,
         )
         if braking_steps <= defaults.control_horizon:
             return defaults
