@@ -390,6 +390,24 @@ class RobotWithoutMobileBaseError(MotionStatechartError):
 
 
 @dataclass
+class RobotDoesNotWalkError(MotionStatechartError):
+    """
+    Raised when a goal is to walk the mobile base of a robot whose base does not walk.
+    """
+
+    robot: AbstractRobot
+    """
+    The robot whose base does not walk.
+    """
+
+    def error_message(self) -> str:
+        return f"The mobile base of {self.robot.name} does not walk."
+
+    def suggest_correction(self) -> str:
+        return "Move the base of this robot with a goal for a driven base."
+
+
+@dataclass
 class EmptyDebugExpressionTrajectoryError(MotionStatechartError):
     """
     Raised when a plot is requested but no debug expression samples were recorded.

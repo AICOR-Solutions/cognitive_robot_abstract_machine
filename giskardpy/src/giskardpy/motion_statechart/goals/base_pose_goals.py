@@ -14,7 +14,10 @@ from cramph.node import (
     SucceedsOnObservingTrue,
     expanded_child_field,
 )
-from giskardpy.motion_statechart.exceptions import RobotWithoutMobileBaseError
+from giskardpy.motion_statechart.exceptions import (
+    RobotDoesNotWalkError,
+    RobotWithoutMobileBaseError,
+)
 from giskardpy.motion_statechart.binding_policy import (
     ForwardKinematicsBinding,
     GoalBindingPolicy,
@@ -25,11 +28,15 @@ from giskardpy.motion_statechart.tasks.drive_tasks import (
     BaseOrientation,
     BasePosition,
     BaseTurnTowardsGoalPosition,
+    PacedBaseOrientation,
+    PacedBasePosition,
+    PacedBaseTurnTowardsGoalPosition,
 )
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, MobileBase
+from semantic_digital_twin.robots.walking import WalkingPace
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import DifferentialDrive
@@ -261,6 +268,82 @@ class HolonomicBaseGoal(DrivenBaseGoal):
                 BaseOrientation(name=f"{self.name}/orientation", **task_parameters),
             ],
         )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class WalkingBaseGoal(DrivenBaseGoal):
+    """
+    Walks a base on legs to the pose at the pace its walking controller walks up to a
+    pose, see :attr:`~semantic_digital_twin.robots.walking.WalkingController.pace`,
+    running these steps in one :class:`~cramph.composites.Sequence`, since legs walk
+    forward best:
+
+    1. Turn towards the goal position, without walking
+    2. Walk to the goal position, facing it as seen from the start, so a base that
+       overshoots does not turn round
+    3. Turn to the goal orientation, keeping the position
+    """
+
+    pace: WalkingPace
+    """
+    How fast the base walks up to the pose.
+    """
+
+    sequence: Sequence = expanded_child_field()
+    """
+    The sequence running the three steps.
+    """
+
+    @property
+    def motion(self) -> StatechartNode:
+        return self.sequence
+
+    @classmethod
+    def moving_base_of(
+        cls, robot: AbstractRobot, goal_pose: Pose, threshold: float
+    ) -> Self:
+        """
+        Differs from :meth:`DrivenBaseGoal.moving_base_of` in walking at the pace of the
+        robot's walking controller.
+
+        :raises RobotDoesNotWalkError: If the base of `robot` does not walk.
+        """
+        if not isinstance(robot, HasMobileBase) or robot.mobile_base is None:
+            raise RobotWithoutMobileBaseError(robot=robot)
+        controller_type = robot.mobile_base.walking_controller_type
+        if controller_type is None:
+            raise RobotDoesNotWalkError(robot=robot)
+        return cls(
+            mobile_base=robot.mobile_base,
+            goal_pose=goal_pose,
+            threshold=threshold,
+            pace=controller_type.pace,
+        )
+
+    def _create_motion(self, task_parameters: dict[str, Any]) -> None:
+        paced = dict(task_parameters, pace=self.pace)
+        steps = [
+            PacedBaseTurnTowardsGoalPosition(name=f"{self.name}/step1", **paced),
+            Parallel(
+                name=f"{self.name}/step2",
+                nodes=[
+                    PacedBasePosition(name=f"{self.name}/step2/position", **paced),
+                    PacedBaseTurnTowardsGoalPosition(
+                        name=f"{self.name}/step2/heading", **paced
+                    ),
+                ],
+            ),
+            Parallel(
+                name=f"{self.name}/step3",
+                nodes=[
+                    PacedBasePosition(name=f"{self.name}/step3/position", **paced),
+                    PacedBaseOrientation(
+                        name=f"{self.name}/step3/orientation", **paced
+                    ),
+                ],
+            ),
+        ]
+        self.sequence = Sequence(name=f"{self.name}/sequence", nodes=steps)
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

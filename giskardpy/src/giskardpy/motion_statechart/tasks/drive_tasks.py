@@ -14,6 +14,7 @@ from giskardpy.motion_statechart.graph_node import ConvergingTask, MotionNodeArt
 from giskardpy.motion_statechart.weights import VelocityScale
 from giskardpy.motion_statechart.cruise_velocities import DefaultCruiseVelocity
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.walking import WalkingPace
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -99,21 +100,32 @@ class BasePosition(DrivenBaseTask):
         artifacts = MotionNodeArtifacts()
         parent_P_goal = self.parent_T_goal.position
         parent_P_base = self.parent_T_base().position
-        for base_coordinate, goal_coordinate in [
-            (parent_P_base.x, parent_P_goal.x),
-            (parent_P_base.y, parent_P_goal.y),
-        ]:
+        parent_V_base_to_goal = parent_P_goal - parent_P_base
+        parent_V_base_to_goal.z = 0
+        for base_coordinate, goal_coordinate, cruise_velocity in zip(
+            (parent_P_base.x, parent_P_base.y),
+            (parent_P_goal.x, parent_P_goal.y),
+            self.cruise_velocities(parent_V_base_to_goal),
+        ):
             artifacts.geometry.add_position_constraint(
                 expression_current=base_coordinate,
                 expression_goal=goal_coordinate,
-                cruise_velocity=self.cruise_velocity,
+                cruise_velocity=cruise_velocity,
                 velocity_scale=VelocityScale.TRANSLATION,
                 quadratic_weight=self.weight,
             )
-        parent_V_base_to_goal = parent_P_goal - parent_P_base
-        parent_V_base_to_goal.z = 0
         artifacts.error = parent_V_base_to_goal.norm()
         return artifacts
+
+    def cruise_velocities(
+        self, parent_V_base_to_goal: Vector3
+    ) -> tuple[sm.ScalarData, sm.ScalarData]:
+        """
+        :param parent_V_base_to_goal: The way from the base to the goal along the floor,
+            relative to the drive's parent.
+        :return: The speed the base approaches the goal at along the parent's x and y.
+        """
+        return self.cruise_velocity, self.cruise_velocity
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -146,17 +158,24 @@ class DrivenBaseRotation(DrivenBaseTask, ABC):
         parent_T_base = self.parent_T_base()
         parent_R_base = parent_T_base.rotation_matrix
         parent_R_goal = self.parent_R_goal(parent_T_base)
-        artifacts.geometry.add_yaw_goal_constraint(
-            frame_R_current=parent_R_base,
-            frame_R_goal=parent_R_goal,
-            cruise_velocity=self.cruise_velocity,
-            quadratic_weight=self.weight,
-        )
         yaw_error = sm.shortest_angular_distance(
             parent_R_base.rpy[2], parent_R_goal.rpy[2]
         )
+        artifacts.geometry.add_yaw_goal_constraint(
+            frame_R_current=parent_R_base,
+            frame_R_goal=parent_R_goal,
+            cruise_velocity=self.turning_cruise_velocity(sm.abs(yaw_error)),
+            quadratic_weight=self.weight,
+        )
         artifacts.error = sm.abs(yaw_error)
         return artifacts
+
+    def turning_cruise_velocity(self, angle_to_go: sm.Scalar) -> sm.ScalarData:
+        """
+        :param angle_to_go: How far the base still has to turn, in radians.
+        :return: The speed the base turns towards the goal orientation at.
+        """
+        return self.cruise_velocity
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -247,3 +266,69 @@ class BaseTurnTowardsGoalPosition(BaseHeading):
         self, parent_T_base: HomogeneousTransformationMatrix
     ) -> Point3:
         return self._parent_T_start_binding.root_T_tip.position
+
+
+# %% walking up to a pose
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PacedBasePosition(BasePosition):
+    """
+    Walks the base to below the position of :attr:`goal_pose` at :attr:`pace`: in
+    proportion to the distance still to go, so a base that follows its commands late
+    still slows down before it arrives.
+    """
+
+    pace: WalkingPace
+    """
+    How fast the base walks up to the goal.
+    """
+
+    def cruise_velocities(
+        self, parent_V_base_to_goal: Vector3
+    ) -> tuple[sm.ScalarData, sm.ScalarData]:
+        distance = parent_V_base_to_goal.norm()
+        speed = sm.limit(
+            self.pace.slowing_rate * distance,
+            self.pace.slowest_speed,
+            self.pace.fastest_speed,
+        )
+        share = speed / sm.max(distance, self.pace.arrival_tolerance)
+        return (
+            share * sm.abs(parent_V_base_to_goal.x),
+            share * sm.abs(parent_V_base_to_goal.y),
+        )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PacedTurn(DrivenBaseRotation, ABC):
+    """
+    Turns the base at :attr:`pace`: in proportion to the angle still to go.
+    """
+
+    pace: WalkingPace
+    """
+    How fast the base turns.
+    """
+
+    def turning_cruise_velocity(self, angle_to_go: sm.Scalar) -> sm.ScalarData:
+        return sm.limit(
+            self.pace.slowing_rate * angle_to_go,
+            self.pace.slowest_turn,
+            self.pace.fastest_turn,
+        )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PacedBaseOrientation(PacedTurn, BaseOrientation):
+    """
+    Turns the base to the orientation of :attr:`goal_pose` at its pace.
+    """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PacedBaseTurnTowardsGoalPosition(PacedTurn, BaseTurnTowardsGoalPosition):
+    """
+    Turns the front of the base towards the position of :attr:`goal_pose`, as seen from
+    where it stood when the task started, at its pace.
+    """
