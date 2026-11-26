@@ -4416,7 +4416,14 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         if now - self._last_sync_time < 1.0 / self.sync_rate_hz:
             return
         self._last_sync_time = now
+        self.read_simulation_into_world()
 
+    def read_simulation_into_world(self) -> None:
+        """
+        Copy ``_mj_data.qpos`` back into ``world.state`` now, whatever
+        :attr:`sync_rate_hz` says, as :meth:`_sim_to_world` does once its throttle
+        lets it.
+        """
         with self._world._world_lock:
             self._state_callback.pause()
             try:
@@ -4681,8 +4688,10 @@ class MujocoSim(MultiSim):
         """
         Start the simulation without a physics thread: the physics advances only in
         :meth:`step_simulation`, so a controller can drive the world between steps, in
-        lockstep with the physics, and reads the world back after every step rather
-        than at the synchronizer's throttled rate.
+        lockstep with the physics, and reads the world back at the end of every step
+        rather than at the synchronizer's throttled rate. The physics substeps of one
+        step are not copied into the world one by one, since nothing reads the world
+        between them.
 
         Every servo is handed the position its joint currently holds in the world, so
         nothing rushes towards zero the moment the physics starts.
@@ -4691,14 +4700,15 @@ class MujocoSim(MultiSim):
         """
         if self.simulator.state == SimulatorState.RUNNING:
             raise SimulationAlreadyRunningError(self.world.root.name.name)
-        self.synchronizer.sync_rate_hz = MujocoSynchronizer.UNTHROTTLED_SYNC_RATE_HZ
+        self.synchronizer.sync_rate_hz = 0
         self.simulator.start(simulate_in_thread=False, render_in_thread=False)
         self.synchronizer.command_actuators_from_world_state()
 
     def step_simulation(self, duration: timedelta) -> None:
         """
         Advance the physics of a simulation started with
-        :meth:`start_stepped_simulation` and refresh the viewer.
+        :meth:`start_stepped_simulation`, read where it ended back into the world and
+        refresh the viewer.
 
         :param duration: How much simulated time to advance.
         :raises SimulationNotStartedError: If the simulation is not running.
@@ -4707,4 +4717,5 @@ class MujocoSim(MultiSim):
             raise SimulationNotStartedError(self.world.root.name.name)
         for _ in range(round(duration.total_seconds() / self.simulator.step_size)):
             self.simulator.step()
+        self.synchronizer.read_simulation_into_world()
         self.simulator.render()

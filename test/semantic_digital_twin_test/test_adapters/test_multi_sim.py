@@ -716,6 +716,55 @@ def test_a_simulated_geom_pushes_back_from_the_margin_of_its_contact_parameters(
     assert margins == [pytest.approx(contact.margin)]
 
 
+def test_a_stepped_simulation_reads_the_world_back_once_per_step(monkeypatch):
+    """
+    The controller reads the world only between two steps, so the substeps of one step
+    are not copied into it one by one; the world still holds where the physics ended.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("root"))
+        world.add_body(root)
+        falling = Body(
+            name=PrefixedName("falling"),
+            collision=ShapeCollection([Box(scale=Scale(0.1, 0.1, 0.1))]),
+            inertial=Inertial(mass=1.0),
+        )
+        world.add_kinematic_structure_entity(falling)
+        connection = Connection6DoF.create_with_dofs(
+            world=world, parent=root, child=falling
+        )
+        world.add_connection(connection)
+    connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        z=1.0, reference_frame=root
+    )
+    simulation = MujocoSim(world=world, headless=True, step_size=1e-3)
+    reads = []
+    read_from_qpos = MujocoSynchronizer._read_connections_from_qpos
+
+    def counted(synchronizer):
+        reads.append(True)
+        return read_from_qpos(synchronizer)
+
+    monkeypatch.setattr(MujocoSynchronizer, "_read_connections_from_qpos", counted)
+    simulation.start_stepped_simulation()
+    try:
+        simulation.step_simulation(timedelta(seconds=0.01))
+        simulation.step_simulation(timedelta(seconds=0.01))
+        [simulated_height] = [
+            float(simulation.simulator._mj_data.xpos[body][2])
+            for body in range(simulation.simulator._mj_model.nbody)
+            if simulation.simulator._mj_model.body_jntnum[body] == 1
+        ]
+    finally:
+        simulation.stop_simulation()
+
+    assert len(reads) == 2
+    assert simulated_height < 1.0
+    world_height = world.compute_forward_kinematics_np(root, falling)[2, 3]
+    assert float(world_height) == pytest.approx(simulated_height)
+
+
 def test_builder_keeps_a_visual_only_geom_contactless_despite_its_bitmasks(tmp_path):
     """
     A shape that is visual only never collides, whatever ``MujocoGeom`` bitmasks it
