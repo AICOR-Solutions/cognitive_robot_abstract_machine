@@ -56,6 +56,7 @@ from krrood_spatial_math.spatial_types import (
     RotationMatrix,
     Vector3,
 )
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
@@ -2379,6 +2380,15 @@ class MultiSimBuilder(ABC):
     The name every entity of the last world built is built under.
     """
 
+    draws_scenery_meshes: bool = True
+    """
+    Whether the meshes that only draw the scenery are built: the visual meshes of the
+    bodies fixed to the world's root that belong to no robot, such as a scanned
+    building, which physics never touches. Without them the scenery collides by its
+    collision shapes as before, but the simulation neither loads nor renders it, which
+    a large scan makes costly.
+    """
+
     def build_world(self, world: World, file_path: str):
         """
         Builds the world in the simulator and saves it to a file.
@@ -2447,9 +2457,16 @@ class MultiSimBuilder(ABC):
         :param body: The body to build.
         """
         self._build_body(body=body)
+        drawn = self.draws_scenery_meshes or not self._is_scenery(body)
         for shape in {
             id(s): s for s in body.visual.shapes + body.collision.shapes
         }.values():
+            if (
+                not drawn
+                and isinstance(shape, Mesh)
+                and shape not in body.collision
+            ):
+                continue
             self._build_shape(
                 parent=body,
                 shape=shape,
@@ -2461,6 +2478,24 @@ class MultiSimBuilder(ABC):
                 self._build_camera(camera=additional_property)
             elif isinstance(additional_property, MultiSimLight):
                 self._build_light(light=additional_property)
+
+    def _is_scenery(self, body: Body) -> bool:
+        """
+        :param body: A body of the world being built.
+        :return: Whether it is scenery: fixed to the world's root through fixed
+            connections only, and part of no robot.
+        """
+        if any(
+            body in robot.bodies
+            for robot in self.world.get_semantic_annotations_by_type(AbstractRobot)
+        ):
+            return False
+        connection = body.parent_connection
+        while connection is not None:
+            if not isinstance(connection, FixedConnection):
+                return False
+            connection = connection.parent.parent_connection
+        return True
 
     def build_region(self, region: Region):
         """
@@ -4605,6 +4640,7 @@ class MultiSim(ABC):
         headless: bool = False,
         step_size: float = 1e-3,
         file_path: Path | None = None,
+        draws_scenery_meshes: bool = True,
         **kwargs,
     ):
         """
@@ -4617,6 +4653,8 @@ class MultiSim(ABC):
             saves its world to its own temporary directory, so that simulations built at
             the same time, e.g. by parallel test workers, never overwrite each other's
             scene.
+        :param draws_scenery_meshes: Whether the meshes only drawing the scenery are
+            built, see :attr:`MultiSimBuilder.draws_scenery_meshes`.
         """
         self.world = world
         if file_path is None:
@@ -4627,7 +4665,7 @@ class MultiSim(ABC):
         else:
             self._scene_directory = None
         self.file_path = Path(file_path)
-        builder = self.builder_class()
+        builder = self.builder_class(draws_scenery_meshes=draws_scenery_meshes)
         builder.build_world(world=world, file_path=str(self.file_path))
         self.simulator = self.simulator_class(
             file_path=str(self.file_path),

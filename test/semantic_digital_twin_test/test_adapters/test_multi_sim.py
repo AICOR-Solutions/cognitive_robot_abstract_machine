@@ -1937,6 +1937,67 @@ def test_a_glb_whose_material_is_named_by_a_path_keeps_its_texture(tmp_path):
     assert Image.open(texture.file).convert("RGB").getpixel((0, 0)) == texture_color
 
 
+# %% scenery drawn by meshes
+
+
+def _scenery_world(mesh_file: str) -> World:
+    """
+    :return: A world with scenery, a body fixed to the root drawn by a mesh and
+        colliding as a box, and a free body drawn by the same mesh.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("root"))
+        world.add_body(root)
+        scenery = Body(
+            name=PrefixedName("scenery"),
+            visual=ShapeCollection([Mesh(filename=mesh_file, scale=Scale(1, 1, 1))]),
+            collision=ShapeCollection([Box(scale=Scale(1, 1, 0.1))]),
+        )
+        world.add_kinematic_structure_entity(scenery)
+        world.add_connection(FixedConnection(parent=root, child=scenery))
+        free = Body(
+            name=PrefixedName("free"),
+            visual=ShapeCollection([Mesh(filename=mesh_file, scale=Scale(1, 1, 1))]),
+            collision=ShapeCollection([Box(scale=Scale(0.1, 0.1, 0.1))]),
+        )
+        world.add_kinematic_structure_entity(free)
+        world.add_connection(Connection6DoF.create_with_dofs(world, root, free))
+    return world
+
+
+def _geom_types_of(builder: MujocoBuilder, name: str) -> list[mujoco.mjtGeom]:
+    """
+    :return: The types of the geoms of the built body of the name.
+    """
+    body = next(body for body in builder.spec.bodies if body.name == name)
+    return [geom.type for geom in body.geoms]
+
+
+def test_a_simulation_leaves_out_the_meshes_drawing_scenery_when_told(tmp_path):
+    """
+    Scenery, such as a scanned building, is drawn by large meshes that physics never
+    touches; a simulation told not to draw it builds the scenery's colliders only, and
+    still draws what moves.
+    """
+    world = _scenery_world(_write_box_mesh(tmp_path, "scan.obj", edge_length=1.0))
+    builder = MujocoBuilder(draws_scenery_meshes=False)
+
+    builder.build_world(world=world, file_path=str(tmp_path / "scene.xml"))
+
+    assert _geom_types_of(builder, "scenery") == [mujoco.mjtGeom.mjGEOM_BOX]
+    assert mujoco.mjtGeom.mjGEOM_MESH in _geom_types_of(builder, "free")
+
+
+def test_a_simulation_draws_the_scenery_by_default(tmp_path):
+    world = _scenery_world(_write_box_mesh(tmp_path, "scan.obj", edge_length=1.0))
+    builder = MujocoBuilder()
+
+    builder.build_world(world=world, file_path=str(tmp_path / "scene.xml"))
+
+    assert mujoco.mjtGeom.mjGEOM_MESH in _geom_types_of(builder, "scenery")
+
+
 # %% stepped simulation
 
 
