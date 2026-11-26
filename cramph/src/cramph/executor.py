@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -172,6 +173,13 @@ class SteppedSimulationPacer(Pacer):
     The simulated time the robot is given to come to a standstill.
     """
 
+    standstill_window: timedelta = field(default=timedelta(seconds=0.1))
+    """
+    The simulated time over which a joint that went nowhere counts as no longer moving,
+    however much it trembled in between: a stiff servo holding a joint still trembles
+    about where it stands, every step farther than :attr:`standstill_velocity` allows.
+    """
+
     def sleep(self) -> None:
         self.simulation.step_simulation(timedelta(seconds=1 / self.target_frequency))
 
@@ -182,7 +190,9 @@ class SteppedSimulationPacer(Pacer):
 
         A controller stops ticking once its command satisfies it, which is before the
         joints have got there. A joint held up by something it has run into counts as
-        stopped too.
+        stopped too, and so does a joint trembling about where it stands: once no joint
+        travelled farther over :attr:`standstill_window` than a joint at
+        :attr:`standstill_velocity` would, the robot is still.
         """
         servo_names = [
             actuator.name.name for actuator in self.simulation.world.actuators
@@ -191,23 +201,44 @@ class SteppedSimulationPacer(Pacer):
             return
         simulator = self.simulation.simulator
         standstill_travel = self.standstill_velocity / self.target_frequency
-        previous = simulator.get_actuators_lengths(servo_names).result
+        window_steps = max(
+            1, round(self.standstill_window.total_seconds() * self.target_frequency)
+        )
+        window_travel = self.standstill_velocity * window_steps / self.target_frequency
+        readings = deque(
+            [simulator.get_actuators_lengths(servo_names).result],
+            maxlen=window_steps + 1,
+        )
         for _ in range(
             int(self.standstill_time_limit.total_seconds() * self.target_frequency)
         ):
             self.sleep()
-            current = simulator.get_actuators_lengths(servo_names).result
-            travelled = max(
-                abs(current[servo_name] - previous[servo_name])
-                for servo_name in servo_names
-            )
-            previous = current
-            if travelled < standstill_travel:
+            readings.append(simulator.get_actuators_lengths(servo_names).result)
+            if self._farthest_travel(readings[-2], readings[-1], servo_names) < (
+                standstill_travel
+            ):
+                return
+            if len(readings) == readings.maxlen and (
+                self._farthest_travel(readings[0], readings[-1], servo_names)
+                < window_travel
+            ):
                 return
         logger.warning(
             "The robot was still moving after %s of simulated time.",
             self.standstill_time_limit,
         )
+
+    @staticmethod
+    def _farthest_travel(
+        before: dict[str, float], after: dict[str, float], servo_names: list[str]
+    ) -> float:
+        """
+        :param before: Each servo's joint position at one time.
+        :param after: The same at a later time.
+        :param servo_names: The servos to compare.
+        :return: How far the joint that travelled farthest between the two travelled.
+        """
+        return max(abs(after[name] - before[name]) for name in servo_names)
 
 
 @dataclass

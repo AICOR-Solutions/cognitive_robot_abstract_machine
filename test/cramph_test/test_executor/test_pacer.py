@@ -284,6 +284,39 @@ def test_a_robot_that_never_stops_moving_is_waited_for_only_so_long(caplog) -> N
     assert "still moving" in caplog.text
 
 
+@dataclass
+class JointThatTrembles(JointThatStopsAfterAWhile):
+    """
+    A joint that has stopped but trembles about where it stands, back and forth every
+    step, the way a stiff servo holding a still joint does in physics.
+    """
+
+    amplitude: float = 0.0005
+    """
+    How far it trembles to either side.
+    """
+
+    def step(self) -> None:
+        self.position = self.amplitude if self.position <= 0.0 else -self.amplitude
+
+
+def test_a_robot_trembling_where_it_stands_is_still_once_a_window_shows_no_travel():
+    """
+    Every step moves the trembling joint farther than a moving joint would travel, but
+    over :attr:`~cramph.executor.SteppedSimulationPacer.standstill_window` it went
+    nowhere, so the wait ends then rather than at its time limit.
+    """
+    simulation = SimulationOfSettlingJoints(
+        joints={"trembling_joint": JointThatTrembles(steps_still_moving=0)}
+    )
+    pacer = settling_pacer(simulation, frequency=50, seconds=10)
+
+    pacer.wait_for_standstill()
+
+    window_steps = round(pacer.standstill_window.total_seconds() * 50)
+    assert simulation.steps == window_steps
+
+
 def test_a_simulation_without_servos_is_not_stepped_at_all() -> None:
     """
     A joint written straight into the world is already where it was put, so there is
