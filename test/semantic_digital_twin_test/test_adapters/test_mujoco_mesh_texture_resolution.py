@@ -11,6 +11,7 @@ recognise that case and return ``None`` instead of raising.
 from dataclasses import dataclass
 
 import PIL.Image
+from trimesh.visual.material import PBRMaterial
 
 from semantic_digital_twin.adapters.multi_sim import MujocoMeshConverter
 
@@ -92,3 +93,27 @@ def test_resolves_texture_named_relative_to_its_mesh(tmp_path):
     assert MujocoMeshConverter._resolve_texture_file_path(
         material, str(tmp_path)
     ) == str(texture_file)
+
+
+def test_resolves_the_base_colour_texture_of_a_physically_based_material(tmp_path):
+    """
+    A glTF or DAE mesh may carry trimesh's physically based material, whose texture is
+    its base colour texture rather than an ``image``.
+    """
+    texture_file = tmp_path / "texture.png"
+    PIL.Image.new("RGB", (1, 1)).save(texture_file)
+    material = PBRMaterial(
+        name="material_0", baseColorTexture=PIL.Image.open(texture_file)
+    )
+
+    assert MujocoMeshConverter._resolve_texture_file_path(
+        material, str(tmp_path)
+    ) == str(texture_file)
+
+
+def test_returns_none_for_a_physically_based_material_without_a_texture(tmp_path):
+    material = PBRMaterial(name="material_0", baseColorFactor=[255, 0, 0, 255])
+
+    assert (
+        MujocoMeshConverter._resolve_texture_file_path(material, str(tmp_path)) is None
+    )

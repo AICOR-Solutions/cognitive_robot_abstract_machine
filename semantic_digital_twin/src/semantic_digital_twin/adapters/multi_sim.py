@@ -35,6 +35,7 @@ from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from krrood.utils import recursive_subclasses
 from scipy.spatial.transform import Rotation
 from trimesh.visual import TextureVisuals
+from trimesh.visual.material import PBRMaterial
 
 from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
@@ -1561,9 +1562,14 @@ class MujocoMeshConverter(MujocoGeomConverter, MeshConverter):
         :param mesh_directory: Directory of the mesh file the material came from.
         :return: The texture's file path, or ``None`` if the material has no image at
             all (a flat colour with no texture) or a programmatically generated image
-            with no backing file.
+            with no backing file. A physically based material's image is its base
+            colour texture.
         """
-        image = material.image
+        image = (
+            material.baseColorTexture
+            if isinstance(material, PBRMaterial)
+            else material.image
+        )
         if image is None:
             return None
         candidates = [material.name, image.info.get("file_path", "")]
