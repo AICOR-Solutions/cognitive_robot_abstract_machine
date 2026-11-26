@@ -5109,6 +5109,14 @@ class MujocoSim(MultiSim):
         self.synchronizer.command_actuators_from_world_state()
         self.synchronizer.read_simulation_into_world()
 
+    @property
+    def walking_actuator_names(self) -> set[str]:
+        """
+        :return: The names of the actuators a walking controller drives, whose joints
+            keep moving while the robot stands.
+        """
+        return self.synchronizer.walking_actuator_names
+
     def _create_walking(self) -> list[MujocoWalking]:
         """
         :return: A walking robot with a new controller for every drive whose robot walks.

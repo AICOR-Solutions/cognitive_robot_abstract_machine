@@ -210,6 +210,13 @@ class SimulationOfSettlingJoints:
         return world
 
     @property
+    def walking_actuator_names(self) -> set[str]:
+        """
+        :return: No actuator, since no joint it reports walks.
+        """
+        return set()
+
+    @property
     def simulator(self) -> SimulationOfSettlingJoints:
         """
         :return: Itself, since it answers the reads a simulator would.

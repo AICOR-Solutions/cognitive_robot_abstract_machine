@@ -192,10 +192,14 @@ class SteppedSimulationPacer(Pacer):
         joints have got there. A joint held up by something it has run into counts as
         stopped too, and so does a joint trembling about where it stands: once no joint
         travelled farther over :attr:`standstill_window` than a joint at
-        :attr:`standstill_velocity` would, the robot is still.
+        :attr:`standstill_velocity` would, the robot is still. The legs a walking
+        controller balances never are, so they are not waited for.
         """
+        walking_actuator_names = self.simulation.walking_actuator_names
         servo_names = [
-            actuator.name.name for actuator in self.simulation.world.actuators
+            actuator.name.name
+            for actuator in self.simulation.world.actuators
+            if actuator.name.name not in walking_actuator_names
         ]
         if not servo_names:
             return

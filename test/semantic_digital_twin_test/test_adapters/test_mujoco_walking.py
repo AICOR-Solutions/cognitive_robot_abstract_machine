@@ -12,6 +12,9 @@ import mujoco
 import numpy as np
 import pytest
 
+from cramph.executor import SteppedSimulationPacer
+from semantic_digital_twin.robots.walking import PlanarVelocity, WalkingSenses
+
 from ...dataset.robots_on_legs import RecordingWalkingController, robot_on_a_leg_drive
 from ...pytest_environment import runs_in_continuous_integration
 
@@ -187,3 +190,31 @@ def test_the_bases_measured_pose_is_the_drives_odometry(walking_simulation):
         world.state[degree_of_freedom.id].position
         for degree_of_freedom in (drive.x, drive.y, drive.yaw)
     ] == pytest.approx([0.3, -0.2, yaw], abs=1e-3)
+
+
+@needs_mujoco_in_ci
+def test_a_robot_counts_as_still_while_its_walking_legs_keep_stepping(
+    walking_simulation,
+):
+    """
+    A balanced robot never stops moving its legs, so waiting for the robot to stand
+    still waits for every other joint only.
+    """
+    controller = _controller(walking_simulation)
+
+    def stepping(senses: WalkingSenses, command: PlanarVelocity) -> dict[str, float]:
+        if len(controller.calls) % 10 == 0:
+            controller.leg_target = -controller.leg_target
+        return RecordingWalkingController.leg_targets(controller, senses, command)
+
+    controller.leg_targets = stepping
+    pacer = SteppedSimulationPacer(
+        walking_simulation, standstill_time_limit=timedelta(seconds=5)
+    )
+    pacer.target_frequency = 100
+    started = walking_simulation.simulator.current_simulation_time
+
+    pacer.wait_for_standstill()
+
+    waited = walking_simulation.simulator.current_simulation_time - started
+    assert waited < 1.0
