@@ -476,7 +476,7 @@ class DegreeOfFreedomLimitProfiler:
         Returns the limits the horizon bounds of a degree of freedom are built from:
         its position limits, and the upper velocity, acceleration, and jerk limits, with
         an unbounded acceleration limit when none is declared and the jerk limit of its
-        :meth:`_braking`.
+        :meth:`braking`.
 
         .. note:: The horizon bounds are symmetric, so the lower velocity, acceleration,
             and jerk limits of the degree of freedom are not used.
@@ -498,11 +498,11 @@ class DegreeOfFreedomLimitProfiler:
                 position=upper_position,
                 velocity=declared.upper.velocity,
                 acceleration=acceleration_limit,
-                jerk=self._braking(degree_of_freedom).jerk_limit,
+                jerk=self.braking(degree_of_freedom).jerk_limit,
             ),
         )
 
-    def _braking(self, degree_of_freedom: DegreeOfFreedom) -> JerkLimitedBraking:
+    def braking(self, degree_of_freedom: DegreeOfFreedom) -> JerkLimitedBraking:
         """
         Returns the braking of a degree of freedom from its velocity limit, with its
         declared jerk limit or, without one, the jerk limit of the configured braking
@@ -561,7 +561,7 @@ class DegreeOfFreedomLimitProfiler:
         :param degree_of_freedom: Degree of freedom whose braking is checked.
         """
         qp_controller_config = self.qp_controller_config
-        braking = self._braking(degree_of_freedom)
+        braking = self.braking(degree_of_freedom)
         if braking.number_of_steps <= qp_controller_config.control_horizon:
             return
         raise DegreeOfFreedomBrakingExceedsHorizonError(

@@ -65,6 +65,7 @@ from giskardpy.motion_statechart.monitors.progress_monitors import StillProgress
 from giskardpy.motion_statechart.monitors.safety_monitors import SafetyEnvelope
 from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecutor
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
+from giskardpy.qp.dof_limits import DegreeOfFreedomLimitProfiler
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.world_description.derivatives import Derivatives
 from krrood.symbolic_math.symbolic_math import logic_or
@@ -568,7 +569,22 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
         return squeeze
 
     def create_qp_controller_config(self) -> QPControllerConfig:
-        return QPControllerConfig.create_with_physical_simulation_defaults()
+        """
+        The physical defaults, with the prediction horizon lengthened where a joint of
+        the robot needs more steps to brake from its velocity limit than they leave.
+        """
+        defaults = QPControllerConfig.create_with_physical_simulation_defaults()
+        profiler = DegreeOfFreedomLimitProfiler(defaults)
+        robot = self.context.require_extension(RobotAccess).robot
+        braking_steps = max(
+            profiler.braking(degree_of_freedom).number_of_steps
+            for degree_of_freedom in robot.degrees_of_freedom_with_hardware_interface
+        )
+        if braking_steps <= defaults.control_horizon:
+            return defaults
+        return QPControllerConfig.create_with_physical_simulation_defaults(
+            prediction_horizon=braking_steps + defaults.number_of_resting_steps
+        )
 
 
 @dataclass

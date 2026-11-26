@@ -239,7 +239,9 @@ class QPControllerConfig:
         )
 
     @classmethod
-    def create_with_physical_simulation_defaults(cls) -> QPControllerConfig:
+    def create_with_physical_simulation_defaults(
+        cls, prediction_horizon: int | None = None
+    ) -> QPControllerConfig:
         """
         Creates a silent configuration for a robot driven against a running physics,
         where each command becomes the servos' set point.
@@ -248,9 +250,14 @@ class QPControllerConfig:
         since the wall clock of such a run is spent stepping the physics rather than
         solving the controller, and finer set points reach a goal in less simulated
         time.
+
+        :param prediction_horizon: See :attr:`prediction_horizon`.
         """
         return cls(
-            target_frequency=100, braking_time=timedelta(seconds=0.1), verbose=False
+            target_frequency=100,
+            braking_time=timedelta(seconds=0.1),
+            verbose=False,
+            prediction_horizon=prediction_horizon,
         )
 
     def set_dof_weight(
