@@ -5107,7 +5107,8 @@ class MujocoSim(MultiSim):
                 walking.driven_actuator_names.values()
             )
         self.synchronizer.command_actuators_from_world_state()
-        self.synchronizer.read_simulation_into_world()
+        if self.walking:
+            self.synchronizer.read_simulation_into_world()
 
     @property
     def walking_actuator_names(self) -> set[str]:
