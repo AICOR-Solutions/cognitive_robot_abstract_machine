@@ -25,9 +25,11 @@ from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
 from coraplex.plans.underspecified import UnderspecifiedChildChooser
 from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.plan_transformations import (
+    CheckThatTheObjectRisesWithTheHand,
     CloseFingersToObjectWidth,
     DetectWithRoboKudo,
     LetContactCarryTheBodies,
+    SqueezeThePinch,
     MoveStraightNearTheObject,
     WriteTheOdometryInsteadOfCommandingAPose,
 )
@@ -531,6 +533,8 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
         default_factory=lambda: [
             MoveStraightNearTheObject(),
             LetContactCarryTheBodies(),
+            SqueezeThePinch(),
+            CheckThatTheObjectRisesWithTheHand(),
         ],
         kw_only=True,
     )

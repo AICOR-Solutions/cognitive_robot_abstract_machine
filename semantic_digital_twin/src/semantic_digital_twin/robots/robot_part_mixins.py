@@ -148,6 +148,7 @@ class HasFingers(
     def tool_P_grasp_when_closed(self) -> Point3:
         """
         Where the hand holds an object once closed, in :attr:`EndEffector.tool_frame`:
+
         midway between the thumb's tip and the centre of the other fingers' tips, each
         tip at its collision bounding box centre, or at its origin without collision.
         Read closed whatever the hand stands in, and kept.
@@ -503,6 +504,30 @@ class HasTwoFingers(
                 if connection not in connections:
                     connections.append(connection)
         return connections
+
+
+@dataclass(eq=False)
+class PinchesWithTheThumb(RobotPartMixin, ABC):
+    """
+    Mixin class for hands that hold an object pinched between the thumb and the fingers
+    opposing it, rather than closing two fingers to a width.
+
+    Such a hand's closed state is a posture shaped to touch the object the hand is made
+    to hold. A servo grips only with the position error it is left with, so in a
+    physical simulation the hand closes to :attr:`squeezed_joint_state` instead, which
+    sends the pinching fingers past the object's surface.
+    """
+
+    @property
+    @abstractmethod
+    def squeezed_joint_state(self) -> JointState:
+        """
+        The closed state, with the joints that press the thumb and the opposing fingers
+        onto the object driven further on, so that their servos press rather than merely
+        touch.
+
+        The object stops the fingers short of it.
+        """
 
 
 @dataclass(eq=False)

@@ -19,6 +19,7 @@ from coraplex.locations.locations import ReachabilityLocation
 from coraplex.querying.grasp_closeness import GraspsByCloseness
 from coraplex.plans.plan_transformation import (
     ConfigurationTransformation,
+    ParallelInsertion,
     SequentialInsertion,
     MatchedType,
     PlanTransformation,
@@ -44,12 +45,16 @@ from coraplex.robot_plans.actions.core.robot_body import (
     MoveFingersToWidthAction,
     ParkArmsAction,
 )
+from coraplex.plans.held_objects import ObjectRisesWithTheHand
 from coraplex.robot_plans.mixins import MovesToolCenterPoint, ReattachesBranches
 from cramph.composites import Sequence, StatementNode
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.goals.base_pose_goals import HolonomicBaseGoal
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
-from giskardpy.motion_statechart.goals.gripper import MoveFingers
+from giskardpy.motion_statechart.goals.gripper import (
+    MoveFingers,
+    MoveFingersToJointState,
+)
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianTask
 from krrood.entity_query_language.core.mapped_variable import FlatVariable
 from krrood.entity_query_language.core.variable import InstantiatedVariable, Variable
@@ -59,7 +64,10 @@ from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from semantic_digital_twin.reasoning.predicates import InsideOf
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
-from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
+from semantic_digital_twin.robots.robot_part_mixins import (
+    HasTwoFingers,
+    PinchesWithTheThumb,
+)
 from semantic_digital_twin.robots.robot_parts import Arm
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
@@ -503,6 +511,73 @@ class CloseFingersToObjectWidth(PlanTransformation[GraspingAction]):
             if any(isinstance(node, MoveFingers) for node in [step, *step.descendants]):
                 return step
         raise GraspHasNoClosingGoal(plan_node)
+
+
+# %% squeezing a pinch
+
+
+@dataclass
+class SqueezeThePinch(PlanTransformation[GraspingAction]):
+    """
+    Closes a hand that pinches with its thumb to its
+    :attr:`~semantic_digital_twin.robots.robot_part_mixins.PinchesWithTheThumb.squeezed_joint_state`
+    instead of its closed state, where the object pushes back: the grasp is done once
+    the fingers stopped on the object.
+    """
+
+    def is_applicable(self, plan_node: GraspingAction) -> bool:
+        return (
+            isinstance(plan_node.arm.end_effector, PinchesWithTheThumb)
+            and issubclass(plan_node.gripper_goal_type, MoveFingers)
+            and plan_node.grasp.graspable.root.has_collision()
+        )
+
+    def apply(self, plan_node: GraspingAction) -> None:
+        plan_node.statechart.replace(
+            CloseFingersToObjectWidth.closing_step(plan_node),
+            plan_node.closing_step(
+                MoveFingersToJointState(
+                    goal_state=plan_node.arm.end_effector.squeezed_joint_state,
+                    finger_velocity=plan_node.grasp_closing_velocity,
+                    stall_minimum_time=plan_node.grasp_stall_minimum_time,
+                    tolerate_stall=True,
+                )
+            ),
+        )
+
+
+# %% checking that a lifted object rises with the hand
+
+
+@dataclass
+class CheckThatTheObjectRisesWithTheHand(ParallelInsertion[PickUpAction]):
+    """
+    Checks, while a pick-up lifts its object, that the object rises with the hand, where
+    contact alone carries it and a grasp that missed would leave it behind unnoticed.
+    """
+
+    tolerance: float = 0.02
+    """
+    See :attr:`~coraplex.plans.held_objects.ObjectRisesWithTheHand.tolerance`.
+    """
+
+    def is_applicable(self, plan_node: PickUpAction) -> bool:
+        return True
+
+    def anchor(self, plan_node: PickUpAction) -> StatechartNode:
+        """
+        :return: The last step of the pick-up, which lifts the object.
+        """
+        return plan_node.nodes[-1]
+
+    def nodes_to_insert(self, plan_node: PickUpAction) -> list[StatechartNode]:
+        return [
+            ObjectRisesWithTheHand(
+                held_body=plan_node.grasp.graspable.root,
+                tool_frame=plan_node.arm.end_effector.tool_frame,
+                tolerance=self.tolerance,
+            )
+        ]
 
 
 # %% putting the base at a pose where nothing has to drive it there

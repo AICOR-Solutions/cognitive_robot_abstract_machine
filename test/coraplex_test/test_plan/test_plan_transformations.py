@@ -44,6 +44,7 @@ from coraplex.robot_plans.actions.core.robot_body import (
     ParkArmsAction,
     SetGripperAction,
 )
+from coraplex.plans.held_objects import ObjectRisesWithTheHand
 from coraplex.robot_plans.plan_transformations import (
     CloseFingersToObjectWidth,
     DetectBeforeGrasp,
@@ -60,7 +61,11 @@ from cramph.composites import (
 from cramph.context import ContextExtension
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.goals.cartesian_goals import CartesianPoseStraight
-from giskardpy.motion_statechart.goals.gripper import MoveFingers, MoveGripper
+from giskardpy.motion_statechart.goals.gripper import (
+    MoveFingers,
+    MoveFingersToJointState,
+    MoveGripper,
+)
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
     CartesianPositionStraight,
@@ -1783,6 +1788,69 @@ def test_the_real_hsr_hand_is_squeezed_as_its_executor_says(hsr_apartment_contex
     assert [action.squeeze for action in width_actions_of(plan)] == [
         width_close.squeeze
     ]
+
+
+def test_a_two_finger_gripper_is_closed_to_a_width_not_squeezed_like_a_pinch(
+    pr2_apartment_context,
+):
+    """
+    Only a hand that pinches with its thumb is closed to its squeezed joint state; a
+    two-finger gripper's grasp in physics is rewritten as before.
+    """
+    world, view, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+
+    plan = rewritten(
+        GraspingAction(grasp=grasp_of(milk), arm=left_or_only_arm(view)),
+        extensions,
+        executor_for=physically_simulated_executor,
+    )
+
+    assert [
+        node for node in plan.descendants if isinstance(node, MoveFingersToJointState)
+    ] == []
+    assert len(width_actions_of(plan)) == 1
+
+
+def test_a_pick_up_in_physics_checks_that_the_object_rises_with_the_hand(
+    pr2_apartment_context,
+):
+    world, view, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+    arm = left_or_only_arm(view)
+
+    plan = rewritten(
+        PickUpAction(grasp=grasp_of(milk), arm=arm),
+        extensions,
+        executor_for=physically_simulated_executor,
+    )
+
+    [check] = [
+        node for node in plan.descendants if isinstance(node, ObjectRisesWithTheHand)
+    ]
+    assert (check.held_body, check.tool_frame) == (
+        milk.root,
+        arm.end_effector.tool_frame,
+    )
+    assert check.parent_node is plan.nodes[-1]
+
+
+def test_a_kinematic_pick_up_carries_its_object_without_a_check(
+    pr2_apartment_context,
+):
+    """
+    The world model carries a picked object along with the hand where no physics runs.
+    """
+    world, view, extensions = pr2_apartment_context
+    milk = world.get_semantic_annotations_by_type(Milk)[0]
+
+    plan = rewritten(
+        PickUpAction(grasp=grasp_of(milk), arm=left_or_only_arm(view)), extensions
+    )
+
+    assert [
+        node for node in plan.descendants if isinstance(node, ObjectRisesWithTheHand)
+    ] == []
 
 
 def test_an_object_without_collision_is_still_held_by_shutting_the_gripper(

@@ -211,6 +211,33 @@ class BodiesMovedSinceGrounding(PlanFailure):
 
 
 @dataclass
+class ObjectLeftBehindByTheHand(PlanFailure):
+    """
+    Raised when a hand rose further than the object it was to carry rose with it, so the
+    grasp did not hold the object.
+    """
+
+    held_body: Body
+    """
+    The body the hand was to carry.
+    """
+
+    shortfall: float
+    """
+    How much less, in metres, the body rose than the hand.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.held_body.name.name} stayed {self.shortfall * 100:.1f} cm behind the "
+            f"hand lifting it, so the grasp did not hold it."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Grasp the object again, closer to its centre."
+
+
+@dataclass
 class EmptyUnderspecified(PlanFailure):
     """
     Raised when an underspecified statement yields no action that succeeds.
