@@ -1,0 +1,188 @@
+"""
+Walking on legs: a controller a legged robot brings along, which balances its base on
+its legs and walks it at a commanded velocity.
+
+The controller is independent of any simulator. A physical simulation
+hands it what the robot senses once every
+:attr:`WalkingController.control_period` and drives the joints it names
+towards the positions it answers with.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+import numpy
+from krrood.ormatic.utils import classproperty
+from numpy.typing import NDArray
+
+# %% what a walking controller is told
+
+
+@dataclass
+class PlanarVelocity:
+    """
+    A velocity of a base across the floor, along and about the axes of the base itself.
+    """
+
+    forward: float = 0.0
+    """
+    How fast the base moves along its own x-axis, in metres per second.
+    """
+
+    sideways: float = 0.0
+    """
+    How fast the base moves along its own y-axis, in metres per second.
+    """
+
+    turn: float = 0.0
+    """
+    How fast the base turns about the vertical, in radians per second.
+    """
+
+    def to_array(self) -> NDArray[numpy.float64]:
+        """
+        :return: The forward, sideways and turning velocity, in this order.
+        """
+        return numpy.array([self.forward, self.sideways, self.turn])
+
+
+@dataclass
+class WalkingSenses:
+    """
+    What a legged robot senses of itself at one instant: its base's inertial unit and
+    the encoders of its joints.
+    """
+
+    angular_velocity: NDArray[numpy.float64]
+    """
+    How fast the base turns, in radians per second about the base's own axes.
+    """
+
+    gravity_direction: NDArray[numpy.float64]
+    """The unit vector gravity pulls along, in the base's own axes; ``(0, 0,
+    -1)`` while the base stands upright."""
+
+    joint_positions: dict[str, float]
+    """
+    The position of each joint the controller observes, by the joint's name.
+    """
+
+    joint_velocities: dict[str, float]
+    """
+    The velocity of each joint the controller observes, by the joint's name.
+    """
+
+
+# %% how fast a walking robot approaches a pose
+
+
+@dataclass
+class WalkingPace:
+    """
+    How fast a robot walks up to a pose: in proportion to how far it still is, between
+    the slowest pace its controller still steps at and the fastest it walks safely, and
+    how close it has to come to count as arrived.
+    """
+
+    slowing_rate: float
+    """
+    The speed, per metre or radian still to go, the robot approaches at, in 1/s.
+    """
+
+    slowest_speed: float
+    """
+    The slowest speed, in metres per second, the controller still walks at.
+    """
+
+    fastest_speed: float
+    """
+    The fastest speed, in metres per second, the robot approaches a pose at.
+    """
+
+    slowest_turn: float
+    """
+    The slowest turn, in radians per second, the controller still turns at.
+    """
+
+    fastest_turn: float
+    """
+    The fastest turn, in radians per second, the robot turns towards a heading at.
+    """
+
+    arrival_tolerance: float
+    """
+    How far the base may stand from a pose, in metres and in radians, to count as
+    arrived; the controller cannot step closer reliably.
+    """
+
+
+# %% the controller
+
+
+@dataclass
+class WalkingController(ABC):
+    """
+    Balances a robot's base on its legs and walks it at a commanded velocity, standing
+    on the spot while the velocity is zero.
+
+    A controller keeps what it remembers between two calls of
+    :meth:`leg_targets`, such as its gait's phase, until :meth:`reset`
+    forgets it.
+    """
+
+    @classproperty
+    @abstractmethod
+    def pace(cls) -> WalkingPace:
+        """
+        How fast the controller walks the robot up to a pose.
+        """
+
+    @property
+    @abstractmethod
+    def control_period(self) -> float:
+        """
+        How long, in seconds, the joints are driven towards one answer of
+        :meth:`leg_targets` before the controller is asked again.
+        """
+
+    @property
+    @abstractmethod
+    def observed_joint_names(self) -> list[str]:
+        """
+        The joints whose positions and velocities the controller is told.
+        """
+
+    @property
+    @abstractmethod
+    def driven_joint_names(self) -> list[str]:
+        """
+        The joints the controller drives; nothing else commands them while it walks.
+        """
+
+    @property
+    @abstractmethod
+    def standing_posture(self) -> dict[str, float]:
+        """
+        The position of each driven joint the robot stands in before it is first asked,
+        by the joint's name.
+        """
+
+    @abstractmethod
+    def reset(self) -> None:
+        """
+        Forget everything remembered, as for a robot just put down in its
+        :attr:`standing_posture`.
+        """
+
+    @abstractmethod
+    def leg_targets(
+        self, senses: WalkingSenses, command: PlanarVelocity
+    ) -> dict[str, float]:
+        """
+        :param senses: What the robot senses now.
+        :param command: The velocity the base is commanded to walk at.
+        :return: The position each driven joint is driven towards until the next call,
+            by the joint's name.
+        """

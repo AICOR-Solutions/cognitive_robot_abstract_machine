@@ -73,6 +73,7 @@ from semantic_digital_twin.robots.input_source import (
     SimulatedBasePoseSource,
     SimulatedJointPositionSource,
 )
+from semantic_digital_twin.robots.walking import WalkingController
 from semantic_digital_twin.robots.robot_part_mixins import (
     HasEndEffector,
     HasInputSource,
@@ -1104,6 +1105,15 @@ class MobileBase(
         """
         The servos moving this base across the floor in a physical simulation, or
         ``None`` if the base is moved kinematically there.
+        """
+        return None
+
+    @classproperty
+    def walking_controller_type(cls) -> type[WalkingController] | None:
+        """
+        The controller a physical simulation balances this base on its legs and walks it
+        at the drive's commanded velocity with, or ``None`` for a base that does not
+        stand on legs of its own.
         """
         return None
 

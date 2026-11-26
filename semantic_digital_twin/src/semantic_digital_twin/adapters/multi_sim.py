@@ -56,7 +56,13 @@ from krrood_spatial_math.spatial_types import (
     RotationMatrix,
     Vector3,
 )
+from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.robots.walking import (
+    PlanarVelocity,
+    WalkingController,
+    WalkingSenses,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
@@ -69,6 +75,7 @@ from semantic_digital_twin.world_description.connections import (
     WheeledDrive,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.world_state import WorldState
 from semantic_digital_twin.world_description.geometry import (
     Box,
     Cylinder,
@@ -1994,8 +2001,9 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
     A wheeled drive. If servos drive the degrees of freedom it is commanded with, it is
     built as a slide along x, a slide along y and a hinge about z, all in the drive's
     ``odom`` frame: the servos push its base across the floor at the commanded
-    velocity, and the positions the joints reach are the drive's odometry. Otherwise it
-    is built as no joint at all and its base stays where it is built.
+    velocity, and the positions the joints reach are the drive's odometry. If its base
+    walks on legs instead, see :class:`MujocoFloatingBase`, the base floats freely.
+    Otherwise it is built as no joint at all and its base stays where it is built.
     """
 
     @classproperty
@@ -2037,7 +2045,39 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
         """
         return self.axes_when_servoed if self.servoed else []
 
+    @property
+    def walking_controller_type(self) -> type[WalkingController] | None:
+        """
+        :return: The controller the robot the drive carries walks with, see
+            :attr:`~semantic_digital_twin.robots.robot_parts.MobileBase.walking_controller_type`;
+            ``None`` if it does not walk.
+        """
+        for robot in self.world.get_semantic_annotations_by_type(HasMobileBase):
+            if robot.root is self.connection.child and robot.mobile_base is not None:
+                return robot.mobile_base.walking_controller_type
+        return None
+
+    @property
+    def floating_base(self) -> MujocoFloatingBase | None:
+        """
+        :return: The free joints the base floats on, if its robot walks, else ``None``.
+        """
+        if self.walking_controller_type is None:
+            return None
+        return MujocoFloatingBase(self.connection, self.element_names)
+
+    @abstractmethod
+    def commanded_velocity(self) -> PlanarVelocity:
+        """
+        :return: The velocity the drive is commanded to move its base at, along and
+            about the base's own axes.
+        """
+
     def build(self, builder: MujocoBuilder) -> None:
+        floating_base = self.floating_base
+        if floating_base is not None:
+            floating_base.build(builder)
+            return
         axes = self.axes
         if not axes:
             return
@@ -2054,6 +2094,9 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
             )
 
     def home_joint_positions(self) -> list[float]:
+        floating_base = self.floating_base
+        if floating_base is not None:
+            return floating_base.home_joint_positions(self.world.state)
         return [self.world.state[axis.measured.id].position for axis in self.axes]
 
     def joint_name_of(self, degree_of_freedom: DegreeOfFreedom) -> str:
@@ -2079,6 +2122,9 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
         :param simulator: The simulator running the model.
         :return: The drive's odometry: the x, y and yaw its joints have reached.
         """
+        floating_base = self.floating_base
+        if floating_base is not None:
+            return floating_base.measured_positions(simulator)
         model = simulator._mj_model
         measured_positions = {}
         for axis in self.axes:
@@ -2115,6 +2161,14 @@ class MujocoOmniDriveJoints(MujocoWheeledDriveJoints[OmniDrive]):
     @classproperty
     def kind(cls) -> str:
         return "omni_drive"
+
+    def commanded_velocity(self) -> PlanarVelocity:
+        state = self.world.state
+        return PlanarVelocity(
+            forward=state[self.connection.x_velocity.id].velocity,
+            sideways=state[self.connection.y_velocity.id].velocity,
+            turn=state[self.connection.yaw.id].velocity,
+        )
 
     @property
     def axes_when_servoed(self) -> list[DriveAxis]:
@@ -2179,6 +2233,13 @@ class MujocoDifferentialDriveJoints(MujocoWheeledDriveJoints[DifferentialDrive])
     @classproperty
     def kind(cls) -> str:
         return "differential_drive"
+
+    def commanded_velocity(self) -> PlanarVelocity:
+        state = self.world.state
+        return PlanarVelocity(
+            forward=state[self.connection.x_velocity.id].velocity,
+            turn=state[self.connection.yaw.id].velocity,
+        )
 
     @property
     def axes_when_servoed(self) -> list[DriveAxis]:
@@ -2256,6 +2317,284 @@ class MujocoDifferentialDriveJoints(MujocoWheeledDriveJoints[DifferentialDrive])
         if not self.servoed:
             return {}
         return {self.sideways_servo_name: float(self._forward_velocity_in_odom[1])}
+
+
+# %% a base that walks on legs
+
+
+class FloatingBaseJoint(StrEnum):
+    """
+    The joints a walking robot's base floats on, named after what each one moves.
+    """
+
+    X = "x"
+    """
+    The slide along the ``odom``'s x-axis.
+    """
+
+    Y = "y"
+    """
+    The slide along the ``odom``'s y-axis.
+    """
+
+    HEIGHT = "z"
+    """
+    The slide along the ``odom``'s z-axis.
+    """
+
+    ORIENTATION = "orientation"
+    """
+    The ball joint turning the base about every axis.
+    """
+
+
+@dataclass
+class MujocoFloatingBase:
+    """
+    The base of a robot that walks on legs, built as three slides along the axes of its
+    drive's ``odom`` and a ball joint, so it moves as the legs push it. Where the joints
+    stand is the drive's odometry: the x, y and yaw the base reached, and the roll and
+    pitch its inertial unit measures.
+    """
+
+    drive: WheeledDrive
+    """
+    The drive whose base floats.
+    """
+
+    element_names: SimulatorModelNames
+    """
+    The name every entity of the world is built into the model under.
+    """
+
+    def joint_name(self, joint: FloatingBaseJoint) -> str:
+        """
+        :param joint: One of the joints the base floats on.
+        :return: Its name in the model, after the robot the drive carries.
+        """
+        robot_name = self.drive.name.prefix or self.drive.name.name
+        return f"{robot_name}_floating_base_{joint}"
+
+    @property
+    def child_R_connection(self) -> NDArray[numpy.float64]:
+        """
+        :return: The rotation from the drive's frame into the frame of the body it
+            carries, in which the joints' axes are given.
+        """
+        return HomogeneousTransformationMatrix.invert_numeric_matrix(
+            self.drive.connection_T_child_expression.to_np()
+        )[:3, :3]
+
+    def build(self, builder: MujocoBuilder) -> None:
+        """
+        Add the joints to the body the drive carries.
+
+        :param builder: The builder whose model they are added to.
+        """
+        child_body_spec = builder.body_spec_of(self.drive.child)
+        child_T_connection = HomogeneousTransformationMatrix.invert_numeric_matrix(
+            self.drive.connection_T_child_expression.to_np()
+        )
+        position = child_T_connection[:3, 3].tolist()
+        for joint, direction in (
+            (FloatingBaseJoint.X, [1.0, 0.0, 0.0]),
+            (FloatingBaseJoint.Y, [0.0, 1.0, 0.0]),
+            (FloatingBaseJoint.HEIGHT, [0.0, 0.0, 1.0]),
+        ):
+            child_body_spec.add_joint(
+                name=self.joint_name(joint),
+                type=mujoco.mjtJoint.mjJNT_SLIDE,
+                axis=(child_T_connection[:3, :3] @ direction).tolist(),
+                pos=position,
+            )
+        child_body_spec.add_joint(
+            name=self.joint_name(FloatingBaseJoint.ORIENTATION),
+            type=mujoco.mjtJoint.mjJNT_BALL,
+            pos=position,
+        )
+
+    def home_joint_positions(self, state: WorldState) -> list[float]:
+        """
+        :param state: The state of the world the drive belongs to.
+        :return: The values the joints start at: the drive's x and y, no height, and its
+            yaw as a quaternion in the frame of the body it carries.
+        """
+        yaw = state[self.drive.yaw.id].position
+        axis = self.child_R_connection @ numpy.array([0.0, 0.0, 1.0])
+        return [
+            state[self.drive.x.id].position,
+            state[self.drive.y.id].position,
+            0.0,
+            float(numpy.cos(yaw / 2)),
+            *(numpy.sin(yaw / 2) * axis).tolist(),
+        ]
+
+    def measured_positions(
+        self, simulator: MujocoSimulator
+    ) -> dict[DegreeOfFreedom, float]:
+        """
+        :param simulator: The simulator running the model.
+        :return: The drive's odometry: the x and y the base reached, the yaw it turned
+            to about the ``odom``'s z-axis, and the roll and pitch it leans by.
+        """
+        model, data = simulator._mj_model, simulator._mj_data
+        addresses = {
+            joint: model.jnt_qposadr[
+                mujoco.mj_name2id(
+                    model, mujoco.mjtObj.mjOBJ_JOINT, self.joint_name(joint)
+                )
+            ]
+            for joint in FloatingBaseJoint
+        }
+        orientation_address = addresses[FloatingBaseJoint.ORIENTATION]
+        child_R_turned = Rotation.from_quat(
+            data.qpos[orientation_address : orientation_address + 4],
+            scalar_first=True,
+        ).as_matrix()
+        connection_R_turned = (
+            self.child_R_connection.T @ child_R_turned @ self.child_R_connection
+        )
+        return {
+            self.drive.x: float(data.qpos[addresses[FloatingBaseJoint.X]]),
+            self.drive.y: float(data.qpos[addresses[FloatingBaseJoint.Y]]),
+            self.drive.yaw: float(
+                numpy.arctan2(connection_R_turned[1, 0], connection_R_turned[0, 0])
+            ),
+            self.drive.pitch: float(numpy.arcsin(-connection_R_turned[2, 0])),
+            self.drive.roll: float(
+                numpy.arctan2(connection_R_turned[2, 1], connection_R_turned[2, 2])
+            ),
+        }
+
+
+@dataclass
+class MujocoWalking:
+    """
+    A robot walking in a stepped simulation: its :class:`WalkingController` is asked
+    once every control period what the legs should do, and the servos of the joints it
+    drives are given its answer, while the drive's commanded velocity is what it walks.
+    """
+
+    controller: WalkingController
+    """
+    The robot's walking controller.
+    """
+
+    drive: MujocoWheeledDriveJoints
+    """
+    The realisation of the drive whose base walks.
+    """
+
+    simulator: MujocoSimulator
+    """
+    The simulator running the model.
+    """
+
+    next_control_time: float = field(init=False, default=0.0)
+    """
+    The simulated time, in seconds, at which the controller is asked next.
+    """
+
+    @property
+    def driven_actuator_names(self) -> dict[str, str]:
+        """
+        :return: The name of the actuator of every joint the controller drives, by the
+            joint's name.
+        """
+        world = self.drive.world
+        names = {}
+        for joint_name in self.controller.driven_joint_names:
+            [degree_of_freedom] = world.get_connection_by_name(joint_name).active_dofs
+            [actuator] = [
+                actuator
+                for actuator in world.actuators
+                if degree_of_freedom in actuator.dofs
+            ]
+            names[joint_name] = self.drive.element_names.of(actuator)
+        return names
+
+    def joint_address(self, joint_name: str) -> tuple[int, int]:
+        """
+        :param joint_name: The name of a joint of the robot.
+        :return: Where the joint's position and velocity are in the simulation's state.
+        """
+        model = self.simulator._mj_model
+        joint_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_JOINT,
+            self.drive.element_names.of(
+                self.drive.world.get_connection_by_name(joint_name)
+            ),
+        )
+        return int(model.jnt_qposadr[joint_id]), int(model.jnt_dofadr[joint_id])
+
+    def stand(self) -> None:
+        """
+        Put the driven joints in the controller's standing posture and drive them to
+        hold it, and let the controller start afresh now.
+        """
+        data = self.simulator._mj_data
+        model = self.simulator._mj_model
+        actuator_names = self.driven_actuator_names
+        for joint_name, position in self.controller.standing_posture.items():
+            position_address, _ = self.joint_address(joint_name)
+            data.qpos[position_address] = position
+            data.ctrl[
+                mujoco.mj_name2id(
+                    model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_names[joint_name]
+                )
+            ] = position
+        mujoco.mj_forward(model, data)
+        self.controller.reset()
+        self.next_control_time = float(data.time)
+
+    def senses(self) -> WalkingSenses:
+        """
+        :return: What the robot senses now, at the state the physics last reached: its
+            base's inertial unit, and the joints its controller observes.
+        """
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        base_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.drive.element_names.of(self.drive.connection.child),
+        )
+        mujoco.mj_kinematics(model, data)
+        mujoco.mj_comPos(model, data)
+        mujoco.mj_comVel(model, data)
+        velocity = numpy.zeros(6)
+        mujoco.mj_objectVelocity(
+            model, data, mujoco.mjtObj.mjOBJ_XBODY, base_id, velocity, 1
+        )
+        world_R_base = data.xmat[base_id].reshape(3, 3)
+        positions, velocities = {}, {}
+        for joint_name in self.controller.observed_joint_names:
+            position_address, velocity_address = self.joint_address(joint_name)
+            positions[joint_name] = float(data.qpos[position_address])
+            velocities[joint_name] = float(data.qvel[velocity_address])
+        return WalkingSenses(
+            angular_velocity=velocity[:3].copy(),
+            gravity_direction=world_R_base.T @ numpy.array([0.0, 0.0, -1.0]),
+            joint_positions=positions,
+            joint_velocities=velocities,
+        )
+
+    def control_when_due(self) -> None:
+        """
+        Ask the controller what the legs should do and give the servos its answer, if a
+        control period passed since it was last asked.
+        """
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        if data.time + model.opt.timestep / 2 < self.next_control_time:
+            return
+        targets = self.controller.leg_targets(
+            self.senses(), self.drive.commanded_velocity()
+        )
+        for joint_name, actuator_name in self.driven_actuator_names.items():
+            data.ctrl[
+                mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name)
+            ] = targets[joint_name]
+        self.next_control_time += self.controller.control_period
 
 
 @dataclass
@@ -2461,11 +2800,7 @@ class MultiSimBuilder(ABC):
         for shape in {
             id(s): s for s in body.visual.shapes + body.collision.shapes
         }.values():
-            if (
-                not drawn
-                and isinstance(shape, Mesh)
-                and shape not in body.collision
-            ):
+            if not drawn and isinstance(shape, Mesh) and shape not in body.collision:
                 continue
             self._build_shape(
                 parent=body,
@@ -4054,6 +4389,12 @@ class MujocoSynchronizer(MultiSimSynchronizer):
     drift apart while an obstacle holds the joint back.
     """
 
+    walking_actuator_names: set[str] = field(init=False, default_factory=set)
+    """
+    The names of the actuators a walking controller drives inside the simulation, which
+    the world therefore never commands.
+    """
+
     def __post_init__(self):
         super().__post_init__()
         self.simulator.read_data_from_simulator = self._sim_to_world
@@ -4361,6 +4702,8 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         at its set point.
         """
         for actuator_name, control in self._actuator_controls().items():
+            if actuator_name in self.walking_actuator_names:
+                continue
             if self._sent_controls.get(actuator_name) == control:
                 continue
             self.simulator.set_actuator_control(
@@ -4728,6 +5071,16 @@ class MujocoSim(MultiSim):
     simulator: MujocoSimulator
     synchronizer: MujocoSynchronizer
 
+    walking: list[MujocoWalking]
+    """
+    Every robot walking on legs in a simulation started with
+    :meth:`start_stepped_simulation`.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self.walking = []
+
     def start_stepped_simulation(self) -> None:
         """
         Start the simulation without a physics thread: the physics advances only in
@@ -4738,7 +5091,8 @@ class MujocoSim(MultiSim):
         between them.
 
         Every servo is handed the position its joint currently holds in the world, so
-        nothing rushes towards zero the moment the physics starts.
+        nothing rushes towards zero the moment the physics starts. A robot that walks
+        stands in its walking controller's standing posture, see :class:`MujocoWalking`.
 
         :raises SimulationAlreadyRunningError: If the simulation is already running.
         """
@@ -4746,7 +5100,31 @@ class MujocoSim(MultiSim):
             raise SimulationAlreadyRunningError(self.world.root.name.name)
         self.synchronizer.sync_rate_hz = 0
         self.simulator.start(simulate_in_thread=False, render_in_thread=False)
+        self.walking = self._create_walking()
+        for walking in self.walking:
+            walking.stand()
+            self.synchronizer.walking_actuator_names |= set(
+                walking.driven_actuator_names.values()
+            )
         self.synchronizer.command_actuators_from_world_state()
+        self.synchronizer.read_simulation_into_world()
+
+    def _create_walking(self) -> list[MujocoWalking]:
+        """
+        :return: A walking robot with a new controller for every drive whose robot walks.
+        """
+        walking = []
+        for connection in self.world.connections:
+            if not isinstance(connection, WheeledDrive):
+                continue
+            drive = MujocoConnectionJoints.of(
+                connection, self.world, self.synchronizer.element_names
+            )
+            controller_type = drive.walking_controller_type
+            if controller_type is None:
+                continue
+            walking.append(MujocoWalking(controller_type(), drive, self.simulator))
+        return walking
 
     def step_simulation(self, duration: timedelta) -> None:
         """
@@ -4760,6 +5138,8 @@ class MujocoSim(MultiSim):
         if self.simulator.state != SimulatorState.RUNNING:
             raise SimulationNotStartedError(self.world.root.name.name)
         for _ in range(round(duration.total_seconds() / self.simulator.step_size)):
+            for walking in self.walking:
+                walking.control_when_due()
             self.simulator.step()
         self.synchronizer.read_simulation_into_world()
         self.simulator.render()
