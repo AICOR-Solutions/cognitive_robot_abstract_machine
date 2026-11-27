@@ -9,8 +9,6 @@ regenerate_orm_interfaces()
 
 
 from dataclasses import dataclass, field
-
-from semantic_digital_twin.robots.walking import PhysicalBaseMode
 from datetime import timedelta
 from functools import partial
 
@@ -50,6 +48,7 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tracy import Tracy
+from semantic_digital_twin.robots.walking import PhysicalBaseMode
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 
