@@ -95,7 +95,7 @@ class RecordingWalkingController(WalkingController):
         self.calls = []
 
     def leg_targets(
-        self, senses: WalkingSenses, command: PlanarVelocity
+        self, *, senses: WalkingSenses, command: PlanarVelocity
     ) -> dict[str, float]:
         self.calls.append((senses, command))
         return {"leg": self.leg_target}

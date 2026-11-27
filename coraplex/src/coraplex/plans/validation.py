@@ -1,11 +1,9 @@
 """
-Checking a plan before it runs: its steps are tried one after another on a copy of the
-world, kinematically simulated, so nothing real moves.
+Checking a plan before it runs: its steps are tried one after another on a kinematically
+simulated copy of the world, grounded as a run grounds them, a detection answered by
+:class:`~coraplex.perception.ValidationPerception`.
 
-A step left underspecified is
-grounded the way a run grounds it, by trying its candidates, and a detection is answered
-by :class:`~coraplex.perception.ValidationPerception`. A step may be held to safety
-constraints too, which it fails by breaking one, rather than stopping as a run does.
+A step breaking a safety constraint fails rather than stopping as a run does.
 """
 
 from __future__ import annotations
@@ -116,7 +114,7 @@ class FailureCause(StrEnum):
     """
 
     @classmethod
-    def from_failure(cls, failure: Exception) -> FailureCause:
+    def from_failure(cls, *, failure: Exception) -> FailureCause:
         """
         :param failure: What ended a step.
         :return: The cause it stands for.
@@ -144,7 +142,7 @@ class FailureCause(StrEnum):
 # %% checks
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StepCheck:
     """
     How one step of a plan fared when it was checked.
@@ -190,8 +188,8 @@ class StepCheck:
         if self.failure is None:
             return None
         if self.candidate_failures:
-            return FailureCause.from_failure(self.candidate_failures[0])
-        return FailureCause.from_failure(self.failure)
+            return FailureCause.from_failure(failure=self.candidate_failures[0])
+        return FailureCause.from_failure(failure=self.failure)
 
 
 # %% safety constraints
@@ -206,10 +204,14 @@ class FailOnSafetyViolation(CancelOnSafetyViolation):
     """
 
     def create_exception(self) -> MotionWouldBreakSafetyLimit:
+        """
+        Wraps the violation of :meth:`CancelOnSafetyViolation.create_exception` into the
+        failure of the step tried.
+        """
         return MotionWouldBreakSafetyLimit(violation=super().create_exception())
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SafetyEnvelopeCheck(SafetyEnvelope):
     """
     Differs from :class:`SafetyEnvelope` in failing the motion that breaks one of its
@@ -218,6 +220,10 @@ class SafetyEnvelopeCheck(SafetyEnvelope):
     """
 
     def create_nodes(self) -> list[StatechartNode]:
+        """
+        Ends in a :class:`FailOnSafetyViolation` instead of the node of
+        :meth:`SafetyEnvelope.create_nodes`.
+        """
         if not self.constraints:
             return []
         limits = [
@@ -232,7 +238,7 @@ class SafetyEnvelopeCheck(SafetyEnvelope):
 # %% validation
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PlanValidation:
     """
     Checks the steps of a plan one after another on a copy of a world, without moving
@@ -269,10 +275,13 @@ class PlanValidation:
     """
 
     def __post_init__(self) -> None:
+        """
+        Copies :attr:`world` into :attr:`copied_world`.
+        """
         self.copied_world = deepcopy(self.world)
 
     def check(
-        self, step: StatechartNode, safety: SafetyEnvelope | None = None
+        self, *, step: StatechartNode, safety: SafetyEnvelope | None = None
     ) -> StepCheck:
         """
         Run a step in the copy, kinematically simulated in a statechart of its own; an
@@ -326,7 +335,7 @@ class PlanValidation:
         )
 
     def check_detection(
-        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
+        self, *, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> StepCheck:
         """
         Answer a detection as :class:`~coraplex.perception.ValidationPerception` does

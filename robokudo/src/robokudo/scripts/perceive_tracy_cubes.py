@@ -13,6 +13,7 @@ import argparse
 import signal
 import time
 from dataclasses import dataclass, field
+from krrood.patterns.called_positionally import called_positionally
 from pathlib import Path
 from threading import Event
 
@@ -37,7 +38,7 @@ from semantic_digital_twin.adapters.urdf import URDFParser
 # %% Process
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TracyCubesPerceptionProcess:
     """
     Answers queries for the cubes on Tracy's table with what Tracy's real camera sees,
@@ -120,6 +121,7 @@ class TracyCubesPerceptionProcess:
         node.destroy_node()
         return message.data
 
+    @called_positionally
     def stop(self, signal_number: int, frame: Any) -> None:
         """
         Let :meth:`run` stop answering queries.
@@ -152,7 +154,7 @@ def main(arguments: list[str] | None = None) -> None:
         settings=(
             TracyCubesSettings.from_environment()
             if settings_file is None
-            else TracyCubesSettings.from_file(settings_file)
+            else TracyCubesSettings.from_file(settings_file=settings_file)
         )
     ).run()
 

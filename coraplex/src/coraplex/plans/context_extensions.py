@@ -74,7 +74,7 @@ class StatementGrounding(ContextExtension):
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkingBasesStand(ContextExtension):
     """
     Lets the base of a robot that walks on legs stand while an action keeps the base
@@ -85,7 +85,7 @@ class WalkingBasesStand(ContextExtension):
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkingBasesHeld(ContextExtension):
     """
     Holds the base of a robot that walks on legs where it stands once it walked there,

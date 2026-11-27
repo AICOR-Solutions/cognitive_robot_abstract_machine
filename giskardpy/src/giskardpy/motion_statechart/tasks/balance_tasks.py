@@ -31,7 +31,7 @@ from semantic_digital_twin.world_description.world_entity import (
 # %% the floor plan the balance is kept in
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FloorPlan:
     """
     Coordinates across the floor, seen from above: along and across the way a robot
@@ -48,7 +48,7 @@ class FloorPlan:
     The horizontal unit vector the robot faces along, in the world's root frame.
     """
 
-    def coordinates(self, point: Point3) -> tuple[sm.Scalar, sm.Scalar]:
+    def coordinates(self, *, point: Point3) -> tuple[sm.Scalar, sm.Scalar]:
         """
         :param point: A point in the world's root frame.
         :return: How far the point lies ahead of and to the left of :attr:`origin`.
@@ -65,10 +65,8 @@ class FloorPlan:
 class CenterOfMassOverTheFeet(Task):
     """
     Keeps the center of mass of a robot standing on its feet above the box around both
-    of them, seen from above, and bounds how fast it moves and speeds up across the
-    floor, as :attr:`balance` says.
-
-    An invariant rather than a goal: it observes nothing and is always true.
+    of them, seen from above, bounding how fast it moves as :attr:`balance` says; an
+    invariant that observes nothing and is always true.
 
     .. note:: Added only where the physics walks a base on legs all the time, see
         :attr:`~semantic_digital_twin.robots.walking.PhysicalBaseMode.WALKING`.
@@ -118,9 +116,16 @@ class CenterOfMassOverTheFeet(Task):
         self._root_pose.bind(world=self.context.world)
 
     def on_start(self) -> None:
+        """
+        Measures the pose of :attr:`robot_root` anew, see :meth:`Task.on_start`.
+        """
         self._root_pose.bind(world=self.context.world)
 
     def on_tick(self) -> ObservationStateValue | None:
+        """
+        Measures the pose of :attr:`robot_root` anew and observes nothing, see
+        :meth:`Task.on_tick`.
+        """
         self._root_pose.bind(world=self.context.world)
         return None
 
@@ -134,24 +139,25 @@ class CenterOfMassOverTheFeet(Task):
         floor_plan = self._floor_plan()
         world = self.context.world
         center_of_mass = floor_plan.coordinates(
-            self._root_pose.root_T_tip.dot(
+            point=self._root_pose.root_T_tip.dot(
                 world.compose_center_of_mass_expression(
-                    self.robot_root, self.robot_root
+                    branch_root=self.robot_root, reference_frame=self.robot_root
                 )
             )
         )
         corners = [
-            floor_plan.coordinates(corner) for corner in self._corners_of_the_feet()
+            floor_plan.coordinates(point=corner)
+            for corner in self._corners_of_the_feet()
         ]
         for axis, direction in enumerate(("forward", "sideways")):
             lowest = reduce(sm.min, [corner[axis] for corner in corners])
             highest = reduce(sm.max, [corner[axis] for corner in corners])
             self._keep_within(
-                artifacts,
-                center_of_mass[axis],
-                lowest + self.balance.support_margin,
-                highest - self.balance.support_margin,
-                direction,
+                artifacts=artifacts,
+                coordinate=center_of_mass[axis],
+                lowest=lowest + self.balance.support_margin,
+                highest=highest - self.balance.support_margin,
+                name=direction,
             )
         artifacts.observation = sm.Scalar.const_true()
         return artifacts
@@ -162,7 +168,7 @@ class CenterOfMassOverTheFeet(Task):
             :attr:`robot_root` faces.
         """
         world = self.context.world
-        feet = [self._world_T_body(foot).position for foot in self.feet]
+        feet = [self._world_T_body(body=foot).position for foot in self.feet]
         origin = Point3(
             *(sum(foot[axis] for foot in feet) / len(feet) for axis in range(3)),
             reference_frame=world.root,
@@ -171,7 +177,7 @@ class CenterOfMassOverTheFeet(Task):
         length = sm.sqrt(facing.x**2 + facing.y**2)
         return FloorPlan(origin=origin, forward=(facing.x / length, facing.y / length))
 
-    def _world_T_body(self, body: Body) -> HomogeneousTransformationMatrix:
+    def _world_T_body(self, *, body: Body) -> HomogeneousTransformationMatrix:
         """
         :return: The pose of `body` in the world, moved by the robot's joints only.
         """
@@ -187,7 +193,7 @@ class CenterOfMassOverTheFeet(Task):
             world's root frame.
         """
         return [
-            self._world_T_body(foot).dot(corner)
+            self._world_T_body(body=foot).dot(corner)
             for foot in self.feet
             for corner in foot.collision.as_bounding_box_collection_in_frame(foot)
             .bounding_box()
@@ -196,6 +202,7 @@ class CenterOfMassOverTheFeet(Task):
 
     def _keep_within(
         self,
+        *,
         artifacts: MotionNodeArtifacts,
         coordinate: sm.Scalar,
         lowest: sm.Scalar,

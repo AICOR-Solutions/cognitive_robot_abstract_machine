@@ -2148,7 +2148,7 @@ class World(HasSimulatorProperties):
                 # Written inside the block, so the model change it announces already
                 # finds the branch at its world pose; the old parent's motion is dropped.
                 new_connection.write_origin_to_degrees_of_freedom(
-                    new_parent_T_branch_root
+                    parent_T_child=new_parent_T_branch_root
                 )
                 for degree_of_freedom in new_connection.passive_dofs:
                     self.state[degree_of_freedom.id].velocity = 0
@@ -2579,6 +2579,7 @@ class World(HasSimulatorProperties):
 
     def compose_center_of_mass_expression(
         self,
+        *,
         branch_root: KinematicStructureEntity,
         reference_frame: KinematicStructureEntity,
         density_of_unweighed_bodies: float = 1000.0,
@@ -2598,7 +2599,9 @@ class World(HasSimulatorProperties):
                 body.inertial
                 if body.inertial is not None
                 else Inertial.from_mesh(
-                    body.combined_mesh, density_of_unweighed_bodies, body
+                    mesh=body.combined_mesh,
+                    density=density_of_unweighed_bodies,
+                    reference_frame=body,
                 )
             )
             for body in self.get_kinematic_structure_entities_of_branch(branch_root)

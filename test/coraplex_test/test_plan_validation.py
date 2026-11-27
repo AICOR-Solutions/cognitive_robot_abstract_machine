@@ -240,7 +240,7 @@ def joint_positions(world: World) -> np.ndarray:
     ],
 )
 def test_a_failure_names_the_cause_a_person_reads(failure, cause):
-    assert FailureCause.from_failure(failure) is cause
+    assert FailureCause.from_failure(failure=failure) is cause
 
 
 # %% motions
@@ -255,7 +255,7 @@ def test_a_pick_in_reach_is_valid_and_leaves_the_world_where_it_was(
     copy = validation.copied_world
 
     check = validation.check(
-        PickUpAction(
+        step=PickUpAction(
             grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         )
@@ -274,7 +274,7 @@ def test_a_pick_out_of_reach_fails_as_unreachable(cube_on_the_table: CubeOnTheTa
     copy = validation.copied_world
 
     check = validation.check(
-        PickUpAction(
+        step=PickUpAction(
             grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         )
@@ -292,13 +292,13 @@ def test_a_step_starts_where_the_step_before_it_ended(
     copy = validation.copied_world
     grasp = copy.rebind_world_entities(scene.top_down_grasp())
     validation.check(
-        PickUpAction(
+        step=PickUpAction(
             grasp_candidate=grasp, arm=copy.rebind_world_entities(scene.tracy.left_arm)
         )
     )
 
     check = validation.check(
-        PlaceAction(
+        step=PlaceAction(
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
             graspable=grasp.graspable,
             goal_pose=Pose.from_xyz_rpy(
@@ -319,7 +319,7 @@ def test_a_step_given_as_an_action_runs_as_itself(cube_on_the_table: CubeOnTheTa
     tracy = validation.copied_world.rebind_world_entities(scene.tracy)
     park = ParkArmsAction(arms=list(tracy.all_arms))
 
-    check = validation.check(park)
+    check = validation.check(step=park)
 
     assert check.verdict is ValidationVerdict.VALID
     assert check.grounded_action is park
@@ -358,7 +358,7 @@ def test_a_step_whose_tool_leaves_a_workspace_box_fails_as_breaking_a_safety_lim
     copy = validation.copied_world
 
     check = validation.check(
-        PickUpAction(
+        step=PickUpAction(
             grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         ),
@@ -378,7 +378,7 @@ def test_a_step_whose_tool_stays_inside_a_workspace_box_is_valid(
     copy = validation.copied_world
 
     check = validation.check(
-        PickUpAction(
+        step=PickUpAction(
             grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         ),
@@ -410,7 +410,7 @@ def test_an_arm_left_open_is_the_one_that_reaches(cube_on_the_table: CubeOnTheTa
     scene.put_cube_at(0.55, -1.2)
     validation = scene.validation()
 
-    check = validation.check(any_arm_picking(validation, scene))
+    check = validation.check(step=any_arm_picking(validation, scene))
 
     assert check.verdict is ValidationVerdict.VALID
     assert check.grounded_action.arm is validation.copied_world.rebind_world_entities(
@@ -425,7 +425,7 @@ def test_an_arm_left_open_that_no_arm_reaches_fails_as_unreachable(
     scene.put_cube_at(1.5, 0.1)
     validation = scene.validation()
 
-    check = validation.check(any_arm_picking(validation, scene))
+    check = validation.check(step=any_arm_picking(validation, scene))
 
     assert check.verdict is ValidationVerdict.FAILED
     assert check.cause is FailureCause.UNREACHABLE
@@ -457,7 +457,7 @@ def test_a_detection_the_camera_sees_is_valid_and_finds_the_cube(
     validation = scene.validation()
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     assert check.verdict is ValidationVerdict.VALID
@@ -480,7 +480,7 @@ def test_a_detection_out_of_the_cameras_view_is_assumed(
     scene.put_cube_at(-2.5, 0.0)
     validation = scene.validation()
 
-    check = validation.check_detection(cube_query(validation, scene, behind))
+    check = validation.check_detection(query=cube_query(validation, scene, behind))
 
     assert check.verdict is ValidationVerdict.ASSUMED
     assert check.grounding is DetectionGrounding.ASSUMED
@@ -494,7 +494,7 @@ def test_a_detection_finding_nothing_fails_as_not_perceived(
     validation = scene.validation()
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     assert check.verdict is ValidationVerdict.FAILED
@@ -574,12 +574,14 @@ def test_a_cube_seen_a_few_millimetres_inside_the_table_moves_clear_once_held(
     validation = sunk_cube_validation(scene, depth=0.004, collision_avoidance=True)
     copy = validation.copied_world
     tracy = copy.rebind_world_entities(scene.tracy)
-    validation.check_detection(cube_query(validation, scene, scene.table_region()))
+    validation.check_detection(
+        query=cube_query(validation, scene, scene.table_region())
+    )
     copy.move_branch(
         copy.rebind_world_entities(scene.cube), tracy.left_arm.end_effector.tool_frame
     )
 
-    check = validation.check(ParkArmsAction(arms=list(tracy.all_arms)))
+    check = validation.check(step=ParkArmsAction(arms=list(tracy.all_arms)))
 
     assert check.verdict is ValidationVerdict.VALID, check.failure
 
@@ -591,7 +593,7 @@ def test_a_cube_seen_a_few_millimetres_inside_the_table_is_raised_onto_it(
     validation = sunk_cube_validation(scene, depth=0.004)
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     assert check.verdict is ValidationVerdict.VALID
@@ -611,7 +613,7 @@ def test_a_cube_seen_above_the_table_stays_where_it_was_seen(
     validation = sunk_cube_validation(scene, depth=-0.003)
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     [cube] = check.found
@@ -630,7 +632,7 @@ def test_a_cube_seen_deep_inside_the_table_is_raised_onto_it(
     validation = sunk_cube_validation(scene, depth=0.04)
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     assert check.verdict is ValidationVerdict.VALID
@@ -653,7 +655,7 @@ def test_a_cube_seen_completely_inside_the_table_is_raised_onto_it(
     validation = sunk_cube_validation(scene, depth=0.06)
 
     check = validation.check_detection(
-        cube_query(validation, scene, scene.table_region())
+        query=cube_query(validation, scene, scene.table_region())
     )
 
     assert check.verdict is ValidationVerdict.VALID
@@ -700,9 +702,9 @@ def test_a_cube_seen_inside_the_table_with_its_centre_beyond_the_edge_stays_wher
     scene = cube_on_the_table
     detection = sunk_detection(scene, x=table_box(scene).max_x + 0.01, depth=0.004)
 
-    detection.write_into(scene.cube, scene.world, trust_orientation=True)
+    detection.write_into(body=scene.cube, world=scene.world, trust_orientation=True)
 
-    assert detection.depth_inside_surface(scene.cube, scene.world) is None
+    assert detection.depth_inside_surface(body=scene.cube, world=scene.world) is None
     assert lowest_height(scene.cube, scene.world) == pytest.approx(
         scene.tracy.table.top_z - 0.004, abs=1e-6
     )
@@ -719,7 +721,7 @@ def test_a_cube_seen_entirely_below_the_table_stays_where_it_was_seen(
     depth = scene.tracy.table.top_z - below
     detection = sunk_detection(scene, x=0.55, depth=depth)
 
-    detection.write_into(scene.cube, scene.world, trust_orientation=True)
+    detection.write_into(body=scene.cube, world=scene.world, trust_orientation=True)
 
-    assert detection.depth_inside_surface(scene.cube, scene.world) is None
+    assert detection.depth_inside_surface(body=scene.cube, world=scene.world) is None
     assert lowest_height(scene.cube, scene.world) == pytest.approx(below, abs=1e-6)

@@ -241,7 +241,7 @@ class QPControllerConfig:
 
     @classmethod
     def create_with_physical_simulation_defaults(
-        cls, prediction_horizon: int | None = None
+        cls, *, prediction_horizon: int | None = None
     ) -> QPControllerConfig:
         """
         Creates a silent configuration for a robot driven against a running physics,

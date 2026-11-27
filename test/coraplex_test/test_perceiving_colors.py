@@ -419,7 +419,9 @@ def test_a_scene_seen_on_an_empty_table_becomes_one_body_per_cube(
         ]
     ]
 
-    bodies = DetectedScene(detections, scene.table_region).apply_to(world=scene.world)
+    bodies = DetectedScene(detections=detections, region=scene.table_region).apply_to(
+        world=scene.world
+    )
 
     assert len(set(bodies)) == len(detections)
     for body, detection in zip(bodies, detections):
@@ -447,9 +449,9 @@ def test_a_scene_seen_again_moves_the_cubes_the_world_holds(
         for color, cube in three_cubes.cubes.items()
     ]
 
-    bodies = DetectedScene(detections, three_cubes.table_region).apply_to(
-        world=three_cubes.world
-    )
+    bodies = DetectedScene(
+        detections=detections, region=three_cubes.table_region
+    ).apply_to(world=three_cubes.world)
 
     assert bodies == list(three_cubes.cubes.values())
 
@@ -468,7 +470,8 @@ def test_a_scene_seen_does_not_move_a_cube_of_another_color(
     red_pose = red_cube.global_pose.to_np()
 
     [yellow_body] = DetectedScene(
-        [detection_at(scene, ColorName.YELLOW, x=0.6, y=0.0)], scene.table_region
+        detections=[detection_at(scene, ColorName.YELLOW, x=0.6, y=0.0)],
+        region=scene.table_region,
     ).apply_to(world=scene.world)
 
     assert yellow_body is not red_cube

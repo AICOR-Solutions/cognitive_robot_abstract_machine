@@ -41,11 +41,11 @@ class CollisionViolatedError(DataclassException):
 
     def error_message(self) -> str:
         return "Collision avoidance stopped the motion: " + "; ".join(
-            self.describe(violation) for violation in self.violated_collisions
+            self.describe(violation=violation) for violation in self.violated_collisions
         )
 
     @staticmethod
-    def describe(violation: ViolatedCollision) -> str:
+    def describe(*, violation: ViolatedCollision) -> str:
         """
         :param violation: One collision that came too close.
         :return: The two bodies and how close they came, as a person reads it.

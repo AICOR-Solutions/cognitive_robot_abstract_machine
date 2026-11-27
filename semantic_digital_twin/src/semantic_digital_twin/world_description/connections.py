@@ -678,11 +678,11 @@ class Connection6DoF(Connection):
         """
         parent_T_child = self._world.transform(transformation, self.parent)
         with self._world._world_lock:
-            self.write_origin_to_degrees_of_freedom(parent_T_child)
+            self.write_origin_to_degrees_of_freedom(parent_T_child=parent_T_child)
             self._world.notify_state_change()
 
     def write_origin_to_degrees_of_freedom(
-        self, parent_T_child: HomogeneousTransformationMatrix
+        self, *, parent_T_child: HomogeneousTransformationMatrix
     ) -> None:
         """
         Write the degrees of freedom so that the origin becomes ``parent_T_child``,

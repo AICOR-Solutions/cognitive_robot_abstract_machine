@@ -51,7 +51,7 @@ class PhysicalBaseMode(StrEnum):
 # %% what a walking controller is told
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PlanarVelocity:
     """
     A velocity of a base across the floor, along and about the axes of the base itself.
@@ -79,7 +79,7 @@ class PlanarVelocity:
         return numpy.array([self.forward, self.sideways, self.turn])
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkingSenses:
     """
     What a legged robot senses of itself at one instant: its base's inertial unit and
@@ -109,7 +109,7 @@ class WalkingSenses:
 # %% how fast a walking robot approaches a pose
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkingPace:
     """
     How fast a robot walks up to a pose: in proportion to how far it still is, between
@@ -152,7 +152,7 @@ class WalkingPace:
 # %% how a robot standing on its legs keeps its balance
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StandingBalance:
     """
     Where a robot standing on its legs keeps its center of mass while its upper body
@@ -185,7 +185,7 @@ class StandingBalance:
 # %% the controller
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkingController(ABC):
     """
     Balances a robot's base on its legs and walks it at a commanded velocity, standing
@@ -251,7 +251,7 @@ class WalkingController(ABC):
 
     @abstractmethod
     def leg_targets(
-        self, senses: WalkingSenses, command: PlanarVelocity
+        self, *, senses: WalkingSenses, command: PlanarVelocity
     ) -> dict[str, float]:
         """
         :param senses: What the robot senses now.

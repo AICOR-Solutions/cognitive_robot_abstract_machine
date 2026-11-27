@@ -12,7 +12,7 @@ from robokudo.exceptions import RoboKudoError
 # %% Settings
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UnknownSettingsSection(RoboKudoError, ValueError):
     """
     Raised when a settings file holds sections its analysis engine does not know.
@@ -29,7 +29,13 @@ class UnknownSettingsSection(RoboKudoError, ValueError):
     """
 
     def error_message(self) -> str:
+        """
+        Names the unknown sections, unlike :meth:`RoboKudoError.error_message`.
+        """
         return f"The settings file holds unknown sections {self.unknown_sections}."
 
     def suggest_correction(self) -> str:
+        """
+        Names the known sections, unlike :meth:`RoboKudoError.suggest_correction`.
+        """
         return f"name only the sections {self.known_sections}."

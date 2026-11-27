@@ -18,7 +18,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 # %% expected positions
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ExpectedPosition:
     """
     Where a body is expected to lie when a step starts.
@@ -34,7 +34,7 @@ class ExpectedPosition:
     Where the origin of :attr:`body` is expected.
     """
 
-    def displacement(self, world: World) -> BodyDisplacement:
+    def displacement(self, *, world: World) -> BodyDisplacement:
         """
         :param world: The world holding the body.
         :return: How far the body lies from :attr:`position` now.
@@ -75,7 +75,8 @@ class BodiesWhereExpected(EndedByOwner, StatechartNode):
         return [
             displacement
             for displacement in (
-                expected.displacement(self.context.world) for expected in self.expected
+                expected.displacement(world=self.context.world)
+                for expected in self.expected
             )
             if displacement.distance > self.tolerance
         ]

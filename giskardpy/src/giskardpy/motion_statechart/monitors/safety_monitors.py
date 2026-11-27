@@ -1,10 +1,9 @@
 """
-Monitors of the safety constraints a robot's motions are held to: a workspace box its
-tool stays inside, and how fast its joints and its tool may move.
+Monitors of the safety constraints a robot's motions are held to.
 
-A motion breaking one
-is cancelled with a :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`
-naming it, which nothing recovers from by trying again.
+A workspace box its tool stays inside, and how fast its joints and its tool may move. A
+motion breaking one is cancelled with a
+:class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`.
 """
 
 from __future__ import annotations
@@ -27,6 +26,7 @@ from giskardpy.motion_statechart.mixins import HasRootLinkParameter
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
 from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math.symbolic_math import Scalar
+from krrood.patterns.called_positionally import called_positionally
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
@@ -82,6 +82,10 @@ class ToolOutsideWorkspace(SafetyMonitor):
     """
 
     def build_artifacts(self) -> NodeArtifacts:
+        """
+        Observes whether the tool lies outside the box on any axis, see
+        :meth:`MotionStatechartNode.build_artifacts`.
+        """
         box_P_tool = self.context.world.compose_forward_kinematics_expression(
             self.minimum.reference_frame, self.tool
         ).position
@@ -128,7 +132,9 @@ class JointVelocityExceeded(SafetyMonitor):
     """
     Observes ``True`` while any of :attr:`connections` moves faster than its own
     velocity limit, as the world describes it when the monitor is built, by more than
-    :attr:`velocity_limit_tolerance`. A joint without a velocity limit is not watched.
+    :attr:`velocity_limit_tolerance`.
+
+    A joint without a velocity limit is not watched.
     """
 
     connections: list[ActiveConnection1DOF]
@@ -149,11 +155,15 @@ class JointVelocityExceeded(SafetyMonitor):
         return 1e-5
 
     def build_artifacts(self) -> NodeArtifacts:
+        """
+        Observes whether any of :attr:`limited_connections` exceeds its limit, see
+        :meth:`MotionStatechartNode.build_artifacts`.
+        """
         return NodeArtifacts(
             observation=sm.logic_or(
                 Scalar.const_false(),
                 *[
-                    self.exceeds_its_limit(connection)
+                    self.exceeds_its_limit(connection=connection)
                     for connection in self.limited_connections
                 ],
             )
@@ -171,7 +181,7 @@ class JointVelocityExceeded(SafetyMonitor):
         ]
 
     @classmethod
-    def exceeds_its_limit(cls, connection: ActiveConnection1DOF) -> sm.Scalar:
+    def exceeds_its_limit(cls, *, connection: ActiveConnection1DOF) -> sm.Scalar:
         """
         :param connection: A joint the world sets a velocity limit for.
         :return: Whether it moves faster than that limit, in either direction.
@@ -192,18 +202,22 @@ class JointVelocityExceeded(SafetyMonitor):
             else "rad/s"
         )
         return (
-            f"{fastest.name} moved at {self.joint_speed(fastest):.3f} {unit}, faster "
+            f"{fastest.name} moved at {self.joint_speed(connection=fastest):.3f} {unit}, faster "
             f"than its limit {fastest.raw_dof.limits.upper.velocity:.3f} {unit}"
         )
 
+    @called_positionally
     def share_of_limit(self, connection: ActiveConnection1DOF) -> float:
         """
         :param connection: One of :attr:`limited_connections`.
         :return: How fast it moves now, as a share of its upper velocity limit.
         """
-        return self.joint_speed(connection) / connection.raw_dof.limits.upper.velocity
+        return (
+            self.joint_speed(connection=connection)
+            / connection.raw_dof.limits.upper.velocity
+        )
 
-    def joint_speed(self, connection: ActiveConnection1DOF) -> float:
+    def joint_speed(self, *, connection: ActiveConnection1DOF) -> float:
         """
         :param connection: One of :attr:`connections`.
         :return: How fast it moves now.
@@ -236,6 +250,10 @@ class ToolVelocityExceeded(SafetyMonitor, HasRootLinkParameter):
     """
 
     def build_artifacts(self) -> NodeArtifacts:
+        """
+        Observes whether the tool's speed, derived from the joints' velocities, exceeds
+        :attr:`speed_limit`, see :meth:`MotionStatechartNode.build_artifacts`.
+        """
         root_P_tool = self.context.world.compose_forward_kinematics_expression(
             self.root_link, self.tool
         ).position
@@ -288,12 +306,20 @@ class CancelOnSafetyViolation(CancelStatechart):
     """
 
     def build(self) -> NodeArtifacts:
+        """
+        Starts this node once any of :attr:`monitors` observes a violation, see
+        :meth:`CancelStatechart.build`.
+        """
         self.start_condition = sm.logic_or(
             Scalar.const_false(), *[monitor.observes_true for monitor in self.monitors]
         )
         return NodeArtifacts()
 
     def on_start(self) -> None:
+        """
+        Also keeps the violation as :attr:`violation`, see
+        :meth:`CancelStatechart.on_start`.
+        """
         super().on_start()
         self.violation = self.pending_exception
 
@@ -335,6 +361,10 @@ class ToolSpeedLimit(Task, HasRootLinkParameter):
     """
 
     def build_artifacts(self) -> MotionNodeArtifacts:
+        """
+        Holds each axis of the tool's velocity to its share of :attr:`speed_limit`, see
+        :meth:`Task.build_artifacts`.
+        """
         artifacts = MotionNodeArtifacts()
         root_P_tool = self.context.world.compose_forward_kinematics_expression(
             self.root_link, self.tool
@@ -358,7 +388,7 @@ class ToolSpeedLimit(Task, HasRootLinkParameter):
 # %% the constraints a robot is held to
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class SafetyConstraint(ABC):
     """
     A constraint every motion of a robot is held to.
@@ -384,7 +414,7 @@ class SafetyConstraint(ABC):
         return []
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class WorkspaceBox(SafetyConstraint):
     """
     An axis-aligned box a tool stays inside.
@@ -415,7 +445,7 @@ class WorkspaceBox(SafetyConstraint):
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class MaximumJointVelocity(SafetyConstraint):
     """
     Each joint of a group stays within its own velocity limit, as the world describes
@@ -436,7 +466,7 @@ class MaximumJointVelocity(SafetyConstraint):
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class MaximumToolVelocity(SafetyConstraint):
     """
     A speed a tool may not exceed.
@@ -486,7 +516,7 @@ class MaximumToolVelocity(SafetyConstraint):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SafetyEnvelope:
     """
     The safety constraints every motion of a robot is held to.

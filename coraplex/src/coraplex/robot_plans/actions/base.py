@@ -192,11 +192,11 @@ class Action(CompositeNode, ABC):
                 position_threshold=math.inf,
                 orientation_threshold=math.inf,
             ),
-            self._balance_on_the_feet(controller_type),
+            self._balance_on_the_feet(controller_type=controller_type),
         ]
 
     def _balance_on_the_feet(
-        self, controller_type: type[WalkingController]
+        self, *, controller_type: type[WalkingController]
     ) -> CenterOfMassOverTheFeet:
         """
         :return: The task keeping the robot's center of mass over its feet, as its

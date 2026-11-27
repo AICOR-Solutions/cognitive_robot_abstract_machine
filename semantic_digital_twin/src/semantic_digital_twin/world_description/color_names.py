@@ -87,7 +87,7 @@ class ColorName(StrEnum):
         return self.representative_color.saturation > 0
 
     @classmethod
-    def from_color(cls, color: Color) -> Self:
+    def from_color(cls, *, color: Color) -> Self:
         """
         :param color: Any color.
         :return: The name that covers it.
@@ -99,12 +99,12 @@ class ColorName(StrEnum):
         return min(
             (name for name in cls if name.shows_hue),
             key=lambda name: cls._hue_distance(
-                name.representative_color.hue, color.hue
+                first_hue=name.representative_color.hue, second_hue=color.hue
             ),
         )
 
     @staticmethod
-    def _hue_distance(first_hue: float, second_hue: float) -> float:
+    def _hue_distance(*, first_hue: float, second_hue: float) -> float:
         """
         :return: How far apart two hues lie around the hue wheel, at most half a turn.
         """

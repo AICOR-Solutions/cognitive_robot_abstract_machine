@@ -70,14 +70,18 @@ def test_a_body_without_inertial_is_weighed_by_its_shapes(sliding_world):
     root = sliding_world.get_body_by_name("root")
     sliding_world.get_connection_by_name("root_T_cube").position = 1.0
 
-    center = sliding_world.compose_center_of_mass_expression(root, root).evaluate()
+    center = sliding_world.compose_center_of_mass_expression(
+        branch_root=root, reference_frame=root
+    ).evaluate()
 
     assert center[0] == pytest.approx(0.5)
 
 
 def test_the_center_of_mass_follows_the_joints(sliding_world):
     root = sliding_world.get_body_by_name("root")
-    center = sliding_world.compose_center_of_mass_expression(root, root)
+    center = sliding_world.compose_center_of_mass_expression(
+        branch_root=root, reference_frame=root
+    )
 
     sliding_world.get_connection_by_name("root_T_cube").position = 0.4
 
@@ -97,7 +101,9 @@ def test_a_body_attached_to_the_branch_is_weighed(sliding_world):
             )
         )
 
-    center = sliding_world.compose_center_of_mass_expression(root, root).evaluate()
+    center = sliding_world.compose_center_of_mass_expression(
+        branch_root=root, reference_frame=root
+    ).evaluate()
 
     assert center[0] == pytest.approx(0.5)
 
@@ -109,4 +115,6 @@ def test_a_branch_that_weighs_nothing_has_no_center_of_mass():
         world.add_kinematic_structure_entity(frame)
 
     with pytest.raises(WeightlessBranchError):
-        world.compose_center_of_mass_expression(frame, frame)
+        world.compose_center_of_mass_expression(
+            branch_root=frame, reference_frame=frame
+        )

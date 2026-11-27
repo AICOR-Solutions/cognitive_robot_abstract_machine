@@ -47,7 +47,7 @@ def written_settings(settings_file: Path) -> dict:
 def test_the_table_top_and_clusters_are_read_from_the_file(
     settings_file: Path, written_settings: dict
 ) -> None:
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     table_top = written_settings["table_top"]
     assert settings.table_top.lowest_height == table_top["lowest_height"]
@@ -62,7 +62,7 @@ def test_the_table_top_and_clusters_are_read_from_the_file(
 def test_the_color_thresholds_are_read_from_the_file(
     settings_file: Path, written_settings: dict
 ) -> None:
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     colors = written_settings["colors"]
     assert settings.colors.hue_upper_bounds == {
@@ -76,7 +76,7 @@ def test_the_color_thresholds_are_read_from_the_file(
 def test_the_real_camera_is_read_from_the_file(
     settings_file: Path, written_settings: dict
 ) -> None:
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     assert settings.real_camera == OrbbecCameraConfig(**written_settings["real_camera"])
 
@@ -84,7 +84,7 @@ def test_the_real_camera_is_read_from_the_file(
 def test_the_published_images_are_read_from_the_file(
     settings_file: Path, written_settings: dict
 ) -> None:
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     assert settings.images == PublishedImages(**written_settings["images"])
 
@@ -93,7 +93,7 @@ def test_a_file_leaving_a_section_out_keeps_its_defaults(tmp_path: Path) -> None
     settings_file = tmp_path / "settings.yaml"
     settings_file.write_text(yaml.safe_dump({"clusters": {"minimum_cluster_size": 7}}))
 
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     assert settings.table_top == TracyCubesSettings().table_top
     assert settings.colors == TracyCubesSettings().colors
@@ -106,7 +106,7 @@ def test_a_misspelled_section_is_refused(tmp_path: Path) -> None:
     settings_file.write_text(yaml.safe_dump({"colours": {"minimum_value": 7}}))
 
     with pytest.raises(UnknownSettingsSection):
-        TracyCubesSettings.from_file(settings_file)
+        TracyCubesSettings.from_file(settings_file=settings_file)
 
 
 def test_the_default_colors_are_the_annotators_defaults() -> None:
@@ -128,7 +128,9 @@ def test_the_analysis_engine_reads_the_file_named_in_the_environment(
         SettingsEnvironmentVariable.TRACY_CUBES_SETTINGS, str(settings_file)
     )
 
-    assert AnalysisEngine().settings == TracyCubesSettings.from_file(settings_file)
+    assert AnalysisEngine().settings == TracyCubesSettings.from_file(
+        settings_file=settings_file
+    )
 
 
 def test_the_analysis_engine_keeps_the_defaults_without_a_file(
@@ -142,7 +144,7 @@ def test_the_analysis_engine_keeps_the_defaults_without_a_file(
 def test_the_annotators_take_the_thresholds_of_the_settings(
     settings_file: Path,
 ) -> None:
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
 
     annotators = AnalysisEngine(settings=settings).perception_annotators()
 

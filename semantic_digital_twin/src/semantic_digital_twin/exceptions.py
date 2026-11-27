@@ -2671,7 +2671,7 @@ class SimulationNotStartedError(UsageError):
         return "Call start() first, or drive the simulation inside a with block."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UnrepresentableHeightOfAHeldBaseError(UsageError):
     """
     Raised when the base of a walking robot is held at another height than it was built
@@ -2697,7 +2697,7 @@ class UnrepresentableHeightOfAHeldBaseError(UsageError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class NotAWalkingRobotError(UsageError):
     """
     Raised when a simulation is asked for the walking of a robot that does not walk in
@@ -2784,7 +2784,7 @@ class ObjectHasNoWidthWithoutCollision(UsageError):
         return "Give the body collision geometry, or state the width yourself."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WeightlessBranchError(UsageError):
     """
     Raised when the center of mass of a branch of the world is asked for, while no body
