@@ -13,13 +13,16 @@ from dataclasses import dataclass, field
 from functools import reduce
 
 import krrood.symbolic_math.symbolic_math as sm
-from cramph.data_types import ObservationStateValues
-from giskardpy.motion_statechart.binding_policy import ForwardKinematicsBinding
+from cramph.data_types import ObservationStateValue
+from giskardpy.motion_statechart.forward_kinematics_binding import (
+    ForwardKinematicsBinding,
+)
 from giskardpy.motion_statechart.graph_node import MotionNodeArtifacts, Task
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.walking import StandingBalance
+from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
@@ -107,17 +110,18 @@ class CenterOfMassOverTheFeet(Task):
         super().set_up()
         self._root_pose = ForwardKinematicsBinding(
             name=PrefixedName("root_pose", str(self.name)),
-            root=self.context.world.root,
-            tip=self.robot_root,
+            kinematic_chain=KinematicChain(
+                root=self.context.world.root, tip=self.robot_root
+            ),
             float_variable_data=self.context.float_variable_data,
         )
-        self._root_pose.bind(self.context.world)
+        self._root_pose.bind(world=self.context.world)
 
     def on_start(self) -> None:
-        self._root_pose.bind(self.context.world)
+        self._root_pose.bind(world=self.context.world)
 
-    def on_tick(self) -> ObservationStateValues | None:
-        self._root_pose.bind(self.context.world)
+    def on_tick(self) -> ObservationStateValue | None:
+        self._root_pose.bind(world=self.context.world)
         return None
 
     def build_artifacts(self) -> MotionNodeArtifacts:

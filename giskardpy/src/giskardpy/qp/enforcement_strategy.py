@@ -578,11 +578,13 @@ class AccelerationStrategy(VelocityStrategy):
             return sm.Matrix()
         control_horizon = self.qp_controller_config.control_horizon
         step_difference = np.eye(control_horizon) - np.eye(control_horizon, k=-1)
-        velocity_block = sm.Matrix(step_difference).kron(self.jacobian)
+        velocity_block = sm.Matrix(step_difference).kron(other=self.jacobian)
         return sm.hstack(
             [
                 velocity_block,
-                sm.Matrix.zeros(velocity_block.shape[0], self.number_of_jerk_columns),
+                sm.Matrix.zeros(
+                    rows=velocity_block.shape[0], columns=self.number_of_jerk_columns
+                ),
             ]
         )
 
@@ -596,19 +598,17 @@ class AccelerationStrategy(VelocityStrategy):
             variables=self.position_variables
         )
 
-    def create_bounds(
-        self, bounds_getter: Callable[[GiskardConstraint], Scalar]
-    ) -> Vector:
+    def create_bounds(self, *, bounds_getter: Callable[..., Scalar]) -> Vector:
         """
         Builds the bounds, one per constraint and control step, the first step's shifted
         by the expressions' current derivative.
         """
         time_step = self.qp_controller_config.control_time_step.total_seconds()
-        current_derivatives = self.jacobian.dot(self.velocity_variables)
+        current_derivatives = self.jacobian.dot(other=self.velocity_variables)
         bounds = []
         for step in range(self.qp_controller_config.control_horizon):
             for index, constraint in enumerate(self.constraints):
-                bound = sm.Scalar(bounds_getter(constraint)) * time_step
+                bound = sm.Scalar(bounds_getter(constraint=constraint)) * time_step
                 if step == 0:
                     bound = bound + current_derivatives[index]
                 bounds.append(bound)

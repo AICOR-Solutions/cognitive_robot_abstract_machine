@@ -314,6 +314,7 @@ class ConstraintCollection:
 
     def add_acceleration_constraint(
         self,
+        *,
         lower_acceleration_limit: sm.ScalarData,
         upper_acceleration_limit: sm.ScalarData,
         quadratic_weight: sm.ScalarData,
@@ -342,7 +343,7 @@ class ConstraintCollection:
             upper_slack_limit=upper_slack_limit,
             linear_weight=0,
         )
-        self.add_constraint(constraint)
+        self.add_constraint(constraint=constraint)
 
     def add_velocity_eq_constraint(
         self,

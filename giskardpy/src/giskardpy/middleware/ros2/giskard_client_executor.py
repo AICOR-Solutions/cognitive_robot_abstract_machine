@@ -319,7 +319,9 @@ class GiskardClientExecutor(Executor):
         """
         if not isinstance(exception, SafetyConstraintViolated):
             return
-        for node in self.statechart.get_nodes_by_type(CancelOnSafetyViolation):
+        for node in self.statechart.get_nodes_by_type(
+            node_type=CancelOnSafetyViolation
+        ):
             if node.life_cycle_state is not LifeCycleValue.NOT_STARTED:
                 node.violation = exception
 

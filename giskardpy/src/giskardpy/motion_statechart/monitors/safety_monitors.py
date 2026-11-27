@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 import krrood.symbolic_math.symbolic_math as sm
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import CancelStatechart, EndedByOwner, NodeArtifacts, StatechartNode
 from giskardpy.motion_statechart.exceptions import SafetyConstraintViolated
 from giskardpy.motion_statechart.graph_node import (
@@ -24,12 +24,12 @@ from giskardpy.motion_statechart.graph_node import (
     Task,
 )
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math.symbolic_math import Scalar
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
-    PrismaticConnection,
+    ScrewAxisConnection,
 )
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -181,7 +181,12 @@ class JointVelocityExceeded(SafetyMonitor):
 
     def describe_violation(self) -> str:
         fastest = max(self.limited_connections, key=self.share_of_limit)
-        unit = "m/s" if isinstance(fastest, PrismaticConnection) else "rad/s"
+        unit = (
+            "m/s"
+            if isinstance(fastest, ScrewAxisConnection)
+            and fastest.behaves_like_a_prismatic_connection
+            else "rad/s"
+        )
         return (
             f"{fastest.name} moved at {self.joint_speed(fastest):.3f} {unit}, faster "
             f"than its limit {fastest.raw_dof.limits.upper.velocity:.3f} {unit}"
@@ -239,8 +244,8 @@ class ToolVelocityExceeded(SafetyMonitor):
         tool_velocity = sm.Vector(
             [root_P_tool.x, root_P_tool.y, root_P_tool.z]
         ).total_derivative(
-            [dof.variables.position for dof in degrees_of_freedom],
-            [dof.variables.velocity for dof in degrees_of_freedom],
+            variables=[dof.variables.position for dof in degrees_of_freedom],
+            variables_dot=[dof.variables.velocity for dof in degrees_of_freedom],
         )
         self.tool_speed = tool_velocity.norm()
         return NodeArtifacts(observation=self.tool_speed > self.maximum_velocity)
@@ -301,7 +306,7 @@ class CancelOnSafetyViolation(CancelStatechart):
         violated = next(
             monitor
             for monitor in self.monitors
-            if monitor.observation_state == ObservationStateValues.TRUE
+            if monitor.observation_state == ObservationStateValue.TRUE
         )
         return SafetyConstraintViolated(
             constraint=violated.constraint, violation=violated.describe_violation()

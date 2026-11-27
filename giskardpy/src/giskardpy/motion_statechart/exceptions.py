@@ -468,7 +468,7 @@ class MarkerPublishingThreadEndedError(DataclassException):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SafetyConstraintViolated(MotionStatechartError):
     """
     Raised when a motion broke one of the safety constraints it is held to, which
