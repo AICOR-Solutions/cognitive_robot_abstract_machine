@@ -23,6 +23,7 @@ from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.walking import (
     PlanarVelocity,
+    StandingBalance,
     WalkingController,
     WalkingPace,
     WalkingSenses,
@@ -62,6 +63,15 @@ class RecordingWalkingController(WalkingController):
             slowest_turn=0.1,
             fastest_turn=0.5,
             arrival_tolerance=0.05,
+        )
+
+    @classproperty
+    def balance(cls) -> StandingBalance:
+        return StandingBalance(
+            foot_names=["shin"],
+            support_margin=0.01,
+            maximal_center_of_mass_speed=0.1,
+            maximal_center_of_mass_acceleration=0.5,
         )
 
     @property

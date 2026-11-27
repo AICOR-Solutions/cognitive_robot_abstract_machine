@@ -21,6 +21,7 @@ from giskardpy.qp.constraint import (
     LargeNumber,
 )
 from giskardpy.qp.enforcement_strategy import (
+    AccelerationStrategy,
     EnforcementStrategy,
     IntegralStrategy,
     VelocityStrategy,
@@ -291,6 +292,38 @@ class ConstraintCollection:
             expression=task_expression,
             lower_bound=lower_velocity_limit,
             upper_bound=upper_velocity_limit,
+            quadratic_weight=quadratic_weight,
+            velocity_scale=velocity_scale,
+            lower_slack_limit=lower_slack_limit,
+            upper_slack_limit=upper_slack_limit,
+            linear_weight=0,
+        )
+        self.add_constraint(constraint)
+
+    def add_acceleration_constraint(
+        self,
+        lower_acceleration_limit: sm.ScalarData,
+        upper_acceleration_limit: sm.ScalarData,
+        quadratic_weight: sm.ScalarData,
+        task_expression: sm.SymbolicScalar,
+        velocity_scale: sm.ScalarData,
+        name: str | None = None,
+        lower_slack_limit: sm.ScalarData = -LargeNumber,
+        upper_slack_limit: sm.ScalarData = LargeNumber,
+    ) -> None:
+        """
+        Bounds the second derivative of the expression at every step of the horizon, see
+        :class:`~giskardpy.qp.enforcement_strategy.AccelerationStrategy`.
+
+        :param velocity_scale: the speed at which task_expression typically changes,
+            which scales quadratic_weight
+        """
+        constraint = GiskardInequalityConstraint(
+            name=name,
+            enforcement_strategy=AccelerationStrategy,
+            expression=task_expression,
+            lower_bound=lower_acceleration_limit,
+            upper_bound=upper_acceleration_limit,
             quadratic_weight=quadratic_weight,
             velocity_scale=velocity_scale,
             lower_slack_limit=lower_slack_limit,

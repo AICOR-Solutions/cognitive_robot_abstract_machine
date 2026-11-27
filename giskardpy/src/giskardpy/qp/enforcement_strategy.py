@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from functools import cached_property
 from typing_extensions import Callable, TYPE_CHECKING
 
 import numpy as np
@@ -543,6 +544,70 @@ class VelocityStrategy(ExpressionEnforcementStrategy):
             for c in self.constraints:
                 names.append(f"t{t:03}/{c.name}")
         return names
+
+
+@dataclass
+class AccelerationStrategy(VelocityStrategy):
+    """
+    Differs from :class:`VelocityStrategy` in bounding the change of the expression's
+    derivative from one step of the horizon to the next, divided by the step's length,
+    the first step's change measured from the expression's current derivative.
+
+    ::
+
+        |   t1   |   t2   |   t3   | jerk | free variables
+        |--------------------------------|
+        |   Jv   |        |        |   0  |   >= a_min*dt + J*v_c
+        |  -Jv   |   Jv   |        |   0  |   >= a_min*dt
+        |        |  -Jv   |   Jv   |   0  |   >= a_min*dt
+        |--------------------------------|
+    """
+
+    def create_matrix(self) -> Matrix:
+        """
+        Builds the constraint matrix applying the expression jacobian to the difference
+        of each velocity step and the one before it, padding the jerk columns with
+        zeros.
+        """
+        if len(self.constraints) == 0:
+            return sm.Matrix()
+        control_horizon = self.qp_controller_config.control_horizon
+        step_difference = np.eye(control_horizon) - np.eye(control_horizon, k=-1)
+        velocity_block = sm.Matrix(step_difference).kron(self.jacobian)
+        return sm.hstack(
+            [
+                velocity_block,
+                sm.Matrix.zeros(velocity_block.shape[0], self.number_of_jerk_columns),
+            ]
+        )
+
+    @cached_property
+    def jacobian(self) -> Matrix:
+        """
+        The jacobian of the constrained expressions with respect to the positions of the
+        degrees of freedom.
+        """
+        return sm.Vector([c.expression for c in self.constraints]).jacobian(
+            variables=self.position_variables
+        )
+
+    def create_bounds(
+        self, bounds_getter: Callable[[GiskardConstraint], Scalar]
+    ) -> Vector:
+        """
+        Builds the bounds, one per constraint and control step, the first step's shifted
+        by the expressions' current derivative.
+        """
+        time_step = self.qp_controller_config.control_time_step.total_seconds()
+        current_derivatives = self.jacobian.dot(self.velocity_variables)
+        bounds = []
+        for step in range(self.qp_controller_config.control_horizon):
+            for index, constraint in enumerate(self.constraints):
+                bound = sm.Scalar(bounds_getter(constraint)) * time_step
+                if step == 0:
+                    bound = bound + current_derivatives[index]
+                bounds.append(bound)
+        return Vector(bounds)
 
 
 @dataclass

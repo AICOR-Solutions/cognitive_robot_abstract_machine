@@ -59,6 +59,7 @@ from semantic_digital_twin.exceptions import (
     InvalidRollbackVersionError,
     WorldHasNoUniqueRootError,
     NoControlledConnectionInChainError,
+    WeightlessBranchError,
 )
 from semantic_digital_twin.mixin import HasSimulatorProperties
 from semantic_digital_twin.spatial_computations.forward_kinematics import (
@@ -114,6 +115,7 @@ from semantic_digital_twin.world_description.world_modification import (
     RemoveActuatorModification,
 )
 from semantic_digital_twin.world_description.world_state import WorldState
+from semantic_digital_twin.world_description.inertial_properties import Inertial
 
 from semantic_digital_twin.pipeline.mesh_decomposition.base import MeshDecomposer
 from semantic_digital_twin.pipeline.mesh_decomposition.vhacd import VHACDMeshDecomposer
@@ -2441,6 +2443,55 @@ class World(HasSimulatorProperties):
         :return: An expression representing the computed forward kinematics of the tip KinematicStructureEntity relative to the root KinematicStructureEntity.
         """
         return self._forward_kinematic_manager.compose_expression(root, tip)
+
+    def compose_center_of_mass_expression(
+        self,
+        branch_root: KinematicStructureEntity,
+        reference_frame: KinematicStructureEntity,
+        density_of_unweighed_bodies: float = 1000.0,
+    ) -> Point3:
+        """
+        :param branch_root: The entity whose branch is weighed, everything attached below
+            it included, such as an object held in a hand.
+        :param reference_frame: The frame the center of mass is expressed in.
+        :param density_of_unweighed_bodies: The density, in kilograms per cubic metre,
+            a body stating no inertial properties is weighed with by its collision
+            shapes; water's, as MuJoCo weighs such a body.
+        :return: An expression of the center of mass of the bodies in the branch.
+        :raises WeightlessBranchError: If no body in the branch weighs anything.
+        """
+        inertials = {
+            body: (
+                body.inertial
+                if body.inertial is not None
+                else Inertial.from_mesh(
+                    body.combined_mesh, density_of_unweighed_bodies, body
+                )
+            )
+            for body in self.get_kinematic_structure_entities_of_branch(branch_root)
+            if isinstance(body, Body)
+            and (body.inertial is not None or body.combined_mesh is not None)
+        }
+        total_mass = sum(inertial.mass for inertial in inertials.values())
+        if total_mass <= 0.0:
+            raise WeightlessBranchError(branch_root_name=branch_root.name)
+        reference_P_centers = {
+            body: self.compose_forward_kinematics_expression(reference_frame, body).dot(
+                inertial.center_of_mass
+            )
+            for body, inertial in inertials.items()
+        }
+        return Point3(
+            *(
+                sum(
+                    reference_P_centers[body][axis] * inertial.mass
+                    for body, inertial in inertials.items()
+                )
+                / total_mass
+                for axis in range(3)
+            ),
+            reference_frame=reference_frame,
+        )
 
     def compute_forward_kinematics_np(
         self, root: KinematicStructureEntity, tip: KinematicStructureEntity

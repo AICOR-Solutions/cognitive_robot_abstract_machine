@@ -2587,3 +2587,25 @@ class ObjectHasNoWidthWithoutCollision(UsageError):
 
     def suggest_correction(self) -> str:
         return "Give the body collision geometry, or state the width yourself."
+
+
+@dataclass
+class WeightlessBranchError(UsageError):
+    """
+    Raised when the center of mass of a branch of the world is asked for, while no body
+    in the branch weighs anything.
+    """
+
+    branch_root_name: PrefixedName
+    """
+    Name of the entity at the root of the branch.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"No body below {self.branch_root_name} states a mass or has a shape to "
+            "weigh it by, so the branch has no center of mass."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Give the bodies of the branch inertial properties or collision shapes."

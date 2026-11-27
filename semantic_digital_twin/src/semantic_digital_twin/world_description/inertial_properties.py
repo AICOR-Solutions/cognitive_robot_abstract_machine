@@ -6,6 +6,9 @@ import numpy as np
 from numpy._typing import NDArray
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer
+import trimesh
+
+from krrood_spatial_math.cartesian_frame_3d import CartesianFrame3D
 from krrood_spatial_math.spatial_types import Point3, RotationMatrix
 
 
@@ -246,6 +249,22 @@ class Inertial:
     The inertia tensor of the body about its center of mass, expressed in the body's
     local coordinate frame.
     """
+
+    @classmethod
+    def from_mesh(
+        cls, mesh: trimesh.Trimesh, density: float, reference_frame: CartesianFrame3D
+    ) -> Self:
+        """
+        :param mesh: The shape of a body of uniform density, in the body's frame.
+        :param density: The density of the body, in kilograms per cubic metre.
+        :param reference_frame: The body's frame.
+        :return: The inertial properties of the body.
+        """
+        return cls(
+            mass=float(mesh.volume) * density,
+            center_of_mass=Point3(*mesh.center_mass, reference_frame=reference_frame),
+            inertia=InertiaTensor(data=mesh.moment_inertia * density),
+        )
 
     @classmethod
     def negligible(cls) -> Self:

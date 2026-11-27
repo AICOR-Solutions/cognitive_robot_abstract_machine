@@ -118,6 +118,39 @@ class WalkingPace:
     """
 
 
+# %% how a robot standing on its legs keeps its balance
+
+
+@dataclass
+class StandingBalance:
+    """
+    Where a robot standing on its legs keeps its center of mass while its upper body
+    moves, so its walking controller can stand still: above its feet, and moved there
+    gently.
+    """
+
+    foot_names: list[str]
+    """
+    The names of the bodies the robot stands on, which the soles belong to.
+    """
+
+    support_margin: float
+    """
+    How far, in metres, the center of mass stays inside the box around both feet, seen
+    from above.
+    """
+
+    maximal_center_of_mass_speed: float
+    """
+    How fast, in metres per second, the center of mass may move across the floor.
+    """
+
+    maximal_center_of_mass_acceleration: float
+    """
+    How fast, in metres per second squared, its speed across the floor may change.
+    """
+
+
 # %% the controller
 
 
@@ -137,6 +170,14 @@ class WalkingController(ABC):
     def pace(cls) -> WalkingPace:
         """
         How fast the controller walks the robot up to a pose.
+        """
+
+    @classproperty
+    @abstractmethod
+    def balance(cls) -> StandingBalance:
+        """
+        Where the robot keeps its center of mass while it stands and its upper body
+        moves.
         """
 
     @property
