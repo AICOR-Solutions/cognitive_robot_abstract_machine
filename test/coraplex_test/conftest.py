@@ -302,6 +302,11 @@ class SimulationThatCountsItsSteps:
     How it moves the base of a robot that walks on legs.
     """
 
+    walking_actuator_names: set[str] = field(default_factory=set)
+    """
+    The actuators a walking controller drives: none, as no robot here walks.
+    """
+
     def step_simulation(self, duration: timedelta) -> None:
         """
         :param duration: Simulated time to advance.
