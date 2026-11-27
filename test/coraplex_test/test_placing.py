@@ -158,6 +158,45 @@ def test_a_place_leaves_the_object_standing_on_the_target(pr2_holding_milk):
     )
 
 
+# %% releasing what contact carries
+
+
+def test_a_place_releases_an_object_contact_carries_by_the_grasp_its_pick_up_took(
+    simple_pr2_context,
+):
+    """
+    Where a running physics carries the object by contact, the world model leaves it
+    beside the gripper, and how it stands to the gripper also holds how it slipped or
+    turned in the hand. The release keeps to the grasp the pick-up before it took.
+    """
+    world, robot, extensions = simple_pr2_context
+    milk_body = world.get_body_by_name("milk.stl")
+    milk = Milk(root=milk_body)
+    with world.modify_world():
+        world.add_semantic_annotation(milk)
+    [grasp, *_] = milk.grasp_candidates()
+    target = Pose.from_xyz_rpy(1.2, 0.4, 0.9, reference_frame=world.root)
+    pick_up = PickUpAction(grasp_candidate=grasp, arm=robot.left_arm)
+    place = PlaceAction(arm=robot.left_arm, graspable=milk, goal_pose=target)
+    executor = simulated_executor(extensions)
+    executor.compile(
+        statechart=statechart_of(executor, Sequence(nodes=[pick_up, place]))
+    )
+    place.on_start()
+    poses = place.grasp_pose_sequence(
+        reference_T_grasp=grasp.moved_to(target),
+        end_effector=robot.left_arm.end_effector,
+        grasp_candidate=grasp,
+    )
+
+    tool_goals = [goal.goal_pose for goal in _tool_goals_of(place)]
+
+    for expected, actual in zip(
+        [poses.retreat, poses.grasp, poses.grasp, poses.pre_grasp], tool_goals
+    ):
+        np.testing.assert_allclose(expected.to_np(), actual.evaluate(), atol=1e-9)
+
+
 # %% releasing what has not been picked up yet
 
 

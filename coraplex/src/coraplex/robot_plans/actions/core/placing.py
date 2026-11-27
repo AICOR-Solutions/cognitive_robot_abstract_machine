@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import SequentialAction
+from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from cramph.composites import Parallel
 from cramph.world_access import WorldAccess
 from giskardpy.motion_statechart.mixins import HasGoalPoseParameter
@@ -160,18 +161,12 @@ class PlaceAction(
     def on_start(self) -> None:
         """
         Differs from :meth:`~coraplex.robot_plans.actions.base.Action.on_start` in also
-        setting :attr:`_tool_goals` to the release of the grasp :attr:`arm` has on
-        :attr:`graspable` now.
+        setting :attr:`_tool_goals` to the release of the grasp
+        :meth:`_grasp_on_the_object` finds.
         """
         super().on_start()
         end_effector = self.arm.end_effector
-        grasp = GraspCandidate(
-            self.graspable,
-            end_effector.body_T_grasp(
-                body=self.graspable.root,
-                tool_P_grasp=end_effector.tool_P_grasp_when_closed,
-            ),
-        )
+        grasp = self._grasp_on_the_object()
         place_sequence = self.grasp_pose_sequence(
             reference_T_grasp=grasp.moved_to(self.goal_pose),
             end_effector=end_effector,
@@ -179,3 +174,29 @@ class PlaceAction(
         )
         for variable_pose, pose in zip(self._tool_goals.poses, place_sequence.poses):
             self.set_variable_pose(variable_pose=variable_pose, value=pose)
+
+    def _grasp_on_the_object(self) -> GraspCandidate:
+        """
+        :return: The grasp :attr:`arm` has on :attr:`graspable`: the grasp of the latest
+            pick-up of it before this place where the world model leaves it beside the
+            gripper, as contact carries it in a running physics; else measured as both
+            stand now.
+        """
+        end_effector = self.arm.end_effector
+        object_body = self.graspable.root
+        picks_of_the_object = [
+            pick_up
+            for pick_up in self.statechart.get_preceding_nodes_by_type(
+                node=self, node_type=PickUpAction
+            )
+            if pick_up.grasp_candidate.graspable.root is object_body
+        ]
+        if object_body in end_effector.held_bodies or not picks_of_the_object:
+            return GraspCandidate(
+                self.graspable,
+                end_effector.body_T_grasp(
+                    body=object_body,
+                    tool_P_grasp=end_effector.tool_P_grasp_when_closed,
+                ),
+            )
+        return picks_of_the_object[0].grasp_candidate
