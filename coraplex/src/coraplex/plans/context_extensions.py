@@ -78,8 +78,10 @@ class StatementGrounding(ContextExtension):
 class WalkingBasesStand(ContextExtension):
     """
     Lets the base of a robot that walks on legs stand while an action keeps the base
-    still, instead of holding it at the pose it started at: a physically balanced base
-    sways, and holding its pose would step it about every time.
+    still, instead of holding it at the pose it started at, and keeps its center of mass
+    over its feet, see
+    :class:`~giskardpy.motion_statechart.tasks.balance_tasks.CenterOfMassOverTheFeet`;
+    only for :attr:`~semantic_digital_twin.robots.walking.PhysicalBaseMode.WALKING`.
     """
 
 

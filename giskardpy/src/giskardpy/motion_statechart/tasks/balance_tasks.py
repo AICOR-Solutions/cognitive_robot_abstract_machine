@@ -1,5 +1,10 @@
 """
 Tasks keeping a robot that stands on its legs balanced while its upper body moves.
+
+.. note:: Only a run whose physics walks a base on legs all the time, see
+    :attr:`~semantic_digital_twin.robots.walking.PhysicalBaseMode.WALKING`, adds them:
+    kinematic validation, a base held once it walked and a robot on wheels never do.
+    They keep a standing robot upright but do not make it stack objects reliably.
 """
 
 from __future__ import annotations
@@ -61,6 +66,9 @@ class CenterOfMassOverTheFeet(Task):
     floor, as :attr:`balance` says.
 
     An invariant rather than a goal: it observes nothing and is always true.
+
+    .. note:: Added only where the physics walks a base on legs all the time, see
+        :attr:`~semantic_digital_twin.robots.walking.PhysicalBaseMode.WALKING`.
     """
 
     robot_root: KinematicStructureEntity

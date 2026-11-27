@@ -208,7 +208,8 @@ class WalkingController(ABC):
     def balance(cls) -> StandingBalance:
         """
         Where the robot keeps its center of mass while it stands and its upper body
-        moves.
+        moves, in a physical simulation that walks it all the time, see
+        :attr:`PhysicalBaseMode.WALKING`.
         """
 
     @property
