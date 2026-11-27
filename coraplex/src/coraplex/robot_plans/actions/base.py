@@ -137,7 +137,7 @@ class Action(CompositeNode, ABC):
         :return: The tasks holding the robot's base where it stands, empty when the robot
             has no mobile base or may move its whole body. A base walking on legs
             stands instead where the context lets it, see :class:`WalkingBasesStand`,
-            and keeps its center of mass over its feet, see
+            and then keeps its center of mass over its feet, see
             :class:`~giskardpy.motion_statechart.tasks.balance_tasks.CenterOfMassOverTheFeet`.
 
         A goal relative to the robot is bound when it starts, so a base that moves
@@ -151,33 +151,27 @@ class Action(CompositeNode, ABC):
         ):
             return []
         controller_type = robot.mobile_base.walking_controller_type
-        if controller_type is None:
+        if (
+            controller_type is None
+            or self.context.get_extension(WalkingBasesStand) is None
+        ):
             return [
                 HoldPose(
                     name="hold base", root_link=self.world.root, tip_link=robot.root
                 )
             ]
-        return [self._stand_on_legs(), self._balance_on_the_feet(controller_type)]
-
-    def _stand_on_legs(self) -> HoldPose:
-        """
-        :return: The task holding a base that walks on legs: at the pose it stands at,
-            or, where the context lets it stand, only leading it back at a creep.
-        """
-        robot = self.robot
-        if self.context.get_extension(WalkingBasesStand) is None:
-            return HoldPose(
-                name="hold base", root_link=self.world.root, tip_link=robot.root
-            )
-        return HoldPose(
-            name="base stands",
-            root_link=self.world.root,
-            tip_link=robot.root,
-            cruise_linear_velocity=self.creeping_velocity,
-            cruise_angular_velocity=self.creeping_velocity,
-            translation_threshold=math.inf,
-            orientation_threshold=math.inf,
-        )
+        return [
+            HoldPose(
+                name="base stands",
+                root_link=self.world.root,
+                tip_link=robot.root,
+                cruise_linear_velocity=self.creeping_velocity,
+                cruise_angular_velocity=self.creeping_velocity,
+                translation_threshold=math.inf,
+                orientation_threshold=math.inf,
+            ),
+            self._balance_on_the_feet(controller_type),
+        ]
 
     def _balance_on_the_feet(
         self, controller_type: type[WalkingController]

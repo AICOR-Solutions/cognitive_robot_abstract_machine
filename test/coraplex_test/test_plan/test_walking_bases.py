@@ -109,15 +109,13 @@ def test_a_walking_base_stands_where_the_context_lets_it(robot_on_a_leg):
 def test_a_walking_base_is_held_at_its_pose_elsewhere(robot_on_a_leg):
     action = navigation_of(robot_on_a_leg)
 
-    assert [type(task) for task in action.keep_base_still()] == [
-        HoldPose,
-        CenterOfMassOverTheFeet,
-    ]
+    assert [type(task) for task in action.keep_base_still()] == [HoldPose]
 
 
-@pytest.mark.parametrize("stands", [True, False], ids=["standing", "held"])
-def test_a_walking_base_keeps_its_center_of_mass_over_its_feet(robot_on_a_leg, stands):
-    action = navigation_of(robot_on_a_leg, *([WalkingBasesStand()] if stands else []))
+def test_a_standing_walking_base_keeps_its_center_of_mass_over_its_feet(
+    robot_on_a_leg,
+):
+    action = navigation_of(robot_on_a_leg, WalkingBasesStand())
 
     [_, balance] = action.keep_base_still()
 
