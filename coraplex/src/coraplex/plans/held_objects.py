@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from coraplex.plans.failures import ObjectLeftBehindByTheHand
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import EndedByOwner, StatechartNode
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -48,7 +48,7 @@ class ObjectRisesWithTheHand(EndedByOwner, StatechartNode):
         super().on_start()
         self._start_heights = self._heights()
 
-    def on_tick(self) -> ObservationStateValues | None:
+    def on_tick(self) -> ObservationStateValue | None:
         """
         :raises ObjectLeftBehindByTheHand: When the body rose less than the hand by more
             than :attr:`tolerance`.
@@ -62,7 +62,7 @@ class ObjectRisesWithTheHand(EndedByOwner, StatechartNode):
             raise ObjectLeftBehindByTheHand(
                 held_body=self.held_body, shortfall=shortfall
             )
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE
 
     def _heights(self) -> tuple[float, float]:
         """

@@ -273,7 +273,9 @@ class Detection:
             annotation cannot be created around a body of its own.
         """
         if self.size is None or not issubclass(self.semantic_annotation, HasRootBody):
-            raise PerceivedObjectNotInWorld(semantic_annotation=self.semantic_annotation)
+            raise PerceivedObjectNotInWorld(
+                semantic_annotation=self.semantic_annotation
+            )
         return self.semantic_annotation.create_with_new_body_in_world(
             name=f"{self.semantic_annotation.__name__.lower()}_{len(world.bodies)}",
             world=world,
@@ -506,9 +508,7 @@ class DetectedScene:
     The region the objects were looked for in.
     """
 
-    def apply_to(
-        self, *, world: World, trust_orientation: bool = True
-    ) -> list[Body]:
+    def apply_to(self, *, world: World, trust_orientation: bool = True) -> list[Body]:
         """
         Write every detection into ``world``: each moves the body nearest to it that
         carries its annotation, lies in the region, shows its color and was taken by no
@@ -823,7 +823,8 @@ class RoboKudoPerception(PerceptionInterface):
             raise self._unanswered(wait)
         if answered.result().status == GoalStatus.STATUS_ABORTED:
             raise PerceptionSourceFailed(
-                self.action_name, answered.result().result.text_result
+                action_name=self.action_name,
+                reason=answered.result().result.text_result,
             )
         result = answered.result().result
         detections = [
@@ -844,7 +845,9 @@ class RoboKudoPerception(PerceptionInterface):
         :return: The failure naming what the pipeline last reported waiting for.
         """
         return PerceptionSourceDidNotAnswer(
-            self.action_name, self.answer_timeout, wait.latest_feedback
+            action_name=self.action_name,
+            answer_timeout=self.answer_timeout,
+            waiting_for=wait.latest_feedback,
         )
 
     @staticmethod

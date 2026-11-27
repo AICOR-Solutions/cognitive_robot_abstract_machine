@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from coraplex.plans.failures import BodiesMovedSinceGrounding, BodyDisplacement
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import EndedByOwner, StatechartNode
 from krrood_spatial_math.spatial_types import Point3
 from semantic_digital_twin.world import World
@@ -80,7 +80,7 @@ class BodiesWhereExpected(EndedByOwner, StatechartNode):
             if displacement.distance > self.tolerance
         ]
 
-    def on_tick(self) -> ObservationStateValues | None:
+    def on_tick(self) -> ObservationStateValue | None:
         """
         :raises BodiesMovedSinceGrounding: When a body lies farther than
             :attr:`tolerance` from where it is expected.
@@ -88,4 +88,4 @@ class BodiesWhereExpected(EndedByOwner, StatechartNode):
         displacements = self.displacements()
         if displacements:
             raise BodiesMovedSinceGrounding(displacements=displacements)
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE

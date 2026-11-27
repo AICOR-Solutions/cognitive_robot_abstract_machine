@@ -563,7 +563,7 @@ class CloseFingersToObjectWidth(PlanTransformation[GraspingAction]):
 # %% squeezing a pinch
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SqueezeThePinch(PlanTransformation[GraspingAction]):
     """
     Closes a hand that pinches with its thumb to its
@@ -572,22 +572,22 @@ class SqueezeThePinch(PlanTransformation[GraspingAction]):
     the fingers stopped on the object.
     """
 
-    def is_applicable(self, plan_node: GraspingAction) -> bool:
+    def is_applicable(self, *, plan_node: GraspingAction) -> bool:
         return (
             isinstance(plan_node.arm.end_effector, PinchesWithTheThumb)
             and issubclass(plan_node.gripper_goal_type, MoveFingers)
             and plan_node.grasp_candidate.graspable.root.has_collision()
         )
 
-    def apply(self, plan_node: GraspingAction) -> None:
+    def apply(self, *, plan_node: GraspingAction) -> None:
         plan_node.statechart.replace(
-            CloseFingersToObjectWidth.closing_step(plan_node),
-            plan_node.closing_step(
-                MoveFingersToJointState(
+            node=CloseFingersToObjectWidth.closing_step(plan_node=plan_node),
+            replacement=plan_node.closing_step(
+                closing_goal=MoveFingersToJointState(
                     goal_state=plan_node.arm.end_effector.squeezed_joint_state,
-                    finger_velocity=plan_node.grasp_closing_velocity,
-                    stall_minimum_time=plan_node.grasp_stall_minimum_time,
-                    tolerate_stall=True,
+                    max_joint_velocity=plan_node.max_grasp_closing_velocity,
+                    finger_stall_minimum_time=plan_node.finger_stall_minimum_time,
+                    tolerate_finger_stall=True,
                 )
             ),
         )
@@ -596,7 +596,7 @@ class SqueezeThePinch(PlanTransformation[GraspingAction]):
 # %% checking that a lifted object rises with the hand
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CheckThatTheObjectRisesWithTheHand(ParallelInsertion[PickUpAction]):
     """
     Checks, while a pick-up lifts its object, that the object rises with the hand, where
@@ -608,16 +608,16 @@ class CheckThatTheObjectRisesWithTheHand(ParallelInsertion[PickUpAction]):
     See :attr:`~coraplex.plans.held_objects.ObjectRisesWithTheHand.tolerance`.
     """
 
-    def is_applicable(self, plan_node: PickUpAction) -> bool:
+    def is_applicable(self, *, plan_node: PickUpAction) -> bool:
         return True
 
-    def anchor(self, plan_node: PickUpAction) -> StatechartNode:
+    def anchor(self, *, plan_node: PickUpAction) -> StatechartNode:
         """
         :return: The last step of the pick-up, which lifts the object.
         """
         return plan_node.nodes[-1]
 
-    def nodes_to_insert(self, plan_node: PickUpAction) -> list[StatechartNode]:
+    def nodes_to_insert(self, *, plan_node: PickUpAction) -> list[StatechartNode]:
         return [
             ObjectRisesWithTheHand(
                 held_body=plan_node.grasp_candidate.graspable.root,
@@ -675,7 +675,7 @@ def _walks_on_legs(robot: AbstractRobot) -> bool:
     )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
     """
     Walks the base of a robot that walks on legs to the poses it moves to at the pace of
@@ -683,18 +683,18 @@ class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
     see :attr:`~semantic_digital_twin.robots.walking.WalkingController.pace`.
     """
 
-    def is_applicable(self, plan_node: DrivesBase) -> bool:
+    def is_applicable(self, *, plan_node: DrivesBase) -> bool:
         return _walks_on_legs(plan_node.robot)
 
-    def apply(self, plan_node: DrivesBase) -> None:
+    def apply(self, *, plan_node: DrivesBase) -> None:
         plan_node.base_goal_type = WalkingBaseGoal
-        plan_node.base_pose_threshold = max(
-            plan_node.base_pose_threshold,
+        plan_node.threshold = max(
+            plan_node.threshold,
             plan_node.robot.mobile_base.walking_controller_type.pace.arrival_tolerance,
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HoldTheBaseOnceItStands(SequentialInsertion[DrivesBase]):
     """
     Waits, after a robot that walks on legs walked to a pose, until the simulation holds
@@ -706,14 +706,16 @@ class HoldTheBaseOnceItStands(SequentialInsertion[DrivesBase]):
     def position(self) -> InsertionPosition:
         return InsertionPosition.AFTER
 
-    def is_applicable(self, plan_node: DrivesBase) -> bool:
-        bases_held = plan_node.context.get_extension(WalkingBasesHeld) is not None
+    def is_applicable(self, *, plan_node: DrivesBase) -> bool:
+        bases_held = (
+            plan_node.context.get_extension(extension_type=WalkingBasesHeld) is not None
+        )
         return bases_held and _walks_on_legs(plan_node.robot)
 
-    def anchor(self, plan_node: DrivesBase) -> StatechartNode:
+    def anchor(self, *, plan_node: DrivesBase) -> StatechartNode:
         return plan_node
 
-    def nodes_to_insert(self, plan_node: DrivesBase) -> list[StatechartNode]:
+    def nodes_to_insert(self, *, plan_node: DrivesBase) -> list[StatechartNode]:
         return [BaseHeldWhereItStands(robot_root=plan_node.robot.root)]
 
 
@@ -734,7 +736,7 @@ class DetectWithRoboKudo(ConfigurationTransformation[DetectAction]):
         plan_node.perception_source = PerceptionSource.ROBOKUDO
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LimitHowLongDetectionsWait(ConfigurationTransformation[DetectAction]):
     """
     Lets every detection wait at most a given time for a source answering in another
@@ -747,10 +749,10 @@ class LimitHowLongDetectionsWait(ConfigurationTransformation[DetectAction]):
     How long each detection waits for its answer.
     """
 
-    def is_applicable(self, plan_node: DetectAction) -> bool:
+    def is_applicable(self, *, plan_node: DetectAction) -> bool:
         return True
 
-    def apply(self, plan_node: DetectAction) -> None:
+    def apply(self, *, plan_node: DetectAction) -> None:
         plan_node.perception_answer_timeout = self.answer_timeout
 
 
@@ -775,7 +777,7 @@ class LetContactCarryTheBodies(ConfigurationTransformation[ReattachesBranches]):
 # %% moving straight near the object
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MoveStraightNearTheObject(ConfigurationTransformation[MovesToolCenterPoint]):
     """
     Brings the gripper onto the object an action acts on, and away from it, along a
@@ -783,14 +785,14 @@ class MoveStraightNearTheObject(ConfigurationTransformation[MovesToolCenterPoint
     off that line pushes the object away.
     """
 
-    def is_applicable(self, plan_node: MovesToolCenterPoint) -> bool:
+    def is_applicable(self, *, plan_node: MovesToolCenterPoint) -> bool:
         return True
 
-    def apply(self, plan_node: MovesToolCenterPoint) -> None:
+    def apply(self, *, plan_node: MovesToolCenterPoint) -> None:
         plan_node.moves_straight_near_the_object = True
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LetOnlyTheObjectTouchTheGripper(
     ConfigurationTransformation[MovesToolCenterPoint]
 ):
@@ -800,8 +802,8 @@ class LetOnlyTheObjectTouchTheGripper(
     included.
     """
 
-    def is_applicable(self, plan_node: MovesToolCenterPoint) -> bool:
+    def is_applicable(self, *, plan_node: MovesToolCenterPoint) -> bool:
         return True
 
-    def apply(self, plan_node: MovesToolCenterPoint) -> None:
+    def apply(self, *, plan_node: MovesToolCenterPoint) -> None:
         plan_node.lets_only_its_object_touch_the_gripper = True

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 import numpy
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from numpy.typing import NDArray
 
 # %% how a physical simulation moves a walking base

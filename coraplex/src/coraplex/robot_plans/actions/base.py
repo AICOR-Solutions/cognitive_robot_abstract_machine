@@ -173,12 +173,14 @@ class Action(CompositeNode, ABC):
         controller_type = robot.mobile_base.walking_controller_type
         if (
             controller_type is None
-            or self.context.get_extension(WalkingBasesStand) is None
+            or self.context.get_extension(extension_type=WalkingBasesStand) is None
         ):
             return [
                 HoldPose(
                     name="hold base",
-                    kinematic_chain=KinematicChain(root=self.world.root, tip=robot.root),
+                    kinematic_chain=KinematicChain(
+                        root=self.world.root, tip=robot.root
+                    ),
                 )
             ]
         return [

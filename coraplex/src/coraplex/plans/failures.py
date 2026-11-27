@@ -155,7 +155,7 @@ class MotionViolatedCollisionAvoidance(PlanFailure):
         return self.violation.suggest_correction()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionWouldBreakSafetyLimit(PlanFailure):
     """
     Raised when a motion tried before it runs, in a copy of the world, broke one of the
@@ -178,7 +178,7 @@ class MotionWouldBreakSafetyLimit(PlanFailure):
         return "Choose another arm, or a place the robot reaches inside the constraint."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TargetLeftFieldOfView(PlanFailure):
     """
     Raised when a body a step is to keep in view lies outside the field of view of the
@@ -211,7 +211,7 @@ class TargetLeftFieldOfView(PlanFailure):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BodyDisplacement:
     """
     How far a body lies from where a step expected it.
@@ -228,7 +228,7 @@ class BodyDisplacement:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BodiesMovedSinceGrounding(PlanFailure):
     """
     Raised when bodies a step acts on lie farther from where the plan was grounded with
@@ -251,7 +251,7 @@ class BodiesMovedSinceGrounding(PlanFailure):
         return "Perceive the bodies again and ground the rest of the plan anew."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ObjectLeftBehindByTheHand(PlanFailure):
     """
     Raised when a hand rose further than the object it was to carry rose with it, so the

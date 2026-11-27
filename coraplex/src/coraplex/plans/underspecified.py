@@ -520,7 +520,7 @@ class ActionTrial:
                 rebuild.carry_over_conditions()
                 executor.compile(statechart=statechart)
                 executor.execute()
-                return None
+                return True
             except ExecutionFailure as failure:
                 logger.info(f"{rebuild} failed its trial: {failure}")
                 if tried_statements:

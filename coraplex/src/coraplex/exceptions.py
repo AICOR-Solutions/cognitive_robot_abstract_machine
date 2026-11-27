@@ -296,7 +296,7 @@ class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation, PlanFailure)
         return "narrow the query's semantic annotation so it names a single object."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class NothingPerceived(PerceptionExceptionWithSemanticAnnotation):
     """
     Raised when a detection reports no object matching its query in its region.
@@ -360,7 +360,7 @@ class PerceptionSourceUnavailable(PerceptionException):
         return "start the perception pipeline before running the plan."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
     """
     Raised when the perception pipeline took up a query and did not answer it in time.
@@ -395,7 +395,7 @@ class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PerceptionSourceFailed(PerceptionException, PlanFailure):
     """
     Raised when the perception pipeline gave up on a query, saying why, such as a camera

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from coraplex.plans.context_extensions import WalkingBasesHeld
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode, SucceedsOnObservingTrue
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -31,10 +31,10 @@ class BaseHeldWhereItStands(SucceedsOnObservingTrue, StatechartNode):
     The root of the robot whose base is held.
     """
 
-    def on_tick(self) -> ObservationStateValues | None:
+    def on_tick(self) -> ObservationStateValue | None:
         walking = self.context.require_extension(
-            WalkingBasesHeld
+            extension_type=WalkingBasesHeld
         ).simulation.walking_robot_rooted_at(self.robot_root)
         if walking.hold_when_still():
-            return ObservationStateValues.TRUE
-        return ObservationStateValues.UNKNOWN
+            return ObservationStateValue.TRUE
+        return ObservationStateValue.UNKNOWN

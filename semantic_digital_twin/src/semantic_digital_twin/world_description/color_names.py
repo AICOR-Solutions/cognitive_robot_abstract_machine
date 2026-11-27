@@ -9,7 +9,7 @@ from enum import StrEnum, auto
 
 from typing_extensions import Self
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from semantic_digital_twin.world_description.geometry import Color
 
 # %% color names

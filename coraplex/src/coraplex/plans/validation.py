@@ -285,9 +285,9 @@ class PlanValidation:
         :return: How it fared.
         """
         executor = KinematicallySimulatedPlanExecutor(
-            StatechartContext.with_extensions(
-                self.copied_world,
-                [
+            context=StatechartContext.with_extensions(
+                world=self.copied_world,
+                extensions=[
                     self.copied_world.rebind_world_entities(extension)
                     for extension in self.extensions
                 ],
@@ -298,10 +298,10 @@ class PlanValidation:
             ),
         )
         statechart = Statechart(context=executor.context)
-        statechart.add_node(step)
+        statechart.add_node(node=step)
         # the boundary where a step that did not succeed becomes its verdict
         try:
-            executor.compile(statechart)
+            executor.compile(statechart=statechart)
             executor.execute()
         except ExecutionFailure as failure:
             return StepCheck(
@@ -339,24 +339,25 @@ class PlanValidation:
         :return: How it fared: valid where the object was perceived, assumed where it
             was taken from the world model.
         """
-        grounded = ValidationPerception(self.perception).look_for(query)
+        grounded = ValidationPerception(live=self.perception).look_for(query=query)
         detections = grounded.detections
         if not detections:
             return StepCheck(
                 verdict=ValidationVerdict.FAILED,
-                failure=NothingPerceived(query.semantic_annotation),
+                failure=NothingPerceived(semantic_annotation=query.semantic_annotation),
                 grounding=grounded.grounding,
             )
         if len(detections) > 1 and not accept_first_if_multiple:
             return StepCheck(
                 verdict=ValidationVerdict.FAILED,
                 failure=UnidentifiedDetections(
-                    query.semantic_annotation, len(detections)
+                    semantic_annotation=query.semantic_annotation,
+                    candidate_count=len(detections),
                 ),
                 grounding=grounded.grounding,
             )
         [annotation, *_] = detections[0].apply_to(
-            self.copied_world,
+            world=self.copied_world,
             trust_orientation=query.trust_detected_orientation,
             region=query.region,
         )
