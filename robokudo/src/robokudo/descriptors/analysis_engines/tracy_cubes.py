@@ -1,11 +1,9 @@
 """
 Analysis engine localizing the cubes on Tracy's table through Tracy's fixed camera.
 
-It answers queries with one object designator per cube: its pose in the world frame,
-upright with its yaw known up to a quarter turn, and its semantic color. A query naming
-a color is answered with the cubes of that color only, whatever type it names. A cube is
-an area of one color in the color image, placed by the depth under it. Its thresholds
-come from a settings file, so they can be tuned without a rebuild.
+It answers a query with one designator per cube of the queried color, if any: its
+upright pose in the world frame, its yaw known up to a quarter turn, and its color. A
+cube is an area of one color placed by the depth under it, by tunable thresholds.
 """
 
 from __future__ import annotations
@@ -58,7 +56,7 @@ class SettingsEnvironmentVariable(StrEnum):
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TableTopRegion:
     """
     Where the points of the cubes on the table lie.
@@ -80,7 +78,7 @@ class TableTopRegion:
     """
 
     @classmethod
-    def from_json(cls, data: dict[str, float]) -> Self:
+    def from_json(cls, *, data: dict[str, float]) -> Self:
         """
         :param data: The region's fields by name.
         :return: The region written in the data.
@@ -88,7 +86,7 @@ class TableTopRegion:
         return cls(**data)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CubeClusters:
     """
     Which areas of one color become objects.
@@ -101,7 +99,7 @@ class CubeClusters:
     """
 
     @classmethod
-    def from_json(cls, data: dict[str, int]) -> Self:
+    def from_json(cls, *, data: dict[str, int]) -> Self:
         """
         :param data: The thresholds by field name.
         :return: The thresholds written in the data.
@@ -109,7 +107,7 @@ class CubeClusters:
         return cls(**data)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ColorThresholds:
     """
     How pixels are named by color, on OpenCV's full HSV scale (0 to 255).
@@ -140,7 +138,7 @@ class ColorThresholds:
     """
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Self:
+    def from_json(cls, *, data: dict[str, Any]) -> Self:
         """
         :param data: The thresholds by field name, the hue bounds by color name.
         :return: The thresholds written in the data.
@@ -158,7 +156,7 @@ class ColorThresholds:
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PublishedImages:
     """
     Whether the images the annotators draw are published.
@@ -170,7 +168,7 @@ class PublishedImages:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TracyCubesSettings:
     """
     The tunable settings of Tracy's cube localization, as written in its settings file.
@@ -202,7 +200,7 @@ class TracyCubesSettings:
     """
 
     @classmethod
-    def from_json(cls, data: dict[str, Any]) -> Self:
+    def from_json(cls, *, data: dict[str, Any]) -> Self:
         """
         :param data: The settings by section, each section's entries by field name.
         :return: The settings written in the data.
@@ -217,21 +215,21 @@ class TracyCubesSettings:
                 unknown_sections=unknown_sections, known_sections=known_sections
             )
         return cls(
-            table_top=TableTopRegion.from_json(data.get("table_top", {})),
-            clusters=CubeClusters.from_json(data.get("clusters", {})),
-            colors=ColorThresholds.from_json(data.get("colors", {})),
+            table_top=TableTopRegion.from_json(data=data.get("table_top", {})),
+            clusters=CubeClusters.from_json(data=data.get("clusters", {})),
+            colors=ColorThresholds.from_json(data=data.get("colors", {})),
             real_camera=OrbbecCameraConfig(**data.get("real_camera", {})),
             images=PublishedImages(**data.get("images", {})),
         )
 
     @classmethod
-    def from_file(cls, settings_file: Path) -> Self:
+    def from_file(cls, *, settings_file: Path) -> Self:
         """
         :param settings_file: A YAML file with the sections of these settings; a section
             or entry left out keeps its default.
         :return: The settings written in the file.
         """
-        return cls.from_json(yaml.safe_load(settings_file.read_text()) or {})
+        return cls.from_json(data=yaml.safe_load(settings_file.read_text()) or {})
 
     @classmethod
     def from_environment(cls) -> Self:
@@ -243,13 +241,13 @@ class TracyCubesSettings:
         settings_file = os.environ.get(SettingsEnvironmentVariable.TRACY_CUBES_SETTINGS)
         if not settings_file:
             return cls()
-        return cls.from_file(Path(settings_file))
+        return cls.from_file(settings_file=Path(settings_file))
 
 
 # %% Analysis engine
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AnalysisEngine(AnalysisEngineInterface):
     """
     Localizes the cubes standing on Tracy's table by their colors.
@@ -273,9 +271,16 @@ class AnalysisEngine(AnalysisEngineInterface):
     """
 
     def name(self) -> str:
+        """
+        :return: The name the engine is started by.
+        """
         return "tracy_cubes"
 
     def implementation(self) -> Pipeline:
+        """
+        :return: The pipeline answering a query with the cubes it localized in one
+            camera frame.
+        """
         pipeline = Pipeline("TracyCubesPipeline")
         pipeline.add_children(
             [

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 # %% areas of one color
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ColorArea:
     """
     A connected area of pixels of one chromatic color and the points under it.
@@ -77,6 +77,9 @@ class ColorClusterExtractor(BaseAnnotator):
             """
 
             def __init__(self) -> None:
+                """
+                Takes the color naming of :class:`ClusterColorAnnotator`'s defaults.
+                """
                 color_parameters = ClusterColorAnnotator.Descriptor.Parameters()
                 self.hue_upper_bounds: dict[Color, float] = (
                     color_parameters.chromatic_hue_upper_bounds()
@@ -133,10 +136,21 @@ class ColorClusterExtractor(BaseAnnotator):
         name: str = "ColorClusterExtractor",
         descriptor: ColorClusterExtractor.Descriptor | None = None,
     ) -> None:
+        """
+        :param name: The name of the annotator in the pipeline's tree.
+        :param descriptor: Its configuration; None takes the defaults.
+        """
         super().__init__(name, descriptor)
 
     @catch_and_raise_to_blackboard
     def update(self) -> Status:
+        """
+        Adds an :class:`ObjectHypothesis` of its color for every color area with enough
+        points under it, and draws the areas into the annotator's output image.
+
+        :return: SUCCESS once the areas are annotated.
+        :raises DepthNotMeasured: If the depth image holds no measurement.
+        """
         start = default_timer()
         cas = self.get_cas()
         color_image = get_scaled_color_image_for_depth_image(
@@ -145,13 +159,17 @@ class ColorClusterExtractor(BaseAnnotator):
         depth_image = cas.get(view_name=CASViews.DEPTH_IMAGE)
         if not depth_image.any():
             raise DepthNotMeasured(context=self.name)
-        areas = self.color_areas(color_image)
+        areas = self.color_areas(color_image=color_image)
         drawing = color_image.copy()
         objects = 0
         for area in areas:
-            area.points = self.points_under(area, color_image, depth_image)
+            area.points = self.points_under(
+                area=area, color_image=color_image, depth_image=depth_image
+            )
             if len(area.points.points) < self.descriptor.parameters.minimum_points:
-                self.draw_area(drawing, area, Color.GREY, 1)
+                self.draw_area(
+                    drawing=drawing, area=area, color=Color.GREY, thickness=1
+                )
                 continue
             hypothesis = ObjectHypothesis()
             hypothesis.id = str(objects)
@@ -176,7 +194,7 @@ class ColorClusterExtractor(BaseAnnotator):
             hypothesis.annotations.append(color)
             cas.annotations.append(hypothesis)
             objects += 1
-            self.draw_area(drawing, area, area.color, 3)
+            self.draw_area(drawing=drawing, area=area, color=area.color, thickness=3)
         self.get_annotator_output_struct().set_image(img=drawing)
         self.feedback_message = (
             f"{objects} objects of {len(areas)} color areas in "
@@ -184,7 +202,7 @@ class ColorClusterExtractor(BaseAnnotator):
         )
         return Status.SUCCESS
 
-    def color_areas(self, color_image: npt.NDArray) -> list[ColorArea]:
+    def color_areas(self, *, color_image: npt.NDArray) -> list[ColorArea]:
         """
         :param color_image: A color image, blue first.
         :return: The connected areas of one chromatic color in it, specks left out.
@@ -209,11 +227,13 @@ class ColorClusterExtractor(BaseAnnotator):
             outlines, _ = cv2.findContours(
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
-            areas.extend(ColorArea(color, outline) for outline in outlines)
+            areas.extend(
+                ColorArea(color=color, outline=outline) for outline in outlines
+            )
         return areas
 
     def points_under(
-        self, area: ColorArea, color_image: npt.NDArray, depth_image: npt.NDArray
+        self, *, area: ColorArea, color_image: npt.NDArray, depth_image: npt.NDArray
     ) -> open3d.geometry.PointCloud:
         """
         :param color_image: The color image, blue first, registered to the depth image.
@@ -261,7 +281,7 @@ class ColorClusterExtractor(BaseAnnotator):
         )
 
     def draw_area(
-        self, drawing: npt.NDArray, area: ColorArea, color: Color, thickness: int
+        self, *, drawing: npt.NDArray, area: ColorArea, color: Color, thickness: int
     ) -> None:
         """
         Outline an area on the drawing in a color and write its color and point count.

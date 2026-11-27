@@ -136,7 +136,7 @@ def three_cubes() -> Path:
 def test_every_cube_on_the_metal_table_is_found_once_where_it_stands(
     three_cubes: Path,
 ) -> None:
-    settings = TracyCubesSettings.from_file(three_cubes / "settings.yaml")
+    settings = TracyCubesSettings.from_file(settings_file=three_cubes / "settings.yaml")
     annotators = [
         annotator
         for annotator in AnalysisEngine(settings=settings).perception_annotators()

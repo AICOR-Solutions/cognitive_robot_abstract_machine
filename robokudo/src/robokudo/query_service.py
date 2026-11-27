@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from krrood.patterns.called_positionally import called_positionally
 from threading import Event, ExceptHookArgs, Thread
 
 import rclpy
@@ -33,7 +34,7 @@ from robokudo.vis.visualizer import Visualizer
 # %% Query service
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, kw_only=True)
 class QueryService:
     """
     Runs an analysis engine that answers queries on RoboKudo's query action, ticking it
@@ -134,12 +135,17 @@ class QueryService:
         threading.excepthook = self._record_thread_failure
         self._threads = [
             Thread(target=self._executor.spin, daemon=True, name="robokudo_spin"),
-            Thread(target=self._tick, args=(tree,), daemon=True, name="robokudo_tick"),
+            Thread(
+                target=self._tick,
+                kwargs={"tree": tree},
+                daemon=True,
+                name="robokudo_tick",
+            ),
         ]
         for thread in self._threads:
             thread.start()
 
-    def _tick(self, tree: BehaviourTree) -> None:
+    def _tick(self, *, tree: BehaviourTree) -> None:
         """
         Tick the analysis engine at :attr:`tick_rate` until :attr:`_stopped` is set.
 
@@ -151,6 +157,7 @@ class QueryService:
             tree.tick()
             self._stopped.wait(max(0.0, period - (time.monotonic() - started)))
 
+    @called_positionally
     def _record_thread_failure(self, arguments: ExceptHookArgs) -> None:
         """
         Handle an exception ending a thread of the process: when it ends a thread of the

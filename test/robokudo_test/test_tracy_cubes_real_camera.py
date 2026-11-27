@@ -153,7 +153,7 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[Camera
 
     :return: The stream of the camera's frame.
     """
-    settings = TracyCubesSettings.from_file(settings_file)
+    settings = TracyCubesSettings.from_file(settings_file=settings_file)
     world = cube_scene.world
     [camera] = world.get_semantic_annotations_by_type(TracyCamera)
     frame = world.ray_tracer.render(camera, rgb_mode=VisualColorRenderingMode())
