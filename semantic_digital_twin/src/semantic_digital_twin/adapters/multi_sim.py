@@ -3158,8 +3158,8 @@ class MujocoWalking:
                 robot_name=self.floating_base.robot_name
             )
         with self.drive.world.modify_world():
-            localization.parent_T_connection_expression = (
-                HomogeneousTransformationMatrix(
+            localization.update_parent_T_connection(
+                parent_T_connection=HomogeneousTransformationMatrix(
                     parent_T_odometry, reference_frame=localization.parent
                 )
             )
