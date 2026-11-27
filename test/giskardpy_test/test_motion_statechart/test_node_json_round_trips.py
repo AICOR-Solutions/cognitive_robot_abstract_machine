@@ -863,9 +863,9 @@ def _safety_envelope(world: World) -> list[StatechartNode]:
             ),
             MaximumToolVelocity(
                 constraint="tool velocity",
-                root_link=_root(world),
+                reference_frame=_root(world),
                 tool=_tip(world),
-                maximum_velocity=0.5,
+                speed_limit=0.5,
             ),
         ]
     ).create_nodes()

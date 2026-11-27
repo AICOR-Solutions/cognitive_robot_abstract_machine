@@ -23,6 +23,7 @@ from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
     Task,
 )
+from giskardpy.motion_statechart.mixins import HasRootLinkParameter
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
 from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math.symbolic_math import Scalar
@@ -31,7 +32,10 @@ from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
     ScrewAxisConnection,
 )
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+    KinematicStructureEntity,
+)
 
 # %% monitors
 
@@ -208,16 +212,11 @@ class JointVelocityExceeded(SafetyMonitor):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class ToolVelocityExceeded(SafetyMonitor):
+class ToolVelocityExceeded(SafetyMonitor, HasRootLinkParameter):
     """
     Observes ``True`` while the origin of :attr:`tool` moves faster than
-    :attr:`maximum_velocity` relative to :attr:`root_link`, as the joints' velocities
-    move it.
-    """
-
-    root_link: Body
-    """
-    The body the tool's velocity is measured against.
+    :attr:`speed_limit` relative to :attr:`root_link`, as the joints' velocities move
+    it.
     """
 
     tool: Body
@@ -225,7 +224,7 @@ class ToolVelocityExceeded(SafetyMonitor):
     The body whose velocity is watched.
     """
 
-    maximum_velocity: float
+    speed_limit: float
     """
     The speed the tool may not exceed, in metres per second.
     """
@@ -248,13 +247,13 @@ class ToolVelocityExceeded(SafetyMonitor):
             variables_dot=[dof.variables.velocity for dof in degrees_of_freedom],
         )
         self.tool_speed = tool_velocity.norm()
-        return NodeArtifacts(observation=self.tool_speed > self.maximum_velocity)
+        return NodeArtifacts(observation=self.tool_speed > self.speed_limit)
 
     def describe_violation(self) -> str:
         speed = float(np.asarray(self.tool_speed.evaluate()).reshape(-1)[0])
         return (
             f"{self.tool.name} moved at {speed:.3f} m/s, faster than its limit "
-            f"{self.maximum_velocity:.3f} m/s"
+            f"{self.speed_limit:.3f} m/s"
         )
 
 
@@ -317,17 +316,12 @@ class CancelOnSafetyViolation(CancelStatechart):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class ToolSpeedLimit(Task):
+class ToolSpeedLimit(Task, HasRootLinkParameter):
     """
-    Keeps a tool slower than :attr:`maximum_velocity` relative to :attr:`root_link`,
+    Keeps a tool slower than :attr:`speed_limit` relative to :attr:`root_link`,
     weighted above collision avoidance: each axis of its velocity is held to
-    :attr:`maximum_velocity` divided by the square root of three. Not a hard
-    constraint, which a tool already moving faster could not meet in one cycle.
-    """
-
-    root_link: Body
-    """
-    The body the tool's velocity is measured against.
+    :attr:`speed_limit` divided by the square root of three. Not a hard constraint,
+    which a tool already moving faster could not meet in one cycle.
     """
 
     tool: Body
@@ -335,7 +329,7 @@ class ToolSpeedLimit(Task):
     The body held to the limit.
     """
 
-    maximum_velocity: float
+    speed_limit: float
     """
     The speed the tool stays below, in metres per second.
     """
@@ -345,7 +339,7 @@ class ToolSpeedLimit(Task):
         root_P_tool = self.context.world.compose_forward_kinematics_expression(
             self.root_link, self.tool
         ).position
-        axis_velocity = self.maximum_velocity / np.sqrt(3.0)
+        axis_velocity = self.speed_limit / np.sqrt(3.0)
         for axis, coordinate in zip(
             "xyz", (root_P_tool.x, root_P_tool.y, root_P_tool.z)
         ):
@@ -448,9 +442,9 @@ class MaximumToolVelocity(SafetyConstraint):
     A speed a tool may not exceed.
     """
 
-    root_link: Body
+    reference_frame: KinematicStructureEntity
     """
-    The body the tool's velocity is measured against.
+    The entity the tool's velocity is measured against.
     """
 
     tool: Body
@@ -458,27 +452,27 @@ class MaximumToolVelocity(SafetyConstraint):
     The body held to the limit.
     """
 
-    maximum_velocity: float
+    speed_limit: float
     """
     The speed the tool may not exceed, in metres per second.
     """
 
     held_fraction: float = 0.8
     """
-    The share of :attr:`maximum_velocity` every motion holds the tool's speed to.
+    The share of :attr:`speed_limit` every motion holds the tool's speed to.
     """
 
     def create_motion_limits(self) -> list[MotionStatechartNode]:
         """
         :return: A task holding the tool's speed to :attr:`held_fraction` of
-            :attr:`maximum_velocity`.
+            :attr:`speed_limit`.
         """
         return [
             ToolSpeedLimit(
                 name=f"{self.constraint} held",
-                root_link=self.root_link,
+                root_link=self.reference_frame,
                 tool=self.tool,
-                maximum_velocity=self.maximum_velocity * self.held_fraction,
+                speed_limit=self.speed_limit * self.held_fraction,
             )
         ]
 
@@ -486,9 +480,9 @@ class MaximumToolVelocity(SafetyConstraint):
         return ToolVelocityExceeded(
             name=self.constraint,
             constraint=self.constraint,
-            root_link=self.root_link,
+            root_link=self.reference_frame,
             tool=self.tool,
-            maximum_velocity=self.maximum_velocity,
+            speed_limit=self.speed_limit,
         )
 
 

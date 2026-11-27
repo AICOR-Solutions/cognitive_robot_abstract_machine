@@ -199,9 +199,9 @@ def test_a_tool_faster_than_its_limit_is_a_violation(
     world.state[_torso(world).dof.id].velocity = velocity
     limit = MaximumToolVelocity(
         constraint="right tool velocity",
-        root_link=world.root,
+        reference_frame=world.root,
         tool=_tool(world),
-        maximum_velocity=0.1,
+        speed_limit=0.1,
     )
     assert _observe(world, limit.create_monitor()) == expected
 
@@ -262,9 +262,9 @@ def test_a_tool_too_fast_is_described_by_its_speed_and_limit(pr2_world_state_res
     world.state[_torso(world).dof.id].velocity = 0.2
     monitor = MaximumToolVelocity(
         constraint="right tool velocity",
-        root_link=world.root,
+        reference_frame=world.root,
         tool=_tool(world),
-        maximum_velocity=0.1,
+        speed_limit=0.1,
     ).create_monitor()
     _observe(world, monitor)
     assert monitor.describe_violation() == (
@@ -324,9 +324,9 @@ def test_a_motion_is_held_below_its_tools_velocity_limit(pr2_world_state_reset):
     goal = Point3(*(start + [0.3, 0.0, 0.0]), reference_frame=world.root)
     limit = MaximumToolVelocity(
         constraint="right tool velocity",
-        root_link=world.root,
+        reference_frame=world.root,
         tool=tool,
-        maximum_velocity=0.05,
+        speed_limit=0.05,
     )
     executor = StatechartExecutor(
         context=StatechartContext(world=world), extensions=[MotionControl()]
