@@ -29,6 +29,7 @@ from semantic_digital_twin.robots.walking import (
     WalkingSenses,
 )
 from semantic_digital_twin.world_description.connections import (
+    FixedConnection,
     OmniDrive,
     RevoluteConnection,
 )
@@ -125,11 +126,14 @@ class RobotOnALeg(MinimalRobot, HasMobileBase[BaseOnALeg]):
 # %% a world with the robot
 
 
-def robot_on_a_leg_drive() -> OmniDrive:
+def robot_on_a_leg_drive(odometry_height: float = 1.0) -> OmniDrive:
     """
     :return: The drive of a box-shaped base hanging a servoed leg, whose robot walks with
         a :class:`RecordingWalkingController`. The base's box is turned within the base,
         so its principal axes differ from the base's own.
+
+    :param odometry_height: How high above the world's root the drive's odometry is
+        localized.
     """
     robot_world = World()
     with robot_world.modify_world():
@@ -178,8 +182,18 @@ def robot_on_a_leg_drive() -> OmniDrive:
     world = World()
     with world.modify_world():
         world.add_body(Body(name=PrefixedName("map")))
+        odometry = Body(name=PrefixedName("odom"))
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=odometry,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    z=odometry_height, reference_frame=world.root
+                ),
+            )
+        )
         drive = OmniDrive.create_with_dofs(
-            world=world, parent=world.root, child=robot_world.root
+            world=world, parent=odometry, child=robot_world.root
         )
         world.merge_world(robot_world, drive)
         servo = PositionServo(

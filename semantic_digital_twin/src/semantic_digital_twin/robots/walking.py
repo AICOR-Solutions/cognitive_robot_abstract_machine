@@ -12,10 +12,41 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import StrEnum
 
 import numpy
 from krrood.ormatic.utils import classproperty
 from numpy.typing import NDArray
+
+# %% how a physical simulation moves a walking base
+
+
+class PhysicalBaseMode(StrEnum):
+    """
+    How a physical simulation moves the base of a robot that walks on legs.
+
+    Holding the base is a simulation shortcut: the real robot balances on its legs all
+    the time.
+    """
+
+    FIXED = "fixed"
+    """
+    The base is held where it starts, and nothing walks it.
+    """
+
+    WALK_THEN_FIX = "walk_then_fix"
+    """
+    The walking controller walks the base to every pose it is commanded to; once the
+    base stands still there, it is held where it stands until it is commanded to walk
+    again. A base that never walks is held where it starts.
+    """
+
+    WALKING = "walking"
+    """
+    The walking controller balances the base on its legs all the time, also while it
+    stands.
+    """
+
 
 # %% what a walking controller is told
 

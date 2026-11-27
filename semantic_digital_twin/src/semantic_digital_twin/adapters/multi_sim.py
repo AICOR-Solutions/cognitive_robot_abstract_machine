@@ -48,6 +48,8 @@ from semantic_digital_twin.exceptions import (
     MujocoEntityNotFoundError,
     SimulationAlreadyRunningError,
     SimulationNotStartedError,
+    UnrepresentableHeightOfAHeldBaseError,
+    NotAWalkingRobotError,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -59,6 +61,7 @@ from krrood_spatial_math.spatial_types import (
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.walking import (
+    PhysicalBaseMode,
     PlanarVelocity,
     WalkingController,
     WalkingSenses,
@@ -2367,13 +2370,28 @@ class MujocoFloatingBase:
     The name every entity of the world is built into the model under.
     """
 
+    @property
+    def robot_name(self) -> str:
+        """
+        :return: The name of the robot the drive carries, which the model's names of the
+            base's joints and hold start with.
+        """
+        return self.drive.name.prefix or self.drive.name.name
+
     def joint_name(self, joint: FloatingBaseJoint) -> str:
         """
         :param joint: One of the joints the base floats on.
         :return: Its name in the model, after the robot the drive carries.
         """
-        robot_name = self.drive.name.prefix or self.drive.name.name
-        return f"{robot_name}_floating_base_{joint}"
+        return f"{self.robot_name}_floating_base_{joint}"
+
+    @property
+    def hold_name(self) -> str:
+        """
+        :return: The name of the motion capture body and of the weld to it that hold the
+            base where it stands, see :class:`MujocoWalking`.
+        """
+        return f"{self.robot_name}_floating_base_hold"
 
     @property
     def child_R_connection(self) -> NDArray[numpy.float64]:
@@ -2387,7 +2405,8 @@ class MujocoFloatingBase:
 
     def build(self, builder: MujocoBuilder) -> None:
         """
-        Add the joints to the body the drive carries.
+        Add the joints to the body the drive carries, and a weld to a motion capture
+        body that holds the base where it stands once activated.
 
         :param builder: The builder whose model they are added to.
         """
@@ -2412,6 +2431,25 @@ class MujocoFloatingBase:
             type=mujoco.mjtJoint.mjJNT_BALL,
             pos=position,
         )
+        builder.spec.worldbody.add_body(name=self.hold_name, mocap=True)
+        builder.spec.add_equality(
+            name=self.hold_name,
+            type=mujoco.mjtEq.mjEQ_WELD,
+            objtype=mujoco.mjtObj.mjOBJ_BODY,
+            name1=child_body_spec.name,
+            name2=self.hold_name,
+            data=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            active=False,
+            solref=self.hold_stiffness,
+        )
+
+    @classproperty
+    def hold_stiffness(cls) -> list[float]:
+        """
+        :return: The weld's time constant, in seconds, and damping ratio, as MuJoCo's
+            ``solref``: stiffer than MuJoCo's default, so a held base barely sags.
+        """
+        return [0.004, 1.0]
 
     def home_joint_positions(self, state: WorldState) -> list[float]:
         """
@@ -2473,6 +2511,10 @@ class MujocoWalking:
     A robot walking in a stepped simulation: its :class:`WalkingController` is asked
     once every control period what the legs should do, and the servos of the joints it
     drives are given its answer, while the drive's commanded velocity is what it walks.
+
+    The :attr:`mode` may hold the base where it stands instead, welded to the world with
+    the legs held where they are. That hold is a simulation shortcut, see
+    :class:`~semantic_digital_twin.robots.walking.PhysicalBaseMode`.
     """
 
     controller: WalkingController
@@ -2490,10 +2532,73 @@ class MujocoWalking:
     The simulator running the model.
     """
 
+    mode: PhysicalBaseMode = PhysicalBaseMode.WALKING
+    """
+    Whether the base walks all the time, walks and is then held, or is always held.
+    """
+
+    standstill_speed: float = 0.02
+    """
+    The speed across the floor, in metres per second, below which the base stands still.
+    """
+
+    standstill_turn: float = 0.05
+    """
+    The turning speed, in radians per second, below which the base stands still.
+    """
+
+    standstill_duration: float = 0.3
+    """
+    How long, in seconds of simulated time, the base has to stand still to be held.
+    """
+
+    standstill_time_limit: float = 3.0
+    """
+    How long, in seconds of simulated time, a base is waited for to stand still before
+    it is held anyway.
+    """
+
     next_control_time: float = field(init=False, default=0.0)
     """
     The simulated time, in seconds, at which the controller is asked next.
     """
+
+    held: bool = field(init=False, default=False)
+    """
+    Whether the base is held where it stands.
+    """
+
+    still_since: float | None = field(init=False, default=None)
+    """
+    The simulated time since which the base stands still, None while it moves.
+    """
+
+    waiting_since: float | None = field(init=False, default=None)
+    """
+    The simulated time the base was first waited for to stand still, None while it is
+    not waited for.
+    """
+
+    localization_when_built: NDArray[numpy.float64] = field(init=False)
+    """
+    The pose of the drive's odometry relative to its parent when the model was built,
+    where the model keeps it.
+    """
+
+    def __post_init__(self) -> None:
+        localization = self.drive.connection.parent.parent_connection
+        self.localization_when_built = (
+            numpy.eye(4)
+            if localization is None
+            else localization.parent_T_connection_expression.to_np()
+        )
+
+    @property
+    def floating_base(self) -> MujocoFloatingBase:
+        """
+        :return: The joints the base floats on.
+        """
+        return MujocoFloatingBase(self.drive.connection, self.drive.element_names)
 
     @property
     def driven_actuator_names(self) -> dict[str, str]:
@@ -2583,18 +2688,197 @@ class MujocoWalking:
         """
         Ask the controller what the legs should do and give the servos its answer, if a
         control period passed since it was last asked.
+
+        A held base is released first if it is commanded to walk and its :attr:`mode`
+        lets it; it is not asked while it stays held. A base that walks and is then held
+        stands while it is commanded slower than its controller walks.
         """
         model, data = self.simulator._mj_model, self.simulator._mj_data
         if data.time + model.opt.timestep / 2 < self.next_control_time:
             return
-        targets = self.controller.leg_targets(
-            self.senses(), self.drive.commanded_velocity()
-        )
+        command = self.drive.commanded_velocity()
+        if self.mode is PhysicalBaseMode.WALK_THEN_FIX:
+            walks = self.walks_at(command)
+            if self.held and walks:
+                self.release()
+            if not walks:
+                command = PlanarVelocity()
+        if self.held:
+            self.next_control_time += self.controller.control_period
+            return
+        targets = self.controller.leg_targets(self.senses(), command)
         for joint_name, actuator_name in self.driven_actuator_names.items():
             data.ctrl[
                 mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name)
             ] = targets[joint_name]
         self.next_control_time += self.controller.control_period
+
+    def walks_at(self, command: PlanarVelocity) -> bool:
+        """
+        :param command: A velocity the base is commanded to walk at.
+        :return: Whether it is at least as fast as the controller's slowest pace along
+            the floor or about the vertical.
+        """
+        pace = self.controller.pace
+        return (
+            numpy.hypot(command.forward, command.sideways) >= pace.slowest_speed
+            or abs(command.turn) >= pace.slowest_turn
+        )
+
+    def hold(self) -> None:
+        """
+        Weld the base to the world where it stands now and hold the legs the controller
+        drives where they are, and let the world take over the height the base stands
+        at, which its drive does not carry.
+
+        :raises UnrepresentableHeightOfAHeldBaseError: If the base stands at another
+            height than it was built at and its odometry is not localized by a fixed
+            connection the height can be written into.
+        """
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        floating_base = self.floating_base
+        base_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.drive.element_names.of(self.drive.connection.child),
+        )
+        hold_id = mujoco.mj_name2id(
+            model, mujoco.mjtObj.mjOBJ_BODY, floating_base.hold_name
+        )
+        mujoco.mj_kinematics(model, data)
+        data.mocap_pos[model.body_mocapid[hold_id]] = data.xpos[base_id]
+        data.mocap_quat[model.body_mocapid[hold_id]] = data.xquat[base_id]
+        data.eq_active[
+            mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_EQUALITY, floating_base.hold_name
+            )
+        ] = True
+        for joint in FloatingBaseJoint:
+            joint_id = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_JOINT, floating_base.joint_name(joint)
+            )
+            velocity_address = model.jnt_dofadr[joint_id]
+            width = 3 if joint is FloatingBaseJoint.ORIENTATION else 1
+            data.qvel[velocity_address : velocity_address + width] = 0.0
+        if self.mode is not PhysicalBaseMode.FIXED:
+            for joint_name, actuator_name in self.driven_actuator_names.items():
+                position_address, _ = self.joint_address(joint_name)
+                data.ctrl[
+                    mujoco.mj_name2id(
+                        model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name
+                    )
+                ] = data.qpos[position_address]
+        mujoco.mj_forward(model, data)
+        self.held = True
+        self.still_since = None
+        self.waiting_since = None
+        self._localize_the_odometry_at_the_held_height()
+        logger.info(
+            "Holding the pelvis of %s where it stands (a simulation shortcut).",
+            floating_base.robot_name,
+        )
+
+    def _localize_the_odometry_at_the_held_height(self) -> None:
+        """
+        Raise or lower the drive's odometry in the world by as far as the base stands
+        above or below the height it was built at.
+
+        :raises UnrepresentableHeightOfAHeldBaseError: If it has to move and is not
+            localized by a fixed connection.
+        """
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        height_address = model.jnt_qposadr[
+            mujoco.mj_name2id(
+                model,
+                mujoco.mjtObj.mjOBJ_JOINT,
+                self.floating_base.joint_name(FloatingBaseJoint.HEIGHT),
+            )
+        ]
+        localization = self.drive.connection.parent.parent_connection
+        held_localization = self.localization_when_built @ (
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=float(data.qpos[height_address])
+            ).to_np()
+        )
+        if localization is not None and numpy.allclose(
+            localization.parent_T_connection_expression.to_np(),
+            held_localization,
+            atol=1e-6,
+        ):
+            return
+        if not isinstance(localization, FixedConnection):
+            raise UnrepresentableHeightOfAHeldBaseError(
+                robot_name=self.floating_base.robot_name
+            )
+        world = self.drive.world
+        with world.modify_world():
+            localization.parent_T_connection_expression = (
+                HomogeneousTransformationMatrix(
+                    held_localization, reference_frame=localization.parent
+                )
+            )
+
+    def release(self) -> None:
+        """
+        Let go of the base held by :meth:`hold`, so its controller balances it on its
+        legs again, starting afresh.
+        """
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        data.eq_active[
+            mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_EQUALITY, self.floating_base.hold_name
+            )
+        ] = False
+        self.controller.reset()
+        self.next_control_time = float(data.time)
+        self.held = False
+        logger.info(
+            "Releasing the pelvis of %s to walk.", self.floating_base.robot_name
+        )
+
+    def hold_when_still(self) -> bool:
+        """
+        Hold the base once it has stood still for :attr:`standstill_duration`, or once
+        it was waited for longer than :attr:`standstill_time_limit`.
+
+        :return: Whether the base is held.
+        """
+        if self.held:
+            return True
+        model, data = self.simulator._mj_model, self.simulator._mj_data
+        now = float(data.time)
+        if self.waiting_since is None:
+            self.waiting_since = now
+        base_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.drive.element_names.of(self.drive.connection.child),
+        )
+        velocity = numpy.zeros(6)
+        mujoco.mj_objectVelocity(
+            model, data, mujoco.mjtObj.mjOBJ_BODY, base_id, velocity, 0
+        )
+        still = (
+            numpy.linalg.norm(velocity[3:5]) < self.standstill_speed
+            and abs(velocity[2]) < self.standstill_turn
+        )
+        if not still:
+            self.still_since = None
+        elif self.still_since is None:
+            self.still_since = now
+        if (
+            self.still_since is not None
+            and now - self.still_since >= self.standstill_duration
+        ):
+            self.hold()
+        elif now - self.waiting_since >= self.standstill_time_limit:
+            logger.warning(
+                "The pelvis of %s did not stand still within %s s; holding it anyway.",
+                self.floating_base.robot_name,
+                self.standstill_time_limit,
+            )
+            self.hold()
+        return self.held
 
 
 @dataclass
@@ -5077,9 +5361,23 @@ class MujocoSim(MultiSim):
     :meth:`start_stepped_simulation`.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    walking_mode: PhysicalBaseMode
+    """
+    How the base of every robot that walks on legs is moved.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        walking_mode: PhysicalBaseMode = PhysicalBaseMode.WALKING,
+        **kwargs: Any,
+    ):
+        """
+        :param walking_mode: How the base of every robot that walks on legs is moved.
+        """
         super().__init__(*args, **kwargs)
         self.walking = []
+        self.walking_mode = walking_mode
 
     def start_stepped_simulation(self) -> None:
         """
@@ -5092,7 +5390,9 @@ class MujocoSim(MultiSim):
 
         Every servo is handed the position its joint currently holds in the world, so
         nothing rushes towards zero the moment the physics starts. A robot that walks
-        stands in its walking controller's standing posture, see :class:`MujocoWalking`.
+        stands in its walking controller's standing posture, see :class:`MujocoWalking`,
+        and is held where it stands unless :attr:`walking_mode` walks it all the time; a
+        fixed one keeps the posture the world gives its legs.
 
         :raises SimulationAlreadyRunningError: If the simulation is already running.
         """
@@ -5102,10 +5402,15 @@ class MujocoSim(MultiSim):
         self.simulator.start(simulate_in_thread=False, render_in_thread=False)
         self.walking = self._create_walking()
         for walking in self.walking:
+            if self.walking_mode is PhysicalBaseMode.FIXED:
+                walking.hold()
+                continue
             walking.stand()
             self.synchronizer.walking_actuator_names |= set(
                 walking.driven_actuator_names.values()
             )
+            if self.walking_mode is PhysicalBaseMode.WALK_THEN_FIX:
+                walking.hold()
         self.synchronizer.command_actuators_from_world_state()
         if self.walking:
             self.synchronizer.read_simulation_into_world()
@@ -5132,8 +5437,24 @@ class MujocoSim(MultiSim):
             controller_type = drive.walking_controller_type
             if controller_type is None:
                 continue
-            walking.append(MujocoWalking(controller_type(), drive, self.simulator))
+            walking.append(
+                MujocoWalking(
+                    controller_type(), drive, self.simulator, mode=self.walking_mode
+                )
+            )
         return walking
+
+    def walking_robot_rooted_at(self, root: KinematicStructureEntity) -> MujocoWalking:
+        """
+        :param root: The root of a robot that walks on legs in this simulation.
+        :return: The robot's walking.
+        :raises NotAWalkingRobotError: If no robot of this simulation that walks has
+            that root.
+        """
+        for walking in self.walking:
+            if walking.drive.connection.child is root:
+                return walking
+        raise NotAWalkingRobotError(root_name=str(root.name))
 
     def step_simulation(self, duration: timedelta) -> None:
         """

@@ -13,7 +13,11 @@ import numpy as np
 import pytest
 
 from cramph.executor import SteppedSimulationPacer
-from semantic_digital_twin.robots.walking import PlanarVelocity, WalkingSenses
+from semantic_digital_twin.robots.walking import (
+    PhysicalBaseMode,
+    PlanarVelocity,
+    WalkingSenses,
+)
 
 from ...dataset.robots_on_legs import RecordingWalkingController, robot_on_a_leg_drive
 from ...pytest_environment import runs_in_continuous_integration
@@ -24,6 +28,7 @@ from semantic_digital_twin.adapters.multi_sim import (
     MujocoBuilder,
     MujocoFloatingBase,
     MujocoSim,
+    MujocoWalking,
 )
 
 needs_mujoco_in_ci = pytest.mark.skipif(
@@ -41,6 +46,30 @@ def drive_on_a_leg() -> OmniDrive:
 @pytest.fixture
 def walking_simulation(drive_on_a_leg):
     simulation = MujocoSim(world=drive_on_a_leg._world, headless=True)
+    simulation.start_stepped_simulation()
+    yield simulation
+    simulation.stop_simulation()
+
+
+@pytest.fixture
+def walk_then_fix_simulation(drive_on_a_leg):
+    simulation = MujocoSim(
+        world=drive_on_a_leg._world,
+        headless=True,
+        walking_mode=PhysicalBaseMode.WALK_THEN_FIX,
+    )
+    simulation.start_stepped_simulation()
+    yield simulation
+    simulation.stop_simulation()
+
+
+@pytest.fixture
+def fixed_simulation(drive_on_a_leg):
+    simulation = MujocoSim(
+        world=drive_on_a_leg._world,
+        headless=True,
+        walking_mode=PhysicalBaseMode.FIXED,
+    )
     simulation.start_stepped_simulation()
     yield simulation
     simulation.stop_simulation()
@@ -218,3 +247,186 @@ def test_a_robot_counts_as_still_while_its_walking_legs_keep_stepping(
 
     waited = walking_simulation.simulator.current_simulation_time - started
     assert waited < 1.0
+
+
+# %% holding the base where it stands
+
+
+def _walking(simulation: MujocoSim) -> MujocoWalking:
+    [walking] = simulation.walking
+    return walking
+
+
+def _pelvis_position(simulation: MujocoSim) -> np.ndarray:
+    """
+    :return: Where the pelvis of the walking robot is in the physics now.
+    """
+    walking = _walking(simulation)
+    data = simulation.simulator._mj_data
+    return data.body(
+        walking.drive.element_names.of(walking.drive.connection.child)
+    ).xpos.copy()
+
+
+def _command_walking(simulation: MujocoSim, forward: float) -> None:
+    world = simulation.world
+    drive = _walking(simulation).drive.connection
+    world.state[drive.x_velocity.id].velocity = forward
+    world.notify_state_change()
+
+
+@needs_mujoco_in_ci
+def test_a_walking_base_is_built_with_a_hold_that_starts_released(drive_on_a_leg):
+    simulation = MujocoSim(world=drive_on_a_leg._world, headless=True)
+    simulation.start_stepped_simulation()
+    walking = _walking(simulation)
+    model = simulation.simulator._mj_model
+    data = simulation.simulator._mj_data
+    hold_name = MujocoFloatingBase(
+        drive_on_a_leg, walking.drive.element_names
+    ).hold_name
+
+    assert model.equality(hold_name).type == mujoco.mjtEq.mjEQ_WELD
+    assert not data.eq_active[model.equality(hold_name).id]
+    assert not walking.held
+    simulation.stop_simulation()
+
+
+@needs_mujoco_in_ci
+def test_a_base_that_walks_then_stands_is_held_from_the_start(
+    walk_then_fix_simulation,
+):
+    """
+    Nothing stands under the robot, so a base that was not held would fall.
+    """
+    started_at = _pelvis_position(walk_then_fix_simulation)
+
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.5))
+
+    assert _walking(walk_then_fix_simulation).held
+    assert _pelvis_position(walk_then_fix_simulation) == pytest.approx(
+        started_at, abs=1e-3
+    )
+
+
+@needs_mujoco_in_ci
+def test_a_held_base_stands_in_the_controllers_standing_posture_unasked(
+    walk_then_fix_simulation,
+):
+    world = walk_then_fix_simulation.world
+    controller = _controller(walk_then_fix_simulation)
+
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.5))
+
+    assert controller.calls == []
+    assert world.state[world.get_connection_by_name("leg").raw_dof.id].position == (
+        pytest.approx(controller.standing_posture["leg"], abs=0.02)
+    )
+
+
+@needs_mujoco_in_ci
+def test_a_held_base_is_released_once_commanded_to_walk(walk_then_fix_simulation):
+    controller = _controller(walk_then_fix_simulation)
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
+
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.1))
+
+    assert not _walking(walk_then_fix_simulation).held
+    assert controller.calls[-1][1].forward == controller.pace.slowest_speed
+
+
+@needs_mujoco_in_ci
+def test_a_held_base_stays_held_while_commanded_slower_than_it_walks(
+    walk_then_fix_simulation,
+):
+    controller = _controller(walk_then_fix_simulation)
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed / 2)
+
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.1))
+
+    assert _walking(walk_then_fix_simulation).held
+
+
+@needs_mujoco_in_ci
+def test_a_released_base_stands_while_commanded_slower_than_it_walks(
+    walk_then_fix_simulation,
+):
+    controller = _controller(walk_then_fix_simulation)
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.05))
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed / 2)
+
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.05))
+
+    assert controller.calls[-1][1].to_array() == pytest.approx([0.0, 0.0, 0.0])
+
+
+@needs_mujoco_in_ci
+def test_a_held_base_lends_its_height_to_the_world(walk_then_fix_simulation):
+    """
+    The drive carries no height, so the world takes the height the base was held at from
+    the physics.
+    """
+    controller = _controller(walk_then_fix_simulation)
+    walking = _walking(walk_then_fix_simulation)
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
+    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.2))
+    _command_walking(walk_then_fix_simulation, 0.0)
+
+    walking.hold()
+
+    pelvis = walking.drive.connection.child
+    assert pelvis.global_pose.to_np()[:3, 3] == pytest.approx(
+        _pelvis_position(walk_then_fix_simulation), abs=1e-4
+    )
+
+
+@needs_mujoco_in_ci
+def test_a_released_base_is_held_once_it_stood_still_long_enough(
+    walk_then_fix_simulation,
+):
+    """
+    Without gravity, the released base floats still on the spot.
+    """
+    walk_then_fix_simulation.simulator._mj_model.opt.gravity[:] = 0.0
+    controller = _controller(walk_then_fix_simulation)
+    controller.leg_target = controller.standing_posture["leg"]
+    walking = _walking(walk_then_fix_simulation)
+    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
+    walk_then_fix_simulation.step_simulation(timedelta(milliseconds=20))
+    _command_walking(walk_then_fix_simulation, 0.0)
+    data = walk_then_fix_simulation.simulator._mj_data
+    data.qvel[:] = 0.0
+    held_at = []
+    while not walking.hold_when_still():
+        walk_then_fix_simulation.step_simulation(timedelta(milliseconds=10))
+        held_at.append(data.time)
+
+    assert walking.held
+    assert len(held_at) == pytest.approx(walking.standstill_duration / 0.01, abs=2)
+
+
+@needs_mujoco_in_ci
+def test_a_fixed_base_is_held_where_it_starts_and_never_walks(fixed_simulation):
+    controller = _controller(fixed_simulation)
+    started_at = _pelvis_position(fixed_simulation)
+    _command_walking(fixed_simulation, controller.pace.fastest_speed)
+
+    fixed_simulation.step_simulation(timedelta(seconds=0.5))
+
+    assert _walking(fixed_simulation).held
+    assert controller.calls == []
+    assert _pelvis_position(fixed_simulation) == pytest.approx(started_at, abs=1e-3)
+
+
+@needs_mujoco_in_ci
+def test_the_legs_of_a_fixed_base_follow_the_world(fixed_simulation):
+    world = fixed_simulation.world
+    leg = world.get_connection_by_name("leg").raw_dof
+    world.state[leg.id].position = -0.4
+    world.notify_state_change()
+
+    fixed_simulation.step_simulation(timedelta(seconds=1.0))
+
+    assert fixed_simulation.walking_actuator_names == set()
+    assert world.state[leg.id].position == pytest.approx(-0.4, abs=0.02)

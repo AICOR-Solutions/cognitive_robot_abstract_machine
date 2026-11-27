@@ -2550,6 +2550,54 @@ class SimulationNotStartedError(UsageError):
 
 
 @dataclass
+class UnrepresentableHeightOfAHeldBaseError(UsageError):
+    """
+    Raised when the base of a walking robot is held at another height than it was built
+    at, and the world cannot take that height over.
+    """
+
+    robot_name: str
+    """
+    Name of the robot whose base is held.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The base of {self.robot_name} is held at another height than it was "
+            "built at, but its drive's odometry is not localized by a fixed "
+            "connection the height could be written into."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Attach the drive's odometry to its parent by a fixed connection, as "
+            "RobotSpecification.spawn does."
+        )
+
+
+@dataclass
+class NotAWalkingRobotError(UsageError):
+    """
+    Raised when a simulation is asked for the walking of a robot that does not walk in
+    it.
+    """
+
+    root_name: str
+    """
+    Name of the root of the robot asked for.
+    """
+
+    def error_message(self) -> str:
+        return f"No robot rooted at {self.root_name} walks on legs in this simulation."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Ask only for robots whose mobile base names a walking controller, in a "
+            "simulation started with start_stepped_simulation."
+        )
+
+
+@dataclass
 class SimulationAlreadyRunningError(UsageError):
     """
     Raised when a simulation is started while it is already running.
