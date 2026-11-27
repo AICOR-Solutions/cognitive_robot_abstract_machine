@@ -13,7 +13,6 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 )
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
 from semantic_digital_twin.robots.robot_parts import (
-    AbstractRobotPart,
     Arm,
     EndEffector,
 )
@@ -249,24 +248,10 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
             for part in [self.robot.get_torso_if_specified(), *self.robot.all_necks]
             if part is not None and part.has_joint_state_of_type(StaticJointState.PARK)
         ]
-        return self._joint_state_of_parts(
-            [*self.arms, *parked_body_parts], StaticJointState.PARK
-        )
-
-    @staticmethod
-    def _joint_state_of_parts(
-        parts: list[AbstractRobotPart], state_type: StaticJointState
-    ) -> JointState:
-        """
-        :param parts: Robot parts that each declare a joint state of `state_type`.
-        :param state_type: The joint state to put the parts into.
-        :return: One joint state putting every part into its joint state of
-            `state_type`.
-        """
         connections = []
         target_values = []
-        for part in parts:
-            joint_state = part.get_joint_state_by_type(state_type)
+        for part in [*self.arms, *parked_body_parts]:
+            joint_state = part.get_joint_state_by_type(StaticJointState.PARK)
             connections.extend(joint_state.connections)
             target_values.extend(joint_state.target_values)
         return JointState(connections=connections, target_values=target_values)
