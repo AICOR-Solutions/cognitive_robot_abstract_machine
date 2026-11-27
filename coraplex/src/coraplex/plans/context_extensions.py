@@ -8,6 +8,7 @@ from krrood.entity_query_language.backends import (
     EntityQueryLanguageGenerativeBackend,
     QueryBackend,
 )
+from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world_description.world_entity import (
@@ -79,4 +80,19 @@ class WalkingBasesStand(ContextExtension):
     Lets the base of a robot that walks on legs stand while an action keeps the base
     still, instead of holding it at the pose it started at: a physically balanced base
     sways, and holding its pose would step it about every time.
+    """
+
+
+@dataclass
+class WalkingBasesHeld(ContextExtension):
+    """
+    Holds the base of a robot that walks on legs where it stands once it walked there,
+    in a physical simulation, see
+    :attr:`~semantic_digital_twin.robots.walking.PhysicalBaseMode.WALK_THEN_FIX`. The
+    hold is a simulation shortcut: the real robot keeps balancing on its legs.
+    """
+
+    simulation: MujocoSim
+    """
+    The physical simulation holding the bases.
     """

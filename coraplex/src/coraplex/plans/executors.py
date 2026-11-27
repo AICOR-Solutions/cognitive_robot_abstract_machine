@@ -8,6 +8,7 @@ from datetime import timedelta
 from rclpy.node import Node
 from typing_extensions import TYPE_CHECKING
 
+from semantic_digital_twin.robots.walking import PhysicalBaseMode
 from coraplex.exceptions import (
     DebuggingWithoutRosNode,
     MotionDidNotFinish,
@@ -16,6 +17,7 @@ from coraplex.exceptions import (
 from coraplex.plans.context_extensions import (
     RobotAccess,
     StatementGrounding,
+    WalkingBasesHeld,
     WalkingBasesStand,
 )
 from coraplex.plans.failures import (
@@ -35,6 +37,7 @@ from coraplex.robot_plans.plan_transformations import (
     LetContactCarryTheBodies,
     SqueezeThePinch,
     MoveStraightNearTheObject,
+    HoldTheBaseOnceItStands,
     WalkTheBaseOnItsLegs,
     WriteTheOdometryInsteadOfCommandingAPose,
 )
@@ -541,6 +544,7 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
             SqueezeThePinch(),
             CheckThatTheObjectRisesWithTheHand(),
             WalkTheBaseOnItsLegs(),
+            HoldTheBaseOnceItStands(),
         ],
         kw_only=True,
     )
@@ -568,9 +572,18 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
     def default_context_extensions(self) -> list[ContextExtension]:
         """
         Differs from :meth:`PlanExecutor.default_context_extensions` in letting a base
-        that walks on legs stand, see :class:`WalkingBasesStand`.
+        that walks on legs stand, see :class:`WalkingBasesStand`, where the simulation
+        walks it all the time, and holding it once it walked, see
+        :class:`WalkingBasesHeld`, where the simulation walks it and then holds it.
         """
-        return [*super().default_context_extensions(), WalkingBasesStand()]
+        match self.simulation.walking_mode:
+            case PhysicalBaseMode.WALKING:
+                walking_bases = [WalkingBasesStand()]
+            case PhysicalBaseMode.WALK_THEN_FIX:
+                walking_bases = [WalkingBasesHeld(self.simulation)]
+            case PhysicalBaseMode.FIXED:
+                walking_bases = []
+        return [*super().default_context_extensions(), *walking_bases]
 
     def _squeeze_of_the_grippers(self) -> float:
         """

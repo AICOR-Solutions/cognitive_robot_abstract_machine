@@ -46,6 +46,8 @@ from coraplex.robot_plans.actions.core.robot_body import (
     ParkArmsAction,
 )
 from coraplex.plans.held_objects import ObjectRisesWithTheHand
+from coraplex.plans.held_bases import BaseHeldWhereItStands
+from coraplex.plans.context_extensions import WalkingBasesHeld
 from coraplex.robot_plans.mixins import MovesToolCenterPoint, ReattachesBranches
 from cramph.composites import Sequence, StatementNode
 from cramph.node import StatechartNode
@@ -638,6 +640,34 @@ class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
             plan_node.base_pose_threshold,
             plan_node.robot.mobile_base.walking_controller_type.pace.arrival_tolerance,
         )
+
+
+@dataclass
+class HoldTheBaseOnceItStands(SequentialInsertion[DrivesBase]):
+    """
+    Waits, after a robot that walks on legs walked to a pose, until the simulation holds
+    its base where it stands, so the next action starts from the held pose; only where
+    the context holds walking bases, see :class:`WalkingBasesHeld`.
+    """
+
+    @property
+    def position(self) -> InsertionPosition:
+        return InsertionPosition.AFTER
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        robot = plan_node.robot
+        return (
+            plan_node.context.get_extension(WalkingBasesHeld) is not None
+            and isinstance(robot, HasMobileBase)
+            and robot.mobile_base is not None
+            and robot.mobile_base.walking_controller_type is not None
+        )
+
+    def anchor(self, plan_node: DrivesBase) -> StatechartNode:
+        return plan_node
+
+    def nodes_to_insert(self, plan_node: DrivesBase) -> list[StatechartNode]:
+        return [BaseHeldWhereItStands(robot_root=plan_node.robot.root)]
 
 
 # %% detecting with the real robot's perception

@@ -9,6 +9,8 @@ regenerate_orm_interfaces()
 
 
 from dataclasses import dataclass, field
+
+from semantic_digital_twin.robots.walking import PhysicalBaseMode
 from datetime import timedelta
 from functools import partial
 
@@ -294,6 +296,11 @@ class SimulationThatCountsItsSteps:
     world: World = field(default_factory=World)
     """
     The world it simulates, without a servo, so nothing is waited for to settle.
+    """
+
+    walking_mode: PhysicalBaseMode = PhysicalBaseMode.WALKING
+    """
+    How it moves the base of a robot that walks on legs.
     """
 
     def step_simulation(self, duration: timedelta) -> None:
