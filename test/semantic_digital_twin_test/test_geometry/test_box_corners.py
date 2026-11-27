@@ -67,16 +67,16 @@ def test_a_box_gives_its_coordinates_as_bounds_that_clip_segments(box):
 
 
 def test_a_segment_through_the_bounds_is_clipped_to_the_part_inside():
-    bounds = CoordinateBounds(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+    bounds = CoordinateBounds(lower=np.array([0.0, 0.0]), upper=np.array([1.0, 1.0]))
     start = np.array([-1.0, 0.5])
     direction = np.array([4.0, 0.0])
     assert bounds.clip_segment(start, direction) == SimpleInterval.from_data(
-        0.25, 0.5, Bound.CLOSED, Bound.CLOSED
+        lower=0.25, upper=0.5, left=Bound.CLOSED, right=Bound.CLOSED
     )
 
 
 def test_a_segment_that_misses_the_bounds_is_not_clipped():
-    bounds = CoordinateBounds(np.array([0.0, 0.0]), np.array([1.0, 1.0]))
+    bounds = CoordinateBounds(lower=np.array([0.0, 0.0]), upper=np.array([1.0, 1.0]))
     start = np.array([-1.0, 2.0])
     direction = np.array([4.0, 0.0])
     assert bounds.clip_segment(start, direction) is None

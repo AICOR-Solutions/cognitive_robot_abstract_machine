@@ -1,3 +1,7 @@
+"""
+The Tracy robot: its topics, controllers, joints, grippers and other robot parts.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -9,7 +13,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing_extensions import Self
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 
 
 from semantic_digital_twin.collision_checking.collision_rules import (
@@ -282,7 +286,7 @@ class TracyLeftGripper(
         return TracyParallelGripperCommandTopic.LEFT_GRIPPER
 
     @property
-    def commanded_joint(self) -> ActiveConnection1DOF:
+    def commanded_connection(self) -> ActiveConnection1DOF:
         return self.knuckle_joint
 
     def setup_hardware_interfaces(self) -> None:
@@ -347,7 +351,7 @@ class TracyRightGripper(
         return TracyParallelGripperCommandTopic.RIGHT_GRIPPER
 
     @property
-    def commanded_joint(self) -> ActiveConnection1DOF:
+    def commanded_connection(self) -> ActiveConnection1DOF:
         return self.knuckle_joint
 
     def setup_hardware_interfaces(self) -> None:

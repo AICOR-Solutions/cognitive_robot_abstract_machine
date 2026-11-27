@@ -1,3 +1,7 @@
+"""
+Causal queries answered by the probabilistic backend.
+"""
+
 import math
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -20,7 +24,7 @@ from random_events.interval import closed
 from random_events.set import Set
 from random_events.variable import Continuous, Symbolic
 
-from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.parametrization.probabilistic_backend import ProbabilisticBackend
 from krrood.entity_query_language.exceptions import (
     NoCauseVariablesForRanking,
     NoCausesEffectConditionForCause,
@@ -43,7 +47,7 @@ class Outcome(Enum):
     FAILURE = auto()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Pick:
     arm: float
     outcome: Outcome
@@ -62,8 +66,8 @@ def _build_two_region_causal_circuit() -> tuple:
     `a(Pick)(arm=cause, ...).causes_effect(outcome == Outcome.SUCCESS)` should
     therefore only ever return instances with `arm` in `[2, 3]`.
     """
-    arm = Continuous("Pick.arm")
-    outcome = Symbolic("Pick.outcome", domain=Set.from_iterable(Outcome))
+    arm = Continuous(name="Pick.arm")
+    outcome = Symbolic(name="Pick.outcome", domain=Set.from_iterable(iterable=Outcome))
     circuit = ProbabilisticCircuit()
     root = SumUnit(probabilistic_circuit=circuit)
     for arm_range, outcome_value in [
@@ -99,7 +103,7 @@ def _build_two_region_causal_circuit() -> tuple:
     return causal_circuit, arm, outcome
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TwoCauseCandidatesCircuit:
     """
     A causal circuit with two cause candidates of unequal explanatory strength for the
@@ -136,9 +140,9 @@ def _build_two_cause_candidates_circuit() -> TwoCauseCandidatesCircuit:
     `P(outcome == SUCCESS | do(uninformative in [0, 2]))` stays at the prior, 0.5.
     `decisive` should therefore always win as the primary cause.
     """
-    decisive = Continuous("Pick.arm")
-    uninformative = Continuous("Pick.grip")
-    outcome = Symbolic("Pick.outcome", domain=Set.from_iterable(Outcome))
+    decisive = Continuous(name="Pick.arm")
+    uninformative = Continuous(name="Pick.grip")
+    outcome = Symbolic(name="Pick.outcome", domain=Set.from_iterable(iterable=Outcome))
     circuit = ProbabilisticCircuit()
     root = SumUnit(probabilistic_circuit=circuit)
     for decisive_range, outcome_value in [
@@ -179,7 +183,12 @@ def _build_two_cause_candidates_circuit() -> TwoCauseCandidatesCircuit:
         [decisive, uninformative],
         [outcome],
     )
-    return TwoCauseCandidatesCircuit(causal_circuit, decisive, uninformative, outcome)
+    return TwoCauseCandidatesCircuit(
+        causal_circuit=causal_circuit,
+        decisive_cause=decisive,
+        uninformative_cause=uninformative,
+        outcome=outcome,
+    )
 
 
 # %% error handling
@@ -199,7 +208,7 @@ def test_raises_when_cause_has_no_causes_effect_condition():
     match = a(Pick)(arm=cause, outcome=...)
 
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Pick: causal_circuit})
     )
     with pytest.raises(NoCausesEffectConditionForCause):
         list(match.evaluate(backend=backend))
@@ -214,7 +223,7 @@ def test_results_satisfy_the_causes_effect_condition():
     match.causes_effect(match.outcome == Outcome.SUCCESS)
 
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: causal_circuit}),
+        model_registry=CausalCircuitRegistry(circuits={Pick: causal_circuit}),
         number_of_samples=10,
     )
     results = list(match.evaluate(backend=backend))
@@ -241,7 +250,7 @@ def test_results_land_in_the_intervention_region_that_causes_the_effect():
     match.causes_effect(match.outcome == Outcome.SUCCESS)
 
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: causal_circuit}),
+        model_registry=CausalCircuitRegistry(circuits={Pick: causal_circuit}),
         number_of_samples=10,
     )
     results = list(match.evaluate(backend=backend))
@@ -263,7 +272,7 @@ def test_pipeline_reproduces_directly_computed_backdoor_adjustment_and_best_regi
     match = a(Pick)(arm=cause, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
 
-    parameters = UnderspecifiedParameters(match)
+    parameters = UnderspecifiedParameters(statement=match)
     [cause_variable] = parameters.search_cause_variables
     [effect_variable] = parameters.effect_variables_from_causes_effect
     assert cause_variable == arm
@@ -279,28 +288,32 @@ def test_pipeline_reproduces_directly_computed_backdoor_adjustment_and_best_regi
         cause_variable, effect_truncated
     )
     expected_narrowed = effect_truncated.truncated(
-        expected_best_region.fill_missing_variables_pure(effect_truncated.variables)
+        expected_best_region.fill_missing_variables_pure(
+            variables=effect_truncated.variables
+        )
     ).distribution
 
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: causal_circuit}),
+        model_registry=CausalCircuitRegistry(circuits={Pick: causal_circuit}),
         number_of_samples=1,
     )
     scored = backend._score_intervention(
-        causal_circuit,
-        cause_variable,
-        effect_variable,
-        parameters.truncation_assignments_from_where_conditions,
+        model=causal_circuit,
+        cause_variable=cause_variable,
+        effect_variable=effect_variable,
+        effect_truncation_event=parameters.truncation_assignments_from_where_conditions,
     )
 
     assert scored.cause_variable == cause_variable
     assert scored.narrowed_circuit.probability(
         expected_best_region.fill_missing_variables_pure(
-            scored.narrowed_circuit.variables
+            variables=scored.narrowed_circuit.variables
         )
     ) == pytest.approx(1.0)
     assert expected_narrowed.probability(
-        expected_best_region.fill_missing_variables_pure(expected_narrowed.variables)
+        expected_best_region.fill_missing_variables_pure(
+            variables=expected_narrowed.variables
+        )
     ) == pytest.approx(1.0)
 
 
@@ -319,16 +332,16 @@ def test_multiple_cause_candidates_selects_the_decisive_one_as_primary():
     match = a(Pick)(arm=cause, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
 
-    parameters = UnderspecifiedParameters(match)
+    parameters = UnderspecifiedParameters(statement=match)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: circuit.causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Pick: circuit.causal_circuit})
     )
     primary = backend._resolve_primary_intervention(
-        circuit.causal_circuit,
-        [circuit.decisive_cause, circuit.uninformative_cause],
-        circuit.outcome,
-        parameters.truncation_assignments_from_where_conditions,
-        match,
+        model=circuit.causal_circuit,
+        cause_variables=[circuit.decisive_cause, circuit.uninformative_cause],
+        effect_variable=circuit.outcome,
+        effect_truncation_event=parameters.truncation_assignments_from_where_conditions,
+        expression=match,
     )
 
     assert primary.cause_variable == circuit.decisive_cause
@@ -339,22 +352,22 @@ def test_the_uninformative_candidate_scores_lower_than_the_decisive_one():
     circuit = _build_two_cause_candidates_circuit()
     match = a(Pick)(arm=cause, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
-    parameters = UnderspecifiedParameters(match)
+    parameters = UnderspecifiedParameters(statement=match)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: circuit.causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Pick: circuit.causal_circuit})
     )
 
     decisive_score = backend._score_intervention(
-        circuit.causal_circuit,
-        circuit.decisive_cause,
-        circuit.outcome,
-        parameters.truncation_assignments_from_where_conditions,
+        model=circuit.causal_circuit,
+        cause_variable=circuit.decisive_cause,
+        effect_variable=circuit.outcome,
+        effect_truncation_event=parameters.truncation_assignments_from_where_conditions,
     )
     uninformative_score = backend._score_intervention(
-        circuit.causal_circuit,
-        circuit.uninformative_cause,
-        circuit.outcome,
-        parameters.truncation_assignments_from_where_conditions,
+        model=circuit.causal_circuit,
+        cause_variable=circuit.uninformative_cause,
+        effect_variable=circuit.outcome,
+        effect_truncation_event=parameters.truncation_assignments_from_where_conditions,
     )
 
     assert (
@@ -369,7 +382,7 @@ def test_multiple_effect_variables_are_rejected():
     match.causes_effect(match.outcome == Outcome.SUCCESS, match.arm == 2.5)
 
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Pick: causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Pick: causal_circuit})
     )
     with pytest.raises(MultipleEffectVariablesNotSupported) as excinfo:
         list(match.evaluate(backend=backend))
@@ -379,7 +392,7 @@ def test_multiple_effect_variables_are_rejected():
 # %% rank_causes
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PickAttempt:
     arm: float
     grip: float
@@ -393,9 +406,11 @@ def _build_pick_attempt_ranking_circuit() -> TwoCauseCandidatesCircuit:
     :class:`PickAttempt` instead of :class:`Pick` so `rank_causes` tests can query both
     candidates through a real match without touching `Pick`'s own widely-reused fixture.
     """
-    decisive = Continuous("PickAttempt.arm")
-    uninformative = Continuous("PickAttempt.grip")
-    outcome = Symbolic("PickAttempt.outcome", domain=Set.from_iterable(Outcome))
+    decisive = Continuous(name="PickAttempt.arm")
+    uninformative = Continuous(name="PickAttempt.grip")
+    outcome = Symbolic(
+        name="PickAttempt.outcome", domain=Set.from_iterable(iterable=Outcome)
+    )
     circuit = ProbabilisticCircuit()
     root = SumUnit(probabilistic_circuit=circuit)
     for decisive_range, outcome_value in [
@@ -436,7 +451,12 @@ def _build_pick_attempt_ranking_circuit() -> TwoCauseCandidatesCircuit:
         [decisive, uninformative],
         [outcome],
     )
-    return TwoCauseCandidatesCircuit(causal_circuit, decisive, uninformative, outcome)
+    return TwoCauseCandidatesCircuit(
+        causal_circuit=causal_circuit,
+        decisive_cause=decisive,
+        uninformative_cause=uninformative,
+        outcome=outcome,
+    )
 
 
 def test_rank_causes_returns_every_candidate_ranked_highest_first():
@@ -444,10 +464,12 @@ def test_rank_causes_returns_every_candidate_ranked_highest_first():
     match = a(PickAttempt)(arm=cause, grip=cause, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit})
+        model_registry=CausalCircuitRegistry(
+            circuits={PickAttempt: circuit.causal_circuit}
+        )
     )
 
-    ranking = backend.rank_causes(match)
+    ranking = backend.rank_causes(expression=match)
 
     assert [scored.cause_variable for scored in ranking] == [
         circuit.decisive_cause,
@@ -467,11 +489,13 @@ def test_rank_causes_does_not_change_the_result_of_evaluate():
     match = a(PickAttempt)(arm=cause, grip=cause, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({PickAttempt: circuit.causal_circuit}),
+        model_registry=CausalCircuitRegistry(
+            circuits={PickAttempt: circuit.causal_circuit}
+        ),
         number_of_samples=10,
     )
 
-    ranking = backend.rank_causes(match)
+    ranking = backend.rank_causes(expression=match)
     results = list(match.evaluate(backend=backend))
 
     assert ranking[0].cause_variable == circuit.decisive_cause
@@ -481,15 +505,15 @@ def test_rank_causes_does_not_change_the_result_of_evaluate():
 
 def test_rank_causes_rejects_a_match_with_no_cause_fields():
     match = a(PickAttempt)(arm=..., grip=..., outcome=...)
-    backend = ProbabilisticBackend(model_registry=CausalCircuitRegistry({}))
+    backend = ProbabilisticBackend(model_registry=CausalCircuitRegistry(circuits={}))
     with pytest.raises(NoCauseVariablesForRanking):
-        backend.rank_causes(match)
+        backend.rank_causes(expression=match)
 
 
 # %% whole-query verbalization
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CalibrationAttempt:
     setting: float
     calibrated: bool
@@ -553,7 +577,7 @@ class Treatment(Enum):
     HIGH = auto()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Trial:
     treatment: Treatment
     season: Season
@@ -575,9 +599,11 @@ def _build_confounded_trial_circuit() -> CausalCircuit:
             for season; equal for treatment=LOW too, since treatment has no real
             effect on outcome.
     """
-    season = Symbolic("Trial.season", domain=Set.from_iterable(Season))
-    treatment = Symbolic("Trial.treatment", domain=Set.from_iterable(Treatment))
-    outcome = Symbolic("Trial.outcome", domain=Set.from_iterable(Outcome))
+    season = Symbolic(name="Trial.season", domain=Set.from_iterable(iterable=Season))
+    treatment = Symbolic(
+        name="Trial.treatment", domain=Set.from_iterable(iterable=Treatment)
+    )
+    outcome = Symbolic(name="Trial.outcome", domain=Set.from_iterable(iterable=Outcome))
 
     circuit = ProbabilisticCircuit()
     root = SumUnit(probabilistic_circuit=circuit)
@@ -641,10 +667,10 @@ def test_rank_causes_without_confounder_matches_conditioning():
     match = a(Trial)(treatment=cause, season=..., outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Trial: causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Trial: causal_circuit})
     )
 
-    [scored] = backend.rank_causes(match)
+    [scored] = backend.rank_causes(expression=match)
 
     # No confounder declared: this is the same confounded 0.8 conditioning would
     # give, not the causal 0.6 -- see test_rank_causes_with_confounder below.
@@ -656,10 +682,10 @@ def test_rank_causes_with_confounder_recovers_causal_probability():
     match = a(Trial)(treatment=cause, season=confounder, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Trial: causal_circuit})
+        model_registry=CausalCircuitRegistry(circuits={Trial: causal_circuit})
     )
 
-    [scored] = backend.rank_causes(match)
+    [scored] = backend.rank_causes(expression=match)
 
     assert scored.effect_probability_given_region == pytest.approx(0.6, abs=0.02)
 
@@ -669,7 +695,7 @@ def test_evaluate_with_confounder_samples_from_the_deconfounded_region():
     match = a(Trial)(treatment=cause, season=confounder, outcome=...)
     match.causes_effect(match.outcome == Outcome.SUCCESS)
     backend = ProbabilisticBackend(
-        model_registry=CausalCircuitRegistry({Trial: causal_circuit}),
+        model_registry=CausalCircuitRegistry(circuits={Trial: causal_circuit}),
         number_of_samples=10,
     )
 

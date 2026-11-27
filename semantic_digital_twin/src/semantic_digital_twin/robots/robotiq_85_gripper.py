@@ -1,9 +1,13 @@
+"""
+The Robotiq 2F-85 gripper.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from typing_extensions import Generic
 
 from semantic_digital_twin.robots.robot_part_mixins import (
@@ -12,8 +16,6 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     TGenericRightFinger,
 )
 from semantic_digital_twin.datastructures.definitions import JointStateType
-from semantic_digital_twin.datastructures.joint_state import JointState
-from semantic_digital_twin.robots.exceptions import CommandedJointNotInJointState
 from semantic_digital_twin.robots.robot_parts import (
     EndEffector,
     HasGripperActionServers,
@@ -45,20 +47,11 @@ class HasParallelGripperCommandServer(HasGripperActionServers, ABC):
 
     @property
     @abstractmethod
-    def commanded_joint(self) -> ActiveConnection1DOF:
+    def commanded_connection(self) -> ActiveConnection1DOF:
         """
-        The joint the server commands, which every other joint of the gripper follows.
+        The connection the driver's controller commands, whose position, in its own
+        units, a goal of the parallel gripper command action gives.
         """
-
-    def commanded_position(self, joint_state: JointState) -> float:
-        """
-        :return: The position `joint_state` sets for :attr:`commanded_joint`.
-        :raises CommandedJointNotInJointState: If it sets none.
-        """
-        for connection, position in joint_state.items():
-            if connection is self.commanded_joint:
-                return position
-        raise CommandedJointNotInJointState(gripper=self, joint_state=joint_state)
 
     def action_topic_serving(self, state_type: JointStateType | None) -> str:
         return self.parallel_gripper_command_topic

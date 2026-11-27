@@ -123,13 +123,14 @@ class ConditionEventTranslator:
         """
         quantifications = condition.quantifications()
         if quantifications:
-            raise WhereExpressionIsFirstOrder(quantifications[0])
+            raise WhereExpressionIsFirstOrder(where_expression=quantifications[0])
         names = []
         for proposition in condition.propositions():
             if proposition.variable_name not in names:
                 names.append(proposition.variable_name)
         return [
-            Symbolic(name, domain=Set.from_iterable([True, False])) for name in names
+            Symbolic(name=name, domain=Set.from_iterable(iterable=[True, False]))
+            for name in names
         ]
 
     def event_of(
@@ -151,7 +152,7 @@ class ConditionEventTranslator:
         if isinstance(expression, Not):
             return self.event_of(expression._child_, variables).complement()
         if isinstance(expression, QuantifiedConditional):
-            raise WhereExpressionIsFirstOrder(expression)
+            raise WhereExpressionIsFirstOrder(where_expression=expression)
 
         constant = ConstantCondition.stated_by(expression)
         if constant is not None:
@@ -177,7 +178,7 @@ class ConditionEventTranslator:
         return SimpleEvent.from_data(
             {
                 variable: (
-                    variable.make_value(True)
+                    variable.make_value(value=True)
                     if variable.name == variable_name
                     else variable.domain
                 )

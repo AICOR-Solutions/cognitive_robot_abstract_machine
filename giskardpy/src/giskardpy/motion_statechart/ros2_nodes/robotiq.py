@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 from control_msgs.action import ParallelGripperCommand
 from rclpy.task import Future
 
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode
-from giskardpy.motion_statechart.goals.gripper import (
+from giskardpy.motion_statechart.tasks.gripper import (
     MoveFingers,
     MovesGripperToConfiguration,
 )
-from giskardpy.motion_statechart.ros2_nodes.ros_tasks import ActionServerTask
+from giskardpy.motion_statechart.ros2_nodes.action_servers import ActionServerTask
 from semantic_digital_twin.datastructures.robots.gripper_configuration import (
     GripperConfiguration,
 )
@@ -56,7 +56,8 @@ class RobotiqGripperActionServerTask(
 
     target_position: float
     """
-    See :meth:`HasParallelGripperCommandServer.commanded_position`.
+    The position to bring the connection the server's controller commands to, in that
+    connection's own units: radians for the knuckle joint of a Robotiq 2F-85.
     """
 
     target_velocity: float = 10.0
@@ -81,30 +82,40 @@ class RobotiqGripperActionServerTask(
     """
 
     @classmethod
-    def moving_gripper_to(
+    def create_gripper_goal(
         cls,
+        *,
         configuration: GripperConfiguration,
-        stall_minimum_time: float | None = None,
-        tolerate_stall: bool = False,
+        finger_stall_minimum_time: float | None = None,
+        tolerate_finger_stall: bool = False,
     ) -> StatechartNode:
         """
-        Differs from :meth:`MovesGripperToConfiguration.moving_gripper_to` in driving a
-        :class:`HasParallelGripperCommandServer` through its server, to the position of
-        its commanded joint in `configuration`; a stall always counts as done.
+        Differs from :meth:`MovesGripperToConfiguration.create_gripper_goal` in driving
+        a :class:`HasParallelGripperCommandServer` through its server, to the position
+        `configuration` gives its
+        :attr:`~HasParallelGripperCommandServer.commanded_connection`; a stall always
+        counts as done.
 
-        Any other configuration is reached as :meth:`MoveFingers.moving_gripper_to`
+        Any other configuration is reached as :meth:`MoveFingers.create_gripper_goal`
         reaches it.
+
+        :raises ConnectionNotInJointStateError: If `configuration` sets no position for
+            the commanded connection.
         """
         end_effector = configuration.end_effector
         if not isinstance(end_effector, HasParallelGripperCommandServer):
-            return MoveFingers.moving_gripper_to(
-                configuration, stall_minimum_time, tolerate_stall
+            return MoveFingers.create_gripper_goal(
+                configuration=configuration,
+                finger_stall_minimum_time=finger_stall_minimum_time,
+                tolerate_finger_stall=tolerate_finger_stall,
             )
         return cls(
             action_topic=end_effector.action_topic_serving(
                 configuration.joint_state.state_type
             ),
-            target_position=end_effector.commanded_position(configuration.joint_state),
+            target_position=configuration.joint_state.target_value(
+                end_effector.commanded_connection
+            ),
         )
 
     def build_action_goal(self) -> None:
@@ -112,33 +123,31 @@ class RobotiqGripperActionServerTask(
         self._action_goal.command.position = [float(self.target_position)]
         self._action_goal.command.velocity = [float(self.target_velocity)]
         self._action_goal.command.effort = [float(self.target_effort)]
+
+    def send_goal(self) -> None:
+        """
+        Differs from :meth:`ActionServerTask.send_goal` in forgetting whether the server
+        accepted and answered the goal sent before.
+        """
         self._goal_accepted = False
         self._done = False
+        super().send_goal()
 
-    def goal_response_callback(self, future: Future) -> None:
+    def record_goal_response(self, *, accepted: bool) -> None:
         """
-        Differs from :meth:`ActionServerTask.goal_response_callback` in recording
-        whether the server accepted the goal.
+        Differs from :meth:`ActionServerTask.record_goal_response` in keeping whether
+        the server accepted the goal, and counting a rejected goal as answered.
         """
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            logger.error("Gripper goal rejected by action server")
-            self._goal_accepted = False
-            self._done = True
-            return
+        super().record_goal_response(accepted=accepted)
+        self._goal_accepted = accepted
+        self._done = not accepted
 
-        self._goal_accepted = True
-        logger.info("Gripper goal accepted, waiting for result...")
-
-        result_future = goal_handle.get_result_async()
-        result_future.add_done_callback(self.result_callback)
-
-    def result_callback(self, future: Future) -> None:
+    def result_callback(self, *, future: Future) -> None:
         """
         Differs from :meth:`ActionServerTask.result_callback` in marking the goal as
         answered.
         """
-        super().result_callback(future)
+        super().result_callback(future=future)
         self._done = True
         logger.info(
             f"Gripper action finished. "
@@ -146,17 +155,17 @@ class RobotiqGripperActionServerTask(
             f"Stalled: {self._result.result.stalled}"
         )
 
-    def on_tick(self) -> ObservationStateValues:
+    def on_tick(self) -> ObservationStateValue:
         """
         :return: ``TRUE`` once the server reported the fingers at the goal or stalled
             on an object or their limit, ``FALSE`` once it rejected the goal or
             reported neither, and ``UNKNOWN`` until it answered.
         """
         if not self._done:
-            return ObservationStateValues.UNKNOWN
+            return ObservationStateValue.UNKNOWN
         if not self._goal_accepted:
-            return ObservationStateValues.FALSE
+            return ObservationStateValue.FALSE
         action_result = self._result.result
         if action_result.reached_goal or action_result.stalled:
-            return ObservationStateValues.TRUE
-        return ObservationStateValues.FALSE
+            return ObservationStateValue.TRUE
+        return ObservationStateValue.FALSE

@@ -1,3 +1,9 @@
+"""
+Fixtures, options and hooks shared by the test suites of every package.
+"""
+
+from __future__ import annotations
+
 import os
 import threading
 import time
@@ -10,7 +16,7 @@ import pytest
 from semantic_digital_twin.specifications.connections import (
     ConnectionSpecification,
     ActiveConnection1DOFSpecification,
-    PrismaticConnectionSpecification,
+    ScrewAxisConnectionSpecification,
 )
 from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.callbacks.callback import Callback
@@ -44,10 +50,10 @@ except ModuleNotFoundError:
     robot_extensions = None
 
 try:
-    from semantic_digital_twin.adapters.ros import rospy
+    from semantic_digital_twin.adapters.ros import background_node
 except ModuleNotFoundError:
     # ROS dependencies.
-    rospy = None
+    background_node = None
 from semantic_digital_twin.adapters.package_resolver import PathResolver
 from semantic_digital_twin.collision_checking.collision_matrix import (
     MaxAvoidedCollisionsOverride,
@@ -81,7 +87,7 @@ from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.stretch import Stretch
 from semantic_digital_twin.robots.tiago import Tiago
-from semantic_digital_twin.robots.tracy import Tracy
+from semantic_digital_twin.robots.tracy import Tracy, TracyJoint
 from semantic_digital_twin.robots.armar7 import Armar7
 from semantic_digital_twin.robots.icub3 import ICub3
 from semantic_digital_twin.robots.justin import Justin
@@ -118,7 +124,7 @@ from semantic_digital_twin.world_description.connections import (
     DifferentialDrive,
     FixedConnection,
     Connection6DoF,
-    RevoluteConnection,
+    ScrewAxisConnection,
 )
 from semantic_digital_twin.world_description.geometry import (
     Box,
@@ -231,7 +237,7 @@ def _session_class_diagram() -> ClassDiagram:
     # SymbolGraph singleton reset below only needs to drop per-test instance state, not
     # this class-level graph.
     return ClassDiagram(
-        recursive_subclasses(Symbol) + [World],
+        classes=recursive_subclasses(Symbol) + [World],
         introspector=DescriptorAwareIntrospector(),
     )
 
@@ -270,8 +276,11 @@ def mini_world() -> World:
     with world.modify_world():
         body = Body(name=PrefixedName("root"))
         body2 = Body(name=PrefixedName("tip"))
-        connection = RevoluteConnection.create_with_dofs(
-            world=world, parent=body, child=body2, axis=Vector3.Z()
+        connection = ScrewAxisConnection.create_with_dofs(
+            screw_axis=ScrewAxisConnection.create_revolute_screw_axis(axis=Vector3.Z()),
+            world=world,
+            parent=body,
+            child=body2,
         )
         world.add_connection(connection)
     return world
@@ -334,7 +343,7 @@ def cylinder_bot_world():
             world=world, parent=body, child=robot_world.root
         )
         world.merge_world(robot_world, connection)
-        connection.has_hardware_interface = True
+        world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
         world.collision_manager.max_avoided_bodies_rules.append(
             MaxAvoidedCollisionsOverride(2, {robot})
@@ -384,10 +393,12 @@ def self_collision_bot_world():
         )
 
         world.add_connection(
-            RevoluteConnection.create_with_dofs(
+            ScrewAxisConnection.create_with_dofs(
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Z()
+                ),
                 parent=robot,
                 child=l_shoulder,
-                axis=Vector3.Z(),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=0.2, y=0.2
                 ),
@@ -395,10 +406,12 @@ def self_collision_bot_world():
             )
         )
         world.add_connection(
-            RevoluteConnection.create_with_dofs(
+            ScrewAxisConnection.create_with_dofs(
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Z()
+                ),
                 parent=l_shoulder,
                 child=l_tip,
-                axis=Vector3.Z(),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=0.2
                 ),
@@ -416,10 +429,12 @@ def self_collision_bot_world():
         )
 
         world.add_connection(
-            RevoluteConnection.create_with_dofs(
+            ScrewAxisConnection.create_with_dofs(
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Z()
+                ),
                 parent=robot,
                 child=r_shoulder,
-                axis=Vector3.Z(),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=0.2,
                     y=-0.2,
@@ -428,10 +443,12 @@ def self_collision_bot_world():
             )
         )
         world.add_connection(
-            RevoluteConnection.create_with_dofs(
+            ScrewAxisConnection.create_with_dofs(
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Z()
+                ),
                 parent=r_shoulder,
                 child=r_tip,
-                axis=Vector3.Z(),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=0.2
                 ),
@@ -452,7 +469,7 @@ def self_collision_bot_world():
     return world
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def supported_abstract_robots():
     return [
         PR2,
@@ -502,7 +519,7 @@ def cylinder_bot_diff_world():
             world=world, parent=body, child=robot_world.root
         )
         world.merge_world(robot_world, connection)
-        connection.has_hardware_interface = True
+        world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     return world
 
@@ -518,7 +535,7 @@ def world_with_urdf_factory(
     map -> odom_combined -> "urdf tree"
     """
     drive_connection_type = robot_semantic_annotation.get_type_of_generic_parameter(
-        TGenericMobileBase
+        parameter=TGenericMobileBase
     ).get_drive_connection_type()
     urdf_parser = URDFParser.from_file(
         file_path=robot_semantic_annotation.get_ros_file_path(),
@@ -537,7 +554,7 @@ def world_with_urdf_factory(
         localization_body = Body(name=PrefixedName("odom_combined"))
 
         map_C_localization = Connection6DoF.create_with_dofs(
-            world_with_urdf, map, localization_body
+            world=world_with_urdf, parent=map, child=localization_body
         )
         world_with_urdf.add_connection(map_C_localization)
 
@@ -547,7 +564,7 @@ def world_with_urdf_factory(
             world=world_with_urdf,
         )
         world_with_urdf.add_connection(c_root_bf)
-        c_root_bf.has_hardware_interface = True
+        world_with_urdf.set_dofs_has_hardware_interface(c_root_bf.active_dofs, True)
     if robot_localization_pose is not None:
         map_C_localization.origin = robot_localization_pose
 
@@ -598,6 +615,29 @@ def tracy_world():
     return world_with_tracy
 
 
+@pytest.fixture()
+def tracy_arm_pose() -> dict[TracyJoint, float]:
+    """
+    :return: An elbow-up pose of Tracy's right arm, away from its singularities.
+    """
+    return {
+        TracyJoint.RIGHT_SHOULDER_PAN: 0.0,
+        TracyJoint.RIGHT_SHOULDER_LIFT: -np.pi / 2,
+        TracyJoint.RIGHT_ELBOW: np.pi / 2,
+        TracyJoint.RIGHT_WRIST_1: -np.pi / 2,
+        TracyJoint.RIGHT_WRIST_2: -np.pi / 2,
+        TracyJoint.RIGHT_WRIST_3: 0.0,
+    }
+
+
+@pytest.fixture()
+def tracy_world_copy(tracy_world: World) -> World:
+    """
+    :return: A copy of Tracy's world that a test may move the robot in.
+    """
+    return deepcopy(tracy_world)
+
+
 @pytest.fixture(scope="session")
 def daisy_world():
     if not DAiSy.is_description_installed():
@@ -635,46 +675,17 @@ def _tiago_world_setup():
 
 @pytest.fixture(scope="session")
 def _apartment_world_setup():
+    """
+    :return: The apartment with a floor, a milk carton, a cereal box and a spoon in a drawer.
+    """
     apartment_world = URDFParser.from_file(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "coraplex",
-            "resources",
-            "worlds",
-            "apartment.urdf",
-        )
+        "package://iai_apartment/urdf/apartment.urdf"
     ).create_world()
-    milk_world = STLParser(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "coraplex",
-            "resources",
-            "objects",
-            "milk.stl",
-        )
-    ).create_world()
+    milk_world = STLParser("package://iai_objects/objects/milk.stl").create_world()
     cereal_world = STLParser(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "coraplex",
-            "resources",
-            "objects",
-            "breakfast_cereal.stl",
-        )
+        "package://iai_objects/objects/breakfast_cereal.stl"
     ).create_world()
-    spoon_world = STLParser(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "coraplex",
-            "resources",
-            "objects",
-            "spoon.stl",
-        )
-    ).create_world()
+    spoon_world = STLParser("package://iai_objects/objects/spoon.stl").create_world()
 
     apartment_world.merge_world_at_pose(
         milk_world,
@@ -739,7 +750,10 @@ def _apartment_world_setup():
 
 @pytest.fixture(scope="session")
 def _elevator_world_setup():
-
+    """
+    Build, once per session, a world with an elevator and its door, which other fixtures
+    copy before use.
+    """
     world = World()
 
     with world.modify_world():
@@ -753,8 +767,10 @@ def _elevator_world_setup():
             Elevator.get_default_root_kinematic_structure_entity_specification(
                 scale=Scale(2, 2, 2), wall_thickness=0.05
             ),
-            parent_connection_specification=PrismaticConnectionSpecification(
-                axis=Vector3.Z(),
+            parent_connection_specification=ScrewAxisConnectionSpecification(
+                screw_axis=ScrewAxisConnection.create_prismatic_screw_axis(
+                    axis=Vector3.Z()
+                ),
                 dof_limits=DegreeOfFreedomLimits.from_position_range_and_speed(
                     maximum_speed=1.0
                 ),
@@ -771,15 +787,17 @@ def _elevator_world_setup():
                     Point3(-scale.x / 2, door_y, 0),
                     reference_frame=world.root,
                 ),
-                parent_connection_specification=PrismaticConnectionSpecification(
-                    axis=(Vector3.Y() * ((-1) ** (i + 1))),
+                parent_connection_specification=ScrewAxisConnectionSpecification(
+                    screw_axis=ScrewAxisConnection.create_prismatic_screw_axis(
+                        axis=Vector3.Y() * ((-1) ** (i + 1))
+                    ),
                     dof_limits=DegreeOfFreedomLimits.from_position_range_and_speed(
                         lower_position=0.0, upper_position=door_travel
                     ),
                 ),
                 scale=door_scale,
             )
-            elevator.add(door)
+            elevator.add(part=door)
 
         world.add_semantic_annotation(elevator)
     return world
@@ -805,6 +823,9 @@ def apartment_world_pr2_copy_with_context(_apartment_world_setup, _pr2_world_set
 
 @pytest.fixture(scope="session")
 def _simple_apartment_setup():
+    """
+    :return: A world of two boxes surrounded by four walls.
+    """
     world = World()
     with world.modify_world():
         root = Body(name=PrefixedName("root"))
@@ -894,16 +915,7 @@ def _simple_apartment_setup():
         world.add_connection(wall_3_connection)
         world.add_connection(wall_4_connection)
 
-    milk_world = STLParser(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "coraplex",
-            "resources",
-            "objects",
-            "milk.stl",
-        )
-    ).create_world()
+    milk_world = STLParser("package://iai_objects/objects/milk.stl").create_world()
     world.merge_world_at_pose(
         milk_world,
         HomogeneousTransformationMatrix.from_xyz_rpy(-1.7, 0, 1.02, yaw=np.pi),
@@ -913,14 +925,10 @@ def _simple_apartment_setup():
 
 @pytest.fixture(scope="session")
 def kitchen_world():
-    path = os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "semantic_digital_twin",
-        "resources",
-        "urdf",
-        "kitchen-small.urdf",
-    )
+    """
+    :return: The small IAI kitchen.
+    """
+    path = "package://iai_kitchen/urdf_obj/kitchen-small.urdf"
     parser = URDFParser.from_file(file_path=path)
     world = parser.create_world()
     world.validate()
@@ -1142,7 +1150,7 @@ def ros_publishers():
 
 
 @pytest.fixture(scope="function")
-def init_rospy():
+def init_background_node():
     """
     Gives a test the global Giskard ros node.
 
@@ -1150,16 +1158,16 @@ def init_rospy():
         This fixture drives the same global ros context as :func:`rclpy_node`, so the
         two cannot be used together.
     """
-    if rospy is None:
+    if background_node is None:
         pytest.skip("ROS not installed")
 
-    rospy.init_node("giskard")
+    background_node.init_node("giskard")
 
     try:
         yield None
     finally:
         # Cleanly reset TF and shutdown ROS2 node/executor
-        rospy.shutdown()
+        background_node.shutdown()
 
 
 @pytest.fixture(scope="function")

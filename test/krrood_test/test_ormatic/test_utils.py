@@ -1,3 +1,4 @@
+import collections.abc
 import pytest
 from krrood.ormatic.exceptions import UnsupportedColumnType
 from krrood.ormatic.utils import get_python_type_from_sqlalchemy_column
@@ -25,13 +26,28 @@ class WackyEnum(E, Enum): ...
 
 
 def test_distance_between_classes():
-    assert inheritance_path_length(KRROODPosition5D, KRROODPosition) == 2
-    assert inheritance_path_length(KRROODPosition, KRROODPosition5D) is None
-    assert inheritance_path_length(Atom, Symbol) == 1
-    assert inheritance_path_length(MultipleInheritance, PrimaryBase) == 1
-    assert inheritance_path_length(D, A) == 2
-    assert inheritance_path_length(E, A) == 2
-    assert inheritance_path_length(WackyEnum, Enum) == 1
+    assert (
+        inheritance_path_length(
+            child_class=KRROODPosition5D, parent_class=KRROODPosition
+        )
+        == 2
+    )
+    assert (
+        inheritance_path_length(
+            child_class=KRROODPosition, parent_class=KRROODPosition5D
+        )
+        is None
+    )
+    assert inheritance_path_length(child_class=Atom, parent_class=Symbol) == 1
+    assert (
+        inheritance_path_length(
+            child_class=MultipleInheritance, parent_class=PrimaryBase
+        )
+        == 1
+    )
+    assert inheritance_path_length(child_class=D, parent_class=A) == 2
+    assert inheritance_path_length(child_class=E, parent_class=A) == 2
+    assert inheritance_path_length(child_class=WackyEnum, parent_class=Enum) == 1
 
 
 def test_sqlalchemy_column_type_extraction():
@@ -94,3 +110,18 @@ def test_column_type_reporting_object_as_python_type_is_unsupported():
         get_python_type_from_sqlalchemy_column(
             Column(ColumnTypeWithoutSpecificPythonType)
         )
+
+
+# %% virtual subclasses
+
+
+def test_a_virtual_subclass_is_one_level_below_its_abstract_base_class():
+    """
+    A class an abstract base class claims through registration or a subclass hook, such
+    as :class:`list` for :class:`collections.abc.Sequence`, reaches it through none of
+    its bases and is one level below it.
+    """
+    assert (
+        inheritance_path_length(child_class=list, parent_class=collections.abc.Sequence)
+        == 1
+    )

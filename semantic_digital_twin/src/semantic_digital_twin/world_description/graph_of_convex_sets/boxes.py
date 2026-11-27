@@ -1,3 +1,8 @@
+"""
+Graphs of convex sets whose nodes are axis-aligned boxes of free space, in three
+dimensions or on the floor plane.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,7 +19,7 @@ from random_events.plotting import EventPlotter
 from random_events.product_algebra import Event
 from random_events.product_algebra import SimpleEvent
 from rtree import index
-from typing_extensions import Generic, Sequence, Self
+from typing_extensions import Generic, Iterable, Sequence, Self
 
 from krrood.entity_query_language.core.mapped_variable import (
     CanBehaveLikeAVariable,
@@ -45,6 +50,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.base import (
 )
 from semantic_digital_twin.world_description.graph_of_convex_sets.exceptions import (
     AmbiguousSelectedVariableError,
+    NoFreeSpaceError,
     PointOutsideSearchSpaceError,
 )
 from semantic_digital_twin.world_description.shape_collection import (
@@ -220,7 +226,7 @@ class GraphOfBoundingBoxes(
 
         :return: A list of traces that can be put into a plotly figure.
         """
-        return EventPlotter(self.free_space_event).plot(color="blue")
+        return EventPlotter(event=self.free_space_event).plot(color="blue")
 
     def plot_and_show_free_space(self) -> None:
         import plotly.graph_objects as go
@@ -237,7 +243,7 @@ class GraphOfBoundingBoxes(
             *[node.simple_event for node in self.graph.nodes()]
         )
         occupied_space = ~free_space & self.search_space.event
-        return EventPlotter(occupied_space).plot(color="red")
+        return EventPlotter(event=occupied_space).plot(color="red")
 
     def plot_and_show_occupied_space(self) -> None:
         import plotly.graph_objects as go
@@ -272,6 +278,38 @@ class GraphOfBoundingBoxes(
         if node is None:
             raise PointOccupiedError(point)
         return node
+
+    def is_free(self, *, point: PointT) -> bool:
+        """
+        :param point: The point to check, in any reference frame.
+        :return: Whether the point lies in one of this graph's free-space nodes; a
+            point beyond the region this graph was built over is not.
+        """
+        return (
+            self.search_space.contains(point) and self._node_of_point(point) is not None
+        )
+
+    def nearest_free_point(self, *, point: PointT) -> PointT:
+        """
+        :param point: The point to start from, in any reference frame.
+        :return: The point of this graph's free space nearest ``point``, in the search
+            space's reference frame: ``point`` itself where it is free.
+        :raises NoFreeSpaceError: If this graph holds no free space.
+        """
+        if self.graph.num_nodes() == 0:
+            raise NoFreeSpaceError(point=point)
+        reference_frame = self.search_space.reference_frame
+        coordinates = self.world.transform(point, reference_frame).to_np()[
+            : self.dimensionality
+        ]
+        nearest = min(
+            (
+                np.clip(coordinates, bounds.lower, bounds.upper)
+                for bounds in (node.to_array_bounds() for node in self.graph.nodes())
+            ),
+            key=lambda clamped: np.linalg.norm(clamped - coordinates),
+        )
+        return type(point)(*nearest, reference_frame=reference_frame)
 
     def path_from_to(self, start: PointT, goal: PointT) -> list[PointT] | None:
         """
@@ -425,7 +463,7 @@ class GraphOfBoundingBoxes(
         selected_variable = GraphOfBoundingBoxes._selected_variable_of(chain_root)
         if selected_variable is not None:
             variable = (
-                variable._reroot_on_(selected_variable, chain_root)
+                variable._reroot_on_(root=selected_variable, replaced=chain_root)
                 if isinstance(variable, MappedVariable)
                 else selected_variable
             )
@@ -567,7 +605,7 @@ class VolumetricGraphOfBoundingBoxes(
             obstacle = bounding_box.simple_event.as_composite_set()
             obstacle_in_search = obstacle & search_space_event
             if not obstacle_in_search.is_empty():
-                free_space = free_space.subtract_disjoint(obstacle_in_search)
+                free_space = free_space.subtract_disjoint(other=obstacle_in_search)
             if free_space.is_empty():
                 break
         return free_space
@@ -575,12 +613,15 @@ class VolumetricGraphOfBoundingBoxes(
     @classmethod
     def free_space_from_semantic_annotation(
         cls,
+        *,
         search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
         semantic_wall_annotation: Wall | None = None,
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
+        obstacle_height_clearance: float = 0.01,
+        excluded_bodies: Iterable[Body] = (),
     ) -> Self:
         """
         Create a connectivity graph from the free space in the belief state of the
@@ -593,17 +634,23 @@ class VolumetricGraphOfBoundingBoxes(
             an obstacle.
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
-        :param bloat_obstacles: The amount to bloat the obstacles.
+        :param bloat_obstacles: The amount to bloat the obstacles in x and y.
         :param bloat_walls: The amount to bloat the walls.
+        :param obstacle_height_clearance: The amount to bloat every obstacle and wall
+            upwards and downwards.
+        :param excluded_bodies: Bodies that are no obstacles, such as an object to be
+            reached into.
         :return: The connectivity graph. If no obstacles are found, an empty graph is
             returned.
         """
         bloated_obstacles = (
             semantic_obstacle_annotation.build_bloated_obstacle_collection(
-                search_space,
-                semantic_wall_annotation,
-                bloat_obstacles,
-                bloat_walls,
+                search_space=search_space,
+                semantic_wall_annotation=semantic_wall_annotation,
+                bloat_obstacles=bloat_obstacles,
+                bloat_walls=bloat_walls,
+                obstacle_height_clearance=obstacle_height_clearance,
+                excluded_bodies=excluded_bodies,
             )
         )
 
@@ -640,10 +687,13 @@ class VolumetricGraphOfBoundingBoxes(
     @classmethod
     def free_space_from_world(
         cls,
+        *,
         world: World,
         search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         tolerance=0.001,
         bloat_obstacles: float = 0.0,
+        obstacle_height_clearance: float = 0.01,
+        excluded_bodies: Iterable[Body] = (),
     ) -> Self:
         """
         Create a connectivity graph from the free space in the belief state of the
@@ -654,6 +704,10 @@ class VolumetricGraphOfBoundingBoxes(
         :param tolerance: The tolerance for the intersection when calculating the
             connectivity.
         :param bloat_obstacles: The amount to bloat the obstacles.
+        :param obstacle_height_clearance: The amount to bloat every obstacle upwards and
+            downwards.
+        :param excluded_bodies: Bodies that are no obstacles, such as an object to be
+            reached into.
         :return: The connectivity graph.
         """
         semantic_annotation = SemanticEnvironmentAnnotation(
@@ -665,6 +719,8 @@ class VolumetricGraphOfBoundingBoxes(
             semantic_obstacle_annotation=semantic_annotation,
             tolerance=tolerance,
             bloat_obstacles=bloat_obstacles,
+            obstacle_height_clearance=obstacle_height_clearance,
+            excluded_bodies=excluded_bodies,
         )
 
 
@@ -727,16 +783,18 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
             always a subset of its floor footprint.
         :return: The floor-plan free space as a disjoint, two-dimensional Event.
         """
-        free_space = search_space_event.marginal(SpatialVariables.xy)
+        free_space = search_space_event.marginal(variables=SpatialVariables.xy)
         for bounding_box in bounding_boxes:
             obstacle_in_search_space = (
                 bounding_box.simple_event.as_composite_set() & search_space_event
             )
             if obstacle_in_search_space.is_empty():
                 continue
-            obstacle_in_search = obstacle_in_search_space.marginal(SpatialVariables.xy)
+            obstacle_in_search = obstacle_in_search_space.marginal(
+                variables=SpatialVariables.xy
+            )
             if not obstacle_in_search.is_empty():
-                free_space = free_space.subtract_disjoint(obstacle_in_search)
+                free_space = free_space.subtract_disjoint(other=obstacle_in_search)
             if free_space.is_empty():
                 break
         return free_space
@@ -744,6 +802,7 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
     @classmethod
     def free_space_from_semantic_annotation(
         cls,
+        *,
         search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         semantic_obstacle_annotation: SemanticEnvironmentAnnotation,
         semantic_wall_annotation: Wall | None = None,
@@ -751,13 +810,13 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
         obstacle_height_clearance: float = 0.01,
+        excluded_bodies: Iterable[Body] = (),
     ) -> Self:
         """
-        Create a GCS from the free space in the belief state of the robot for
-        navigation. The resulting GCS describes the paths for navigation, meaning that
-        changing the z-axis position is not possible. Furthermore, it is taken into
-        account that the robot has to fit through the entire space and not just through
-        the floor level obstacles.
+        Create a GCS of the floor plane from the free space in the belief state of the
+        robot, for navigation: a robot cannot change its height on it, and has to fit
+        through the whole height of the search space, not only past the obstacles on the
+        floor.
 
         :param search_space: The three-dimensional search space for the connectivity
             graph -- its height range bounds which obstacles count as blocking, since
@@ -774,6 +833,8 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
         :param bloat_walls: The amount to bloat the walls.
         :param obstacle_height_clearance: The amount every obstacle bounding box gets
             expanded by in z, regardless of ``bloat_obstacles``/``bloat_walls``.
+        :param excluded_bodies: Bodies that are no obstacles, such as an object to be
+            reached into.
         :return: The connectivity graph. If no obstacles are found, an empty graph is
             returned.
         """
@@ -781,15 +842,16 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
         floor_search_space = BoundingBoxCollection.from_event(
             cls.box_type(),
             search_space.reference_frame,
-            search_space.event.marginal(SpatialVariables.xy),
+            search_space.event.marginal(variables=SpatialVariables.xy),
         )
 
         nav_obstacles = semantic_obstacle_annotation.build_bloated_obstacle_collection(
-            search_space,
-            semantic_wall_annotation,
-            bloat_obstacles,
-            bloat_walls,
-            obstacle_height_clearance,
+            search_space=search_space,
+            semantic_wall_annotation=semantic_wall_annotation,
+            bloat_obstacles=bloat_obstacles,
+            bloat_walls=bloat_walls,
+            obstacle_height_clearance=obstacle_height_clearance,
+            excluded_bodies=excluded_bodies,
         )
 
         if not nav_obstacles:
@@ -842,8 +904,8 @@ class PlanarGraphOfBoundingBoxes(GraphOfBoundingBoxes[PlanarBoundingBox, Point2]
         )
 
         return cls.free_space_from_semantic_annotation(
-            search_space,
-            semantic_annotation,
+            search_space=search_space,
+            semantic_obstacle_annotation=semantic_annotation,
             tolerance=tolerance,
             bloat_obstacles=bloat_obstacles,
         )

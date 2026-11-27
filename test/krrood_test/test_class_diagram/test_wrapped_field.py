@@ -1,12 +1,18 @@
+"""
+Tests for :class:`~krrood.class_diagrams.wrapped_field.WrappedField`: what a field's
+annotation declares, and which values and elements it admits.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields, Field
+import numbers
 
 import pytest
 from types import NoneType
 
 from sortedcontainers import SortedSet
-from typing_extensions import List, Type, TypeVar
+from typing_extensions import Any, List, Type, TypeVar
 
 from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.class_diagrams.utils import common_base_class
@@ -37,7 +43,9 @@ def get_field_by_name(cls: Type, name: str) -> Field:
 
 def test_builtin_not_optional():
     wrapped_class = WrappedClass(clazz=KRROODPosition)
-    wrapped_field = WrappedField(wrapped_class, get_field_by_name(KRROODPosition, "x"))
+    wrapped_field = WrappedField(
+        clazz=wrapped_class, field=get_field_by_name(KRROODPosition, "x")
+    )
     assert wrapped_field.resolved_type is float
     assert not wrapped_field.is_container
     assert wrapped_field.is_builtin_type
@@ -48,7 +56,7 @@ def test_builtin_not_optional():
 def test_builtin_optional():
     wrapped_class = WrappedClass(clazz=KRROODOrientation)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODOrientation, "w")
+        clazz=wrapped_class, field=get_field_by_name(KRROODOrientation, "w")
     )
 
     assert wrapped_field.contained_type is float
@@ -63,7 +71,7 @@ def test_builtin_optional_written_with_a_pipe():
     # identically; otherwise a field spelled with a pipe silently loses its mapping.
     wrapped_class = WrappedClass(clazz=KRROODPipeOptionalOrientation)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODPipeOptionalOrientation, "w")
+        clazz=wrapped_class, field=get_field_by_name(KRROODPipeOptionalOrientation, "w")
     )
 
     assert wrapped_field.contained_type is float
@@ -76,7 +84,8 @@ def test_builtin_optional_written_with_a_pipe():
 def test_optional_relationship_written_with_a_pipe():
     wrapped_class = WrappedClass(clazz=KRROODPipeOptionalOrientation)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODPipeOptionalOrientation, "position")
+        clazz=wrapped_class,
+        field=get_field_by_name(KRROODPipeOptionalOrientation, "position"),
     )
 
     assert wrapped_field.is_optional
@@ -87,7 +96,7 @@ def test_optional_relationship_written_with_a_pipe():
 def test_one_to_one_relationship():
     wrapped_class = WrappedClass(clazz=KRROODPose)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODPose, "position")
+        clazz=wrapped_class, field=get_field_by_name(KRROODPose, "position")
     )
 
     assert not wrapped_field.is_optional
@@ -99,7 +108,7 @@ def test_one_to_one_relationship():
 def test_one_to_many_relationship():
     wrapped_class = WrappedClass(clazz=KRROODPositions)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODPositions, "positions")
+        clazz=wrapped_class, field=get_field_by_name(KRROODPositions, "positions")
     )
 
     assert not wrapped_field.is_optional
@@ -112,7 +121,8 @@ def test_one_to_many_relationship():
 def test_is_type_type():
     wrapped_class = WrappedClass(clazz=KRROODPositionTypeWrapper)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(KRROODPositionTypeWrapper, "position_type")
+        clazz=wrapped_class,
+        field=get_field_by_name(KRROODPositionTypeWrapper, "position_type"),
     )
     assert wrapped_field.is_type_type
 
@@ -125,8 +135,8 @@ def test_is_type_type_for_bare_type_annotation():
     """
     wrapped_class = WrappedClass(clazz=KRROODBarePositionTypeWrapper)
     wrapped_field = WrappedField(
-        wrapped_class,
-        get_field_by_name(KRROODBarePositionTypeWrapper, "position_type"),
+        clazz=wrapped_class,
+        field=get_field_by_name(KRROODBarePositionTypeWrapper, "position_type"),
     )
     assert wrapped_field.is_type_type
 
@@ -134,25 +144,28 @@ def test_is_type_type_for_bare_type_annotation():
 def test_is_specialized_generic():
     wrapped_class = WrappedClass(clazz=GenericClassAssociation)
     associated_value = WrappedField(
-        wrapped_class, get_field_by_name(GenericClassAssociation, "associated_value")
+        clazz=wrapped_class,
+        field=get_field_by_name(GenericClassAssociation, "associated_value"),
     )
     assert associated_value.is_instantiation_of_generic_class
     associated_value_not_parametrized = WrappedField(
-        wrapped_class,
-        get_field_by_name(GenericClassAssociation, "associated_value_not_parametrized"),
+        clazz=wrapped_class,
+        field=get_field_by_name(
+            GenericClassAssociation, "associated_value_not_parametrized"
+        ),
     )
     assert not associated_value_not_parametrized.is_instantiation_of_generic_class
 
     associated_value_list = WrappedField(
-        wrapped_class,
-        get_field_by_name(GenericClassAssociation, "associated_value_list"),
+        clazz=wrapped_class,
+        field=get_field_by_name(GenericClassAssociation, "associated_value_list"),
     )
     assert associated_value_list.is_container
     assert associated_value_list.is_instantiation_of_generic_class
 
     associated_value_not_parametrized_list = WrappedField(
-        wrapped_class,
-        get_field_by_name(
+        clazz=wrapped_class,
+        field=get_field_by_name(
             GenericClassAssociation, "associated_value_not_parametrized_list"
         ),
     )
@@ -170,12 +183,12 @@ _unbounded_type_variable = TypeVar("_unbounded_type_variable")
 _bounded_type_variable = TypeVar("_bounded_type_variable", bound=TypeVariableBound)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FieldTypedAsUnboundedTypeVariable:
     items: List[_unbounded_type_variable] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FieldTypedAsBoundedTypeVariable:
     items: List[_bounded_type_variable] = field(default_factory=list)
 
@@ -183,7 +196,8 @@ class FieldTypedAsBoundedTypeVariable:
 def test_unbounded_type_variable_field_is_underspecified():
     wrapped_class = WrappedClass(clazz=FieldTypedAsUnboundedTypeVariable)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(FieldTypedAsUnboundedTypeVariable, "items")
+        clazz=wrapped_class,
+        field=get_field_by_name(FieldTypedAsUnboundedTypeVariable, "items"),
     )
     assert wrapped_field.is_underspecified_generic
 
@@ -191,7 +205,8 @@ def test_unbounded_type_variable_field_is_underspecified():
 def test_bounded_type_variable_field_is_specified_to_its_bound():
     wrapped_class = WrappedClass(clazz=FieldTypedAsBoundedTypeVariable)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(FieldTypedAsBoundedTypeVariable, "items")
+        clazz=wrapped_class,
+        field=get_field_by_name(FieldTypedAsBoundedTypeVariable, "items"),
     )
     assert not wrapped_field.is_underspecified_generic
     assert wrapped_field.type_endpoint is TypeVariableBound
@@ -215,7 +230,7 @@ def test_common_base_class():
 # %% WrappedField.holds_collection
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FieldsOfEveryValueShape:
     """
     Fields typed as single values and as collections, each optionally wrapped in a
@@ -279,6 +294,110 @@ class FieldsOfEveryValueShape:
 def test_holds_collection(field_name: str, holds_collection: bool):
     wrapped_class = WrappedClass(clazz=FieldsOfEveryValueShape)
     wrapped_field = WrappedField(
-        wrapped_class, get_field_by_name(FieldsOfEveryValueShape, field_name)
+        clazz=wrapped_class,
+        field=get_field_by_name(FieldsOfEveryValueShape, field_name),
     )
     assert wrapped_field.holds_collection is holds_collection
+
+
+# %% WrappedField.accepts_value and WrappedField.accepts_element
+
+
+@dataclass(kw_only=True)
+class FieldsOfNumbersAndCollections:
+    """
+    Fields typed as numbers, by builtin class and by numeric abstract base class, and as
+    collections of values.
+    """
+
+    real: numbers.Real
+    """
+    Any real number.
+    """
+
+    integral: numbers.Integral
+    """
+    Any integral number.
+    """
+
+    ratio: float
+    """
+    A floating point number.
+    """
+
+    count: int
+    """
+    An integer.
+    """
+
+    labels: list[str]
+    """
+    A collection of strings.
+    """
+
+    optional_labels: list[str] | None
+    """
+    A collection of strings that may be missing.
+    """
+
+    anything: Any
+    """
+    A value of a type no instance check decides.
+    """
+
+
+def wrapped_field_of_numbers_and_collections(*, field_name: str) -> WrappedField:
+    """
+    :param field_name: The name of a field of :class:`FieldsOfNumbersAndCollections`.
+    :return: The wrapped field of that name.
+    """
+    return WrappedField(
+        clazz=WrappedClass(clazz=FieldsOfNumbersAndCollections),
+        field=get_field_by_name(FieldsOfNumbersAndCollections, field_name),
+    )
+
+
+@pytest.mark.parametrize(
+    "field_name, value, accepted",
+    [
+        ("real", 1, True),
+        ("real", 1.5, True),
+        ("real", "1.5", False),
+        ("integral", 1, True),
+        ("integral", 1.5, False),
+        ("ratio", 1, True),
+        ("count", 1.5, False),
+        ("anything", "1.5", True),
+    ],
+)
+def test_field_accepts_values_of_its_declared_type(
+    field_name: str, value: Any, accepted: bool
+):
+    """
+    A numeric abstract base class and its builtin class admit the same numbers; a field
+    of a type no instance check decides admits every value.
+    """
+    wrapped_field = wrapped_field_of_numbers_and_collections(field_name=field_name)
+    assert wrapped_field.accepts_value(value=value) is accepted
+
+
+@pytest.mark.parametrize(
+    "field_name, element, accepted",
+    [
+        ("labels", "a", True),
+        ("labels", 1, False),
+        ("optional_labels", "a", True),
+        ("optional_labels", 1, False),
+        ("real", 1.0, False),
+        ("anything", 1, True),
+    ],
+)
+def test_field_accepts_elements_of_the_collection_it_declares(
+    field_name: str, element: Any, accepted: bool
+):
+    """
+    Only a collection admits an element, and only one of its declared element type; a
+    field of a type no instance check decides admits every element.
+    """
+    wrapped_field = wrapped_field_of_numbers_and_collections(field_name=field_name)
+    assert wrapped_field.accepts_element(element=element) is accepted

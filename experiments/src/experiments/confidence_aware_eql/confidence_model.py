@@ -17,7 +17,7 @@ import numpy as np
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.query.match import Match
 from krrood.exceptions import DataclassException
-from krrood.ormatic.data_access_objects.dao import get_dao_schema
+from krrood.ormatic.data_access_objects.schema import get_dao_schema
 from krrood.ormatic.data_access_objects.helper import get_data_access_object_class
 from probabilistic_model.probabilistic_circuit.relational.relational_probabilistic_circuit import (
     RelationalProbabilisticCircuit,
@@ -161,14 +161,16 @@ class PerClassConfidenceModel:
         grounded = self.circuit.ground(
             _build_grounding_query(self.circuit.class_, instance)
         )
-        dataframe = self.circuit.feature_extractor.create_dataframe([instance])
-        dataframe = self.circuit.feature_extractor.preprocess_dataframe(dataframe)
+        dataframe = self.circuit.feature_extractor.create_dataframe(
+            instances=[instance]
+        )
+        dataframe = self.circuit.feature_extractor.preprocess_dataframe(df=dataframe)
         variable_names = [variable.name for variable in grounded.variables]
         event = np.full((1, len(variable_names)), np.nan)
         for index, name in enumerate(variable_names):
             if name in dataframe.columns:
                 event[0, index] = dataframe[name].iloc[0]
-        return float(grounded.log_likelihood(event)[0])
+        return float(grounded.log_likelihood(events=event)[0])
 
 
 # %% confidence model

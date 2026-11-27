@@ -1,3 +1,8 @@
+"""
+Perception for robot plans: the queries a plan asks, the detections answering them, and
+the interfaces and statechart task that perceive through the world or RoboKudo.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -8,10 +13,10 @@ from threading import Event
 
 import numpy as np
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from cramph.node import EndedByOwner, FailsOnObservingFalse
 from cramph.context import ContextExtension
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
@@ -32,10 +37,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
 from semantic_digital_twin.specifications.connections import (
     Connection6DoFSpecification,
 )
-from krrood_spatial_math.spatial_types import (
-    HomogeneousTransformationMatrix,
-    RotationMatrix,
-)
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from krrood_spatial_math.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.color_names import ColorName
@@ -71,7 +73,7 @@ Name of the action RoboKudo answers perception queries on.
 # %% queries
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PerceptionQuery(SubclassJSONSerializer):
     """
     What to look for and where.
@@ -173,12 +175,12 @@ class PerceptionQuery(SubclassJSONSerializer):
         return result
 
     @classmethod
-    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
+        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(from_json_kwargs=kwargs)
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
-            robot=tracker.get(from_json(data["robot_id"])),
+            robot=tracker.get(key=from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
             color=from_json(data.get("color"), **kwargs),
@@ -189,7 +191,7 @@ class PerceptionQuery(SubclassJSONSerializer):
 # %% detections
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Detection:
     """
     One object reported by a perception source.
@@ -232,6 +234,7 @@ class Detection:
 
     def apply_to(
         self,
+        *,
         world: World,
         trust_orientation: bool = True,
         region: VolumetricBoundingBox | None = None,
@@ -253,7 +256,7 @@ class Detection:
             none can be added for the detection.
         :raises AmbiguousDetection: If the annotation describes more than one body.
         """
-        matching_annotations = self.resolve_annotations(world, region) or [
+        matching_annotations = self.resolve_annotations(world=world, region=region) or [
             self.add_to(world)
         ]
         self.write_into(matching_annotations[0].root, world, trust_orientation)
@@ -270,7 +273,7 @@ class Detection:
             annotation cannot be created around a body of its own.
         """
         if self.size is None or not issubclass(self.semantic_annotation, HasRootBody):
-            raise PerceivedObjectNotInWorld(self.semantic_annotation)
+            raise PerceivedObjectNotInWorld(semantic_annotation=self.semantic_annotation)
         return self.semantic_annotation.create_with_new_body_in_world(
             name=f"{self.semantic_annotation.__name__.lower()}_{len(world.bodies)}",
             world=world,
@@ -316,14 +319,14 @@ class Detection:
         :param trust_orientation: Whether to also apply the detected orientation, see
             :meth:`apply_to`.
         :return: The origin of ``body``'s parent connection that puts it where this
-            detection saw it: upright, see :meth:`_with_z_up_and_x_towards`, or in its
+            detection saw it: upright, see :meth:`_frame_with_z_up_and_x_towards`, or in its
             present orientation when the detected one is not trusted.
         """
         robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
         # Foundation Pose may return a upside down pose. this detects and fixes it by rotation around x by 180 degree
         detected_global_pose = world.transform(self.pose, world.root).homogeneous_matrix
-        detected_global_pose = self._with_z_up_and_x_towards(
+        detected_global_pose = self._frame_with_z_up_and_x_towards(
             root_T_frame=detected_global_pose,
             root_P_target=robot.root.global_transform.position,
         )
@@ -403,8 +406,8 @@ class Detection:
         return box.max_z <= middle or box.min_z <= lowest
 
     @staticmethod
-    def _with_z_up_and_x_towards(
-        root_T_frame: HomogeneousTransformationMatrix, root_P_target: Point3
+    def _frame_with_z_up_and_x_towards(
+        *, root_T_frame: HomogeneousTransformationMatrix, root_P_target: Point3
     ) -> HomogeneousTransformationMatrix:
         """
         Return ``root_T_frame`` rotated by 180° around its own axes so that its z axis
@@ -428,7 +431,7 @@ class Detection:
         )
 
     def resolve_annotations(
-        self, world: World, region: VolumetricBoundingBox | None = None
+        self, *, world: World, region: VolumetricBoundingBox | None = None
     ) -> list[IsPerceivable]:
         """
         Find the annotations in ``world`` that this detection identified.
@@ -461,7 +464,9 @@ class Detection:
         ] or candidates
         bodies = {annotation.root for annotation in candidates}
         if len(bodies) > 1:
-            raise AmbiguousDetection(self.semantic_annotation, len(bodies))
+            raise AmbiguousDetection(
+                semantic_annotation=self.semantic_annotation, body_count=len(bodies)
+            )
         return candidates
 
 
@@ -501,7 +506,9 @@ class DetectedScene:
     The region the objects were looked for in.
     """
 
-    def apply_to(self, world: World, trust_orientation: bool = True) -> list[Body]:
+    def apply_to(
+        self, *, world: World, trust_orientation: bool = True
+    ) -> list[Body]:
         """
         Write every detection into ``world``: each moves the body nearest to it that
         carries its annotation, lies in the region, shows its color and was taken by no
@@ -564,7 +571,7 @@ class PerceptionInterface(ABC):
     """
 
     @abstractmethod
-    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+    def look_for(self, *, query: PerceptionQuery) -> list[Detection]:
         """
         Report every object this source sees for a perception query.
 
@@ -573,7 +580,7 @@ class PerceptionInterface(ABC):
         """
 
     def detect(
-        self, query: PerceptionQuery, accept_first_if_multiple: bool = False
+        self, *, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> Detection | None:
         """
         Answer a perception query with the one object it asked about.
@@ -587,11 +594,14 @@ class PerceptionInterface(ABC):
         :raises UnidentifiedDetections: If several candidates were seen and none of them
             may be picked.
         """
-        detections = self.look_for(query)
+        detections = self.look_for(query=query)
         if not detections:
             return None
         if len(detections) > 1 and not accept_first_if_multiple:
-            raise UnidentifiedDetections(query.semantic_annotation, len(detections))
+            raise UnidentifiedDetections(
+                semantic_annotation=query.semantic_annotation,
+                candidate_count=len(detections),
+            )
         return detections[0]
 
     @classproperty
@@ -603,7 +613,8 @@ class PerceptionInterface(ABC):
         return timedelta(seconds=30)
 
     @staticmethod
-    def for_source(
+    def from_source(
+        *,
         source: PerceptionSource,
         ros_node: Node | None = None,
         answer_timeout: timedelta | None = None,
@@ -629,7 +640,7 @@ class PerceptionInterface(ABC):
                 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WorldPerception(PerceptionInterface):
     """
     Source that reads the objects straight out of the world model.
@@ -645,7 +656,7 @@ class WorldPerception(PerceptionInterface):
     model alone believes them to be.
     """
 
-    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+    def look_for(self, *, query: PerceptionQuery) -> list[Detection]:
         annotation_by_body = {}
         for annotation in query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
@@ -695,17 +706,17 @@ class ValidationPerception:
     The robot's perception.
     """
 
-    def look_for(self, query: PerceptionQuery) -> GroundedDetections:
+    def look_for(self, *, query: PerceptionQuery) -> GroundedDetections:
         """
         :param query: What to look for and where.
         :return: Every object reported for the query, and where they come from.
         """
         if query.is_region_in_view():
             return GroundedDetections(
-                self.live.look_for(query), DetectionGrounding.PERCEIVED
+                self.live.look_for(query=query), DetectionGrounding.PERCEIVED
             )
         return GroundedDetections(
-            WorldPerception(reports_unseen_bodies=True).look_for(query),
+            WorldPerception(reports_unseen_bodies=True).look_for(query=query),
             DetectionGrounding.ASSUMED,
         )
 
@@ -745,7 +756,7 @@ class QueryAnswerWait:
         return done.wait(max(0.0, self.deadline - time.monotonic()))
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RoboKudoPerception(PerceptionInterface):
     """
     Source that asks a running RoboKudo pipeline over its query action, reporting the
@@ -774,7 +785,7 @@ class RoboKudoPerception(PerceptionInterface):
     How long a query the action server took up may take to be answered.
     """
 
-    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+    def look_for(self, *, query: PerceptionQuery) -> list[Detection]:
         """
         :raises PerceptionSourceUnavailable: If no action server serves
             :attr:`action_name` within :attr:`server_timeout`.
@@ -790,7 +801,7 @@ class RoboKudoPerception(PerceptionInterface):
 
         client = ActionClient(self.ros_node, Query, self.action_name)
         if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
-            raise PerceptionSourceUnavailable(self.action_name)
+            raise PerceptionSourceUnavailable(action_name=self.action_name)
 
         goal = Query.Goal(
             obj=ObjectDesignator(
@@ -816,9 +827,10 @@ class RoboKudoPerception(PerceptionInterface):
             )
         result = answered.result().result
         detections = [
-            self._to_detection(designator, query)
+            self._to_detection(designator=designator, query=query)
             for designator in result.res
-            if designator.pose and self._can_be_requested_object(designator, query)
+            if designator.pose
+            and self._can_be_requested_object(designator=designator, query=query)
         ]
         return [
             detection
@@ -837,7 +849,7 @@ class RoboKudoPerception(PerceptionInterface):
 
     @staticmethod
     def _can_be_requested_object(
-        designator: ObjectDesignator, query: PerceptionQuery
+        *, designator: ObjectDesignator, query: PerceptionQuery
     ) -> bool:
         """
         Whether a reported designator could be the object the query asked for.
@@ -864,7 +876,7 @@ class RoboKudoPerception(PerceptionInterface):
         )
 
     def _to_detection(
-        self, designator: ObjectDesignator, query: PerceptionQuery
+        self, *, designator: ObjectDesignator, query: PerceptionQuery
     ) -> Detection:
         """
         Convert one RoboKudo object designator into a detection of the queried
@@ -963,7 +975,7 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
     The source answering the query, resolved during :meth:`set_up`.
     """
 
-    _observation: ObservationStateValues | None = field(
+    _observation: ObservationStateValue | None = field(
         init=False, default=None, repr=False
     )
     """
@@ -983,35 +995,41 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
         return super().required_context_extensions + (RosContextExtension,)
 
     def set_up(self) -> None:
+        """
+        Extends :meth:`~cramph.node.StatechartNode.set_up` by choosing the
+        :attr:`perception_source` that answers for :attr:`answered_by`.
+        """
         super().set_up()
-        self.perception_source = PerceptionInterface.for_source(
-            self.answered_by,
-            self.context.require_extension(RosContextExtension).ros_node,
-            self.answer_timeout,
+        self.perception_source = PerceptionInterface.from_source(
+            source=self.answered_by,
+            ros_node=self.context.require_extension(
+                extension_type=RosContextExtension
+            ).ros_node,
+            answer_timeout=self.answer_timeout,
         )
 
     def on_start(self) -> None:
         self._observation = None
 
-    def on_tick(self) -> ObservationStateValues | None:
+    def on_tick(self) -> ObservationStateValue | None:
         if self._observation is None:
             self._observation = self._answer_query()
         return self._observation
 
-    def _answer_query(self) -> ObservationStateValues:
+    def _answer_query(self) -> ObservationStateValue:
         """
         Answer the query and write what was seen into the world.
 
         :return: True once the object was seen, False when the source saw nothing.
         """
         detection = self.perception_source.detect(
-            self.query, self.accept_first_if_multiple
+            query=self.query, accept_first_if_multiple=self.accept_first_if_multiple
         )
         if detection is None:
-            return ObservationStateValues.FALSE
+            return ObservationStateValue.FALSE
         detection.apply_to(
-            self.query.world,
+            world=self.query.world,
             trust_orientation=self.query.trust_detected_orientation,
             region=self.query.region,
         )
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE

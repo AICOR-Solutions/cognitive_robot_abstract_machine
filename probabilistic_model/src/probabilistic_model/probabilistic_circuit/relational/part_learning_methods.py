@@ -13,7 +13,7 @@ from typing_extensions import Any, Self
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from krrood.entity_query_language.core.mapped_variable import Attribute
 from krrood.entity_query_language.core.variable import Variable
-from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
+from probabilistic_model.learning.structure.jpt.jpt import JointProbabilityTree
 from probabilistic_model.learning.learning_method import LearningMethod
 from probabilistic_model.probabilistic_circuit.relational.exceptions import (
     MissingPartLearningMethodError,
@@ -34,8 +34,8 @@ class PartLearningMethods(SubclassJSONSerializer):
 
     default: LearningMethod | None = field(default_factory=JointProbabilityTree)
     """
-    What a part without a learning method is fitted with, copied for every such part,
-    or ``None`` to require a learning method for every part.
+    What a part without a learning method is fitted with, copied for every such part, or
+    ``None`` to require a learning method for every part.
     """
 
     methods_by_path: dict[str, LearningMethod] = field(init=False, default_factory=dict)
@@ -126,7 +126,7 @@ class PartLearningMethods(SubclassJSONSerializer):
         }
 
     @classmethod
-    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
+    def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
         result = cls(from_json(data["default"], **kwargs))
         result.methods_by_path = {
             path: from_json(method, **kwargs)

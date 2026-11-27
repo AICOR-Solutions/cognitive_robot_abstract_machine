@@ -16,7 +16,7 @@ from krrood.entity_query_language.factories import variable
 from probabilistic_model.probabilistic_circuit.causal.causal_circuit import (
     CausalCircuit,
 )
-from probabilistic_model.learning.jpt.jpt import JointProbabilityTree
+from probabilistic_model.learning.structure.jpt.jpt import JointProbabilityTree
 from probabilistic_model.probabilistic_circuit.causal.exceptions import (
     SupportDeterminismVerificationResult,
 )
@@ -328,7 +328,7 @@ def test_fit_stratifies_the_class_circuit_by_the_given_variable(many_chair_count
         event = SimpleEvent.from_data({resolved_chair_count: value}).as_composite_set()
         probability = model.class_probabilistic_circuit.probability(
             event.fill_missing_variables_pure(
-                model.class_probabilistic_circuit.variables
+                variables=model.class_probabilistic_circuit.variables
             )
         )
         assert probability == pytest.approx(0.5, abs=0.01)
@@ -557,7 +557,7 @@ def test_sampled_grounding_gives_every_stratum_its_own_latent_value(
         event = SimpleEvent.from_data({resolved_chair_count: value}).as_composite_set()
         probability = causal_circuit.probabilistic_circuit.probability(
             event.fill_missing_variables_pure(
-                causal_circuit.probabilistic_circuit.variables
+                variables=causal_circuit.probabilistic_circuit.variables
             )
         )
         assert probability == pytest.approx(0.5, abs=0.01)
@@ -645,7 +645,7 @@ def test_a_part_attribute_whose_support_depends_on_the_sampled_count_is_no_cause
 # %% the circuit type a grounding is wrapped in
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GroundingInBothCircuitTypes:
     """
     One grounding of a relational circuit, wrapped as a causal circuit of each circuit
@@ -698,10 +698,10 @@ def _wrapped_in_both_circuit_types(
     layered = RustworkxCircuitToLayeredCircuitConverter.convert(grounded)
     bridge = RelationalCausalCircuit()
     return GroundingInBothCircuitTypes(
-        bridge.from_grounded_circuit(grounded, [cause], [effect]),
-        bridge.from_grounded_circuit(layered, [cause], [effect]),
-        cause,
-        effect,
+        units=bridge.from_grounded_circuit(grounded, [cause], [effect]),
+        layers=bridge.from_grounded_circuit(layered, [cause], [effect]),
+        cause=cause,
+        effect=effect,
     )
 
 

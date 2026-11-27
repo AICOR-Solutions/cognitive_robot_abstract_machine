@@ -1,3 +1,7 @@
+"""
+Mimics of generic classes, their parametrizations and the subclasses that bind them.
+"""
+
 from __future__ import annotations
 
 from abc import ABC
@@ -15,17 +19,17 @@ U = TypeVar("U")
 V = TypeVar("V")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FirstGeneric(Generic[T], SubClassSafeGeneric):
     attribute_using_generic: T
     generic_attribute_using_generic: List[T] = field(default_factory=list, kw_only=True)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatUpdatesGenericTypeToBuiltInType(FirstGeneric[int]): ...
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class BareGenericFieldHolder:
     """
     Holds a field typed to a bare, unparametrized generic class.
@@ -39,23 +43,23 @@ class BareGenericFieldHolder:
     item: FirstGeneric
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatRecreatesAField(FirstGeneric[int]):
     generic_attribute_using_generic: List[int] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatRecreatesAFieldWithNonBuiltInType(FirstGeneric[FirstGeneric]):
     generic_attribute_using_generic: List[FirstGeneric] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatUpdatesGenericTypeToTypeDefinedInSameModule(
     FirstGeneric[FirstGeneric]
 ): ...
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatUpdatesGenericTypeToTypeDefinedInImportedModuleOfThisLibrary(
     FirstGeneric[MappedVariable]
 ): ...
@@ -64,13 +68,13 @@ class SubClassGenericThatUpdatesGenericTypeToTypeDefinedInImportedModuleOfThisLi
 NewTypeVar = TypeVar("NewTypeVar", bound=FirstGeneric)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatUpdatesGenericTypeToAnotherTypeVar(
     FirstGeneric[NewTypeVar]
 ): ...
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SubClassGenericThatRecreatesAFieldWithAnotherVar(FirstGeneric[NewTypeVar]):
     generic_attribute_using_generic: List[NewTypeVar] = field(default_factory=list)
 
@@ -78,11 +82,11 @@ class SubClassGenericThatRecreatesAFieldWithAnotherVar(FirstGeneric[NewTypeVar])
 T2 = TypeVar("T2")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TwoGenericSubClassSafe(Generic[T, T2], SubClassSafeGeneric, ABC): ...
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TwoGenericContainer(TwoGenericSubClassSafe[U, V]):
     first_attribute: U
     second_attribute: V
@@ -90,30 +94,30 @@ class TwoGenericContainer(TwoGenericSubClassSafe[U, V]):
     list_of_second: List[V] = field(default_factory=list, kw_only=True)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TwoGenericContainerBoundToBuiltIns(TwoGenericContainer[int, str]): ...
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class GenericListClass(Generic[T], SubClassSafeGeneric, ABC):
     generic_variable: T = field(default=None)
     generic_list: list[T] = field(default_factory=list)
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class ExampleClass: ...
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class CombinedClass(ExampleClass, GenericListClass[str]): ...
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class OneGenericSubClassSafe(Generic[T], SubClassSafeGeneric, ABC):
     one_generic_first_argument: T
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class CombinedThreeGenericSubClassSafe(
     Generic[U, V], OneGenericSubClassSafe[Union[U, V]]
 ):
@@ -121,13 +125,13 @@ class CombinedThreeGenericSubClassSafe(
     combined_three_generic_second_argument: V
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class ComplexCombinedThreeGenericSubClassSafe(
     CombinedThreeGenericSubClassSafe[ExampleClass, CombinedClass]
 ): ...
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class CombinedThreeGenericSubClassSafeWithThirdType(
     Generic[U, V], OneGenericSubClassSafe[int]
 ):
@@ -135,7 +139,54 @@ class CombinedThreeGenericSubClassSafeWithThirdType(
     combined_three_generic_second_argument: V
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True, eq=False)
 class ComplexCombinedThreeGenericSubClassSafeWithThirdTypes(
     CombinedThreeGenericSubClassSafeWithThirdType[ExampleClass, CombinedClass]
 ): ...
+
+
+# %% a generic base, a subclass binding it and a field typed with that binding
+
+
+@dataclass(kw_only=True, eq=False)
+class Wheel:
+    """
+    The kind of drive a wheeled base is generic over.
+    """
+
+    diameter: float = 0.5
+    """
+    How large the wheel is.
+    """
+
+
+@dataclass(kw_only=True, eq=False)
+class WheeledBase(Generic[T], SubClassSafeGeneric):
+    """
+    A base generic over its drive, in the shape of a robot's mobile base.
+    """
+
+    label: str
+    """
+    The name of the base.
+    """
+
+
+@dataclass(kw_only=True, eq=False)
+class RoverBase(WheeledBase[Wheel]):
+    """
+    The base of one robot, binding the drive of the generic base.
+    """
+
+
+@dataclass(kw_only=True, eq=False)
+class WheeledBaseHolder:
+    """
+    Holds a field typed with one parametrization of the generic base, which gets the
+    parametrization a table of its own.
+    """
+
+    base: WheeledBase[Wheel]
+    """
+    The base held.
+    """

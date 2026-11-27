@@ -1,16 +1,26 @@
+"""
+Fixtures shared by the giskardpy tests: robot poses, worlds and Giskard instances.
+"""
+
+from __future__ import annotations
+
 # %% ORM interfaces
 
 # Built before the imports below, which read a mapped datastructure: pytest imports every
 # conftest of a run before calling any hook, so a hook would fire too late. The build runs
 # once per process and never on an xdist worker.
+from cognitive_robot_abstract_machine.orm_interfaces import OrmPackage
+
 from ..orm_interface_build import regenerate_orm_interfaces
 
-regenerate_orm_interfaces()
+regenerate_orm_interfaces(OrmPackage.GISKARDPY)
 
+
+# Below the ORM build at the top of this module, which has to run first.
 
 import pytest
 
-from giskardpy.middleware.ros2.utils.utils_for_tests import GiskardTester
+from giskardpy.middleware.ros2.giskard_tester import GiskardTester
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
     SetSeedConfiguration,
@@ -21,12 +31,15 @@ from krrood.symbolic_math.symbolic_math import logic_and
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
-from krrood_spatial_math.spatial_types import Vector3, HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import (
+    Vector3,
+    HomogeneousTransformationMatrix,
+)
 from semantic_digital_twin.world_description.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
-    PrismaticConnection,
+    ScrewAxisConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -41,7 +54,7 @@ from semantic_digital_twin.robots.daisy import DAiSy, DAiSyJoint
 from semantic_digital_twin.robots.hsrb import HSRB, HSRBJoint
 from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
 from semantic_digital_twin.robots.stretch import Stretch
-from semantic_digital_twin.robots.tracy import Tracy
+from semantic_digital_twin.robots.tracy import Tracy  # noqa: E402
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 
@@ -195,7 +208,7 @@ def pr2_with_box(pr2_world_copy) -> World:
 
 
 @pytest.fixture()
-def giskard_factory(init_rospy, robot: GiskardTester):
+def giskard_factory(init_background_node, robot: GiskardTester):
     def _create_giskard(seed_joint_state: dict[str, float]) -> GiskardTester:
         parse_seed_joint_state = {
             robot.api.world.get_connection_by_name(name): target
@@ -207,14 +220,14 @@ def giskard_factory(init_rospy, robot: GiskardTester):
             name="initial configuration",
             seed_configuration=JointState.from_mapping(parse_seed_joint_state),
         )
-        statechart.add_node(initial_config)
+        statechart.add_node(node=initial_config)
 
         if robot.has_odometry_joint():
             base_goal = HomogeneousTransformationMatrix(
                 reference_frame=robot.api.world.root
             )
             base_pose_reached = SetOdometry(name="initial pose", base_pose=base_goal)
-            statechart.add_node(base_pose_reached)
+            statechart.add_node(node=base_pose_reached)
             done = logic_and(
                 initial_config.observes_true,
                 base_pose_reached.observes_true,
@@ -222,9 +235,9 @@ def giskard_factory(init_rospy, robot: GiskardTester):
         else:
             done = initial_config.observes_true
         end = EndMotion(name="end")
-        statechart.add_node(end)
+        statechart.add_node(node=end)
         end.start_condition = done
-        robot.api.compile(statechart)
+        robot.api.compile(statechart=statechart)
         robot.api.execute()
         return robot
 
@@ -282,8 +295,13 @@ def _make_prismatic_world(dof_limits: list[DegreeOfFreedomLimits]) -> World:
             dof = DegreeOfFreedom(limits=limits, has_hardware_interface=True)
             world.add_degree_of_freedom(dof)
             world.add_connection(
-                PrismaticConnection(
-                    parent=map_body, child=child, raw_dof=dof, axis=Vector3.Z()
+                ScrewAxisConnection(
+                    screw_axis=ScrewAxisConnection.create_prismatic_screw_axis(
+                        axis=Vector3.Z()
+                    ),
+                    parent=map_body,
+                    child=child,
+                    raw_dof=dof,
                 )
             )
     MinimalRobot.from_world(world)
@@ -335,6 +353,17 @@ def prismatic_world_with_acceleration_limit(request):
     """
     return _make_prismatic_world(
         [_symmetric_prismatic_limits(request.param, 1, acceleration=ACCELERATION_LIMIT)]
+    )
+
+
+@pytest.fixture()
+def prismatic_bot_with_acceleration_limit():
+    """
+    A prismatic joint like :func:`prismatic_bot` with an acceleration limit of its own,
+    which brakes with a jerk limit far below the one of the default braking time.
+    """
+    return _make_prismatic_world(
+        [_symmetric_prismatic_limits(1, 1, acceleration=ACCELERATION_LIMIT)]
     )
 
 
@@ -396,3 +425,15 @@ def daisy_world_specification() -> WorldSpecification:
     DAiSy alone, as Giskard sets it up.
     """
     return WorldSpecification(robots=[RobotSpecification.specify_real_robot(DAiSy)])
+
+
+# %% the ORM mappers the tests use
+
+
+@pytest.fixture(scope="session", autouse=True)
+def register_orm_mappers() -> None:
+    """
+    Load giskardpy's ORM interface, whose import registers the mappers of it and the
+    interfaces it builds on for every test.
+    """
+    import giskardpy.orm.ormatic_interface  # noqa: F401

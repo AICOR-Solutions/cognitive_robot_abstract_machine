@@ -1,3 +1,7 @@
+"""
+The TIAGo robot: its joints, grippers and other robot parts.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -10,7 +14,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing_extensions import Self
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from semantic_digital_twin.adapters.mjcf import MJCFParser
 from semantic_digital_twin.adapters.sensors.lidar import Lidar, LidarSource
 from semantic_digital_twin.collision_checking.collision_rules import (
@@ -66,6 +70,18 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
+
+# %% Tiago Odometry topic
+
+class TiagoOdomTopic(StrEnum):
+    """
+    Names of the topics the Tiago publishes odometry, where it does not
+    follow conventional names.
+    """
+    ODOMETRY = "mobile_base_controller/odom"
+    """
+    The name of the topic the Tiago publishes its odometry on.
+    """
 
 # %% Robot parts
 
@@ -218,18 +234,23 @@ class TiagoGripper(EndEffector, HasParallelGripperCommandServer, ABC):
         """
 
     @property
-    def commanded_joint(self) -> ActiveConnection1DOF:
+    def commanded_connection(self) -> ActiveConnection1DOF:
         return self._world.get_connection_by_name(self.finger_joint)
 
     def setup_hardware_interfaces(self):
-        self.commanded_joint.has_hardware_interface = True
+        connection: ActiveConnection = self._world.get_connection_by_name(
+            self.finger_joint
+        )
+        self._world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     def setup_joint_states(self) -> list[JointState]:
         """
         The gripper stands open with :attr:`finger_joint` at its lower limit and closed
         with it at its upper limit.
         """
-        finger_joint = self.commanded_joint
+        finger_joint: ActiveConnection1DOF = self._world.get_connection_by_name(
+            self.finger_joint
+        )
         limits = finger_joint.raw_dof.limits
 
         gripper_open = JointState.from_mapping(
@@ -323,7 +344,7 @@ class TiagoLeftArm(Arm[TiagoLeftGripper]):
             connection: ActiveConnection = self._world.get_connection_by_name(
                 joint_name
             )
-            connection.has_hardware_interface = True
+            self._world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     def setup_joint_states(self) -> list[JointState]:
         arm_park = JointState.from_mapping(
@@ -368,7 +389,7 @@ class TiagoRightArm(Arm[TiagoRightGripper]):
             connection: ActiveConnection = self._world.get_connection_by_name(
                 joint_name
             )
-            connection.has_hardware_interface = True
+            self._world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     def setup_joint_states(self) -> list[JointState]:
         arm_park = JointState.from_mapping(
@@ -445,7 +466,7 @@ class TiagoNeck(Neck[TiagoCamera]):
             connection: ActiveConnection = self._world.get_connection_by_name(
                 joint_name
             )
-            connection.has_hardware_interface = True
+            self._world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     def setup_joint_states(self) -> list[JointState]:
         return []
@@ -474,7 +495,7 @@ class TiagoTorso(
             connection: ActiveConnection = self._world.get_connection_by_name(
                 joint_name
             )
-            connection.has_hardware_interface = True
+            self._world.set_dofs_has_hardware_interface(connection.active_dofs, True)
 
     def setup_joint_states(self) -> list[JointState]:
         torso_joint = self.active_connections
@@ -546,6 +567,15 @@ class TiagoMobileBase(
     HasTorso[TiagoTorso],
     HasLidar[TiagoBaseLidar],
 ):
+    """Differential-drive mobile base of the Tiago robot carrying its torso"""
+
+    @classproperty
+    def topic_name(cls) -> str:
+        """
+        The topic the Tiago publishes its odometry on.
+        """
+        return TiagoOdomTopic.ODOMETRY
+
     @classproperty
     def forward_axis(cls) -> Vector3:
         return Vector3.X()

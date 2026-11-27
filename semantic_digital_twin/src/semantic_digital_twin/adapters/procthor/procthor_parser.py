@@ -1,3 +1,9 @@
+"""
+Reading ProcTHOR houses into worlds.
+"""
+
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -11,12 +17,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from sqlalchemy.orm import Session
 
+from semantic_digital_twin.world_description.connections import ScrewAxisConnection
 from semantic_digital_twin.adapters.procthor.exceptions import (
     ProcthorDoorWallNotFound,
     UnpairedProcthorWalls,
 )
 from semantic_digital_twin.specifications.connections import (
-    RevoluteConnectionSpecification,
+    ScrewAxisConnectionSpecification,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
@@ -221,7 +228,9 @@ class ProcthorDoor:
         scale = self.scale if scale is None else scale
 
         sampled_2d_point = semantic_handle_position.sample_point_from_event(
-            scale.to_simple_event().as_composite_set().marginal(SpatialVariables.yz)
+            scale.to_simple_event()
+            .as_composite_set()
+            .marginal(variables=SpatialVariables.yz)
         )
         door_T_handle = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=scale.x / 2, y=sampled_2d_point[0], z=sampled_2d_point[1]
@@ -244,12 +253,18 @@ class ProcthorDoor:
                 scale=scale,
                 world_root_T_self=world_T_door,
             )
-            door.add(handle)
+            door.add(part=handle)
 
-        door.mount_on_movable_joint(RevoluteConnectionSpecification(axis=Vector3.Z()))
+        door.mount_on_movable_joint(
+            ScrewAxisConnectionSpecification(
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Z()
+                ),
+            )
+        )
         return door
 
-    def add_to_world(self, world: World) -> Door | DoubleDoor:
+    def add_to_world(self, *, world: World) -> Door | DoubleDoor:
         """
         Returns a Factory for the door, either a DoorFactory or a DoubleDoorFactory,
         depending on its name. If the door's name contains "double", it is treated as a double door.
@@ -399,7 +414,7 @@ class ProcthorWall:
 
         return unity_to_semantic_digital_twin_transform(world_T_wall)
 
-    def add_to_world(self, world: World) -> Wall:
+    def add_to_world(self, *, world: World) -> Wall:
         """
         Returns a World instance with this wall at its root.
         """
@@ -417,13 +432,13 @@ class ProcthorWall:
                 parent_wall_width=self.scale.y,
                 world_T_parent_wall=self.world_T_wall,
             )
-            door = procthor_door.add_to_world(world)
+            door = procthor_door.add_to_world(world=world)
             with world.modify_world():
                 if isinstance(door, Door):
-                    wall.add(door.entry_way)
+                    wall.add(part=door.entry_way)
                 elif isinstance(door, DoubleDoor):
-                    wall.add(door.door_0.entry_way)
-                    wall.add(door.door_1.entry_way)
+                    wall.add(part=door.door_0.entry_way)
+                    wall.add(part=door.door_1.entry_way)
                 else:
                     assert_never(door)
 
@@ -486,7 +501,7 @@ class ProcthorRoom:
 
         return HomogeneousTransformationMatrix.from_point_rotation_matrix(world_P_room)
 
-    def add_to_world(self, world: World):
+    def add_to_world(self, *, world: World):
         """
         Returns a World instance with this room as a Region at its root.
         """
@@ -679,7 +694,7 @@ class ProcTHORParser(WorldSource):
         """
         for room in rooms:
             procthor_room = ProcthorRoom(room_dict=room)
-            procthor_room.add_to_world(world)
+            procthor_room.add_to_world(world=world)
 
     def import_objects(self, world: World, objects: list[dict]):
         """
@@ -713,7 +728,7 @@ class ProcTHORParser(WorldSource):
         procthor_walls = self._build_procthor_walls(walls, doors)
 
         for procthor_wall in procthor_walls:
-            procthor_wall.add_to_world(world)
+            procthor_wall.add_to_world(world=world)
 
     @staticmethod
     def _build_procthor_wall_from_polygon(

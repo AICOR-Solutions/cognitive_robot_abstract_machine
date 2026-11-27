@@ -20,7 +20,6 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import StrEnum
 from typing_extensions import Iterator
 
 import rclpy
@@ -37,35 +36,17 @@ from coraplex.robot_plans.plan_transformations import (
 from coraplex.robotiq_grippers import DriveRobotiqGrippersThroughTheirActionServers
 from cramph.context import StatechartContext
 from demo import DemoRunner, ShapeSortingPlan
-from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
-from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
+from giskardpy.middleware.ros2.scripts.iai_robots.tracy.launch_files import (
+    TracyGiskardLaunchFile,
+)
+from semantic_digital_twin.adapters.ros.world_fetcher import join_shared_world
 from semantic_digital_twin.robots.tracy import Tracy
 from semantic_digital_twin.world import World
-
-# %% the giskard the demo runs against
-
-
-class TracyGiskardLaunchFile(StrEnum):
-    """
-    The launch files of ``giskardpy_ros`` that bring up a giskard for Tracy.
-    """
-
-    STANDALONE = "giskardpy_tracy_standalone.launch.py"
-    """
-    A giskard that simulates Tracy instead of commanding it, with nothing serving the
-    gripper actions.
-    """
-
-    VELOCITY = "giskardpy_tracy_velocity.launch.py"
-    """
-    A giskard that commands the velocity controllers of the real Tracy.
-    """
-
 
 # %% running the demo
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RunningRobot:
     """
     The real Tracy's stack, up and reachable: its world and the node the demo talks
@@ -83,7 +64,7 @@ class RunningRobot:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RealRunner(DemoRunner):
     """
     Carries the sorting plan out on the real robot, bringing its controllers up first.
@@ -112,15 +93,21 @@ class RealRunner(DemoRunner):
 
     def run(self) -> None:
         with self.running_robot() as robot:
-            self.scene.populate(robot.world)
+            self.scene.populate(world=robot.world)
             [tracy] = robot.world.get_semantic_annotations_by_type(Tracy)
             executor = RealRobotPlanExecutor(
-                StatechartContext.with_extensions(robot.world, [RobotAccess(tracy)]),
+                context=StatechartContext.with_extensions(
+                    world=robot.world, extensions=[RobotAccess(robot=tracy)]
+                ),
                 ros_node=robot.node,
                 collision_avoidance=False,
                 plan_adaptations=self.plan_adaptations(),
             )
-            executor.compile(ShapeSortingPlan(scene=self.scene).build(executor.context))
+            executor.compile(
+                statechart=ShapeSortingPlan(scene=self.scene).build(
+                    context=executor.context
+                )
+            )
             executor.execute()
             executor.close()
 
@@ -157,10 +144,9 @@ class RealRunner(DemoRunner):
                 target=executor.spin, daemon=True, name="rclpy-executor"
             ).start()
 
-            world = fetch_world_from_service(
+            world = join_shared_world(
                 node=node, timeout_seconds=self.world_fetch_timeout.total_seconds()
             )
-            WorldSynchronizer(_world=world, node=node)
             yield RunningRobot(world=world, node=node)
         finally:
             os.killpg(os.getpgid(controllers.pid), signal.SIGTERM)

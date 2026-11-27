@@ -1,3 +1,10 @@
+"""
+Matching of object hypotheses against the object designator of a query, and
+:class:`QueryHandler`, which answers queries through the ROS action interface.
+"""
+
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from queue import Queue
@@ -19,7 +26,7 @@ from robokudo.types.annotation import (
 from robokudo.types.scene import ObjectHypothesis
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class QueryAttributeMatcher:
     """
     Connect an ObjectDesignator field extractor with its matcher.
@@ -30,9 +37,10 @@ class QueryAttributeMatcher:
     Function that extracts requested values from an ObjectDesignator.
     """
 
-    matches: Callable[[ObjectHypothesis, Any], bool]
+    matches: Callable[..., bool]
     """
-    Function that checks if an ObjectHypothesis satisfies the requested values.
+    Function that checks if an ObjectHypothesis satisfies the requested values, taking
+    them as the keyword arguments ``object_hypothesis`` and ``requested_values``.
     """
 
 
@@ -86,26 +94,26 @@ class ObjectHypothesisQueryMatcher:
         ]
 
     @staticmethod
-    def normalize_query_value(value: Any) -> str:
+    def normalize_query_value(*, value: Any) -> str:
         """
         Normalize string-like query values for robust comparisons.
         """
         return str(value).strip().lower()
 
     @classmethod
-    def normalized_values(cls, values: Any) -> set[str]:
+    def normalized_values(cls, *, values: Any) -> set[str]:
         """
         Return normalized, non-empty string values from scalar or sequence input.
         """
         if values is None:
             return set()
         if isinstance(values, str):
-            normalized_value = cls.normalize_query_value(values)
+            normalized_value = cls.normalize_query_value(value=values)
             return {normalized_value} if normalized_value else set()
         try:
             iterator = iter(values)
         except TypeError:
-            normalized_value = cls.normalize_query_value(values)
+            normalized_value = cls.normalize_query_value(value=values)
             return {normalized_value} if normalized_value else set()
 
         normalized_values = set()
@@ -116,15 +124,15 @@ class ObjectHypothesisQueryMatcher:
                 except TypeError:
                     pass
                 else:
-                    normalized_values.update(cls.normalized_values(value))
+                    normalized_values.update(cls.normalized_values(values=value))
                     continue
-            normalized_value = cls.normalize_query_value(value)
+            normalized_value = cls.normalize_query_value(value=value)
             if normalized_value:
                 normalized_values.add(normalized_value)
         return normalized_values
 
     @staticmethod
-    def value_variants(value: Any) -> list[Any]:
+    def value_variants(*, value: Any) -> list[Any]:
         """
         Return common string-like representations for semantic names.
         """
@@ -141,24 +149,24 @@ class ObjectHypothesisQueryMatcher:
 
     @classmethod
     def any_requested_value_matches(
-        cls, requested_values: Any, candidate_values: list[Any]
+        cls, *, requested_values: Any, candidate_values: list[Any]
     ) -> bool:
         """
         Return true if any requested value matches any candidate value.
         """
-        requested = cls.normalized_values(requested_values)
+        requested = cls.normalized_values(values=requested_values)
         if len(requested) == 0:
             return True
 
         candidates = set()
         for candidate_value in candidate_values:
             candidates.update(
-                cls.normalized_values(cls.value_variants(candidate_value))
+                cls.normalized_values(values=cls.value_variants(value=candidate_value))
             )
         return not requested.isdisjoint(candidates)
 
     def matches(
-        self, object_hypothesis: ObjectHypothesis, requested_object: ObjectDesignator
+        self, *, object_hypothesis: ObjectHypothesis, requested_object: ObjectDesignator
     ) -> bool:
         """
         Return true if an object hypothesis satisfies all supported query fields.
@@ -167,24 +175,26 @@ class ObjectHypothesisQueryMatcher:
             requested_values = query_attribute_matcher.requested_values(
                 requested_object
             )
-            if len(self.normalized_values(requested_values)) == 0:
+            if len(self.normalized_values(values=requested_values)) == 0:
                 continue
-            if not query_attribute_matcher.matches(object_hypothesis, requested_values):
+            if not query_attribute_matcher.matches(
+                object_hypothesis=object_hypothesis, requested_values=requested_values
+            ):
                 return False
         return True
 
     def matches_uid(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match an ObjectDesignator uid request against the object hypothesis id.
         """
         return self.any_requested_value_matches(
-            requested_values, [object_hypothesis.id]
+            requested_values=requested_values, candidate_values=[object_hypothesis.id]
         )
 
     def matches_type(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match requested object type against Classification annotations.
@@ -196,10 +206,12 @@ class ObjectHypothesisQueryMatcher:
         ]
         if not candidate_values and self.unclassified_objects_match_every_type:
             return True
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_shape(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match requested shapes against shape annotations.
@@ -209,10 +221,12 @@ class ObjectHypothesisQueryMatcher:
             if isinstance(annotation, Shape):
                 candidate_values.append(annotation.shape_name)
                 candidate_values.append(type(annotation).__name__)
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_color(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match requested colors against SemanticColor annotations.
@@ -222,10 +236,12 @@ class ObjectHypothesisQueryMatcher:
             for annotation in object_hypothesis.annotations
             if isinstance(annotation, SemanticColor)
         ]
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_location(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match requested location against LocationAnnotation annotations.
@@ -236,11 +252,15 @@ class ObjectHypothesisQueryMatcher:
                 continue
             candidate_values.append(annotation.name)
             if annotation.region is not None:
-                candidate_values.extend(self.value_variants(annotation.region.name))
-        return self.any_requested_value_matches(requested_values, candidate_values)
+                candidate_values.extend(
+                    self.value_variants(value=annotation.region.name)
+                )
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_attribute(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match generic requested attributes against known annotation fields.
@@ -253,10 +273,12 @@ class ObjectHypothesisQueryMatcher:
                 candidate_values.append(annotation.color)
             if isinstance(annotation, Shape):
                 candidate_values.append(annotation.shape_name)
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_size(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match semantic size requests against bounding-box dimensions.
@@ -267,10 +289,12 @@ class ObjectHypothesisQueryMatcher:
                 candidate_values.extend(
                     [annotation.x_length, annotation.y_length, annotation.z_length]
                 )
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
     def matches_description(
-        self, object_hypothesis: ObjectHypothesis, requested_values: Any
+        self, *, object_hypothesis: ObjectHypothesis, requested_values: Any
     ) -> bool:
         """
         Match generic requested descriptions against classification labels.
@@ -280,7 +304,9 @@ class ObjectHypothesisQueryMatcher:
             for annotation in object_hypothesis.annotations
             if isinstance(annotation, Classification)
         ]
-        return self.any_requested_value_matches(requested_values, candidate_values)
+        return self.any_requested_value_matches(
+            requested_values=requested_values, candidate_values=candidate_values
+        )
 
 
 class QueryHandler(object):
@@ -317,7 +343,7 @@ class QueryHandler(object):
         return blackboard.get(BBIdentifier.QUERY_FEEDBACK)
 
     @staticmethod
-    def send_feedback(feedback: Query.Feedback) -> None:
+    def send_feedback(*, feedback: Query.Feedback) -> None:
         """
         Add a feedback part of the Query msg to the feedback queue, ready to be sent.
 
@@ -327,7 +353,7 @@ class QueryHandler(object):
         feedback_queue.put(feedback)
 
     @staticmethod
-    def send_feedback_str(feedback_str: str) -> None:
+    def send_feedback_str(*, feedback_str: str) -> None:
         """
         Add a simple string to the feedback to the feedback queue, ready to be sent.
 
@@ -335,10 +361,10 @@ class QueryHandler(object):
         """
         feedback_msg = Query.Feedback()
         feedback_msg.feedback = feedback_str
-        QueryHandler.send_feedback(feedback_msg)
+        QueryHandler.send_feedback(feedback=feedback_msg)
 
     @staticmethod
-    def send_answer(result: Query.Result) -> None:
+    def send_answer(*, result: Query.Result) -> None:
         """
         Raise a standard RoboKudo Query Result as a query answer to the blackboard.
 
@@ -350,10 +376,10 @@ class QueryHandler(object):
                 "If you want to send other results, use QueryHandler.send_arbitrary_answer"
             )
 
-        QueryHandler.send_arbitrary_answer(result)
+        QueryHandler.send_arbitrary_answer(result=result)
 
     @staticmethod
-    def send_arbitrary_answer(result: Any) -> None:
+    def send_arbitrary_answer(*, result: Any) -> None:
         """
         Raise any data as a query answer to the blackboard.
 

@@ -1,13 +1,17 @@
+"""
+The SAGE-10k door-opening demo.
+"""
+
+from semantic_digital_twin.world_description.connections import ScrewAxisConnection
 from copy import deepcopy
 
 import numpy as np
 import pytest
 
-import experiments.orm.ormatic_interface  # type: ignore
 from experiments.sage_10k.sage10k_actions import Sage10kOpenDoor
-from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.parametrization.probabilistic_backend import ProbabilisticBackend
 from semantic_digital_twin.specifications.connections import (
-    RevoluteConnectionSpecification,
+    ScrewAxisConnectionSpecification,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Wall,
@@ -30,6 +34,9 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
 @pytest.fixture
 def wall_door_handle_world():
+    """
+    A world with a wall whose entry way holds a door with a handle.
+    """
     world = World.create_with_root_body("map")
 
     with world.modify_world():
@@ -49,7 +56,7 @@ def wall_door_handle_world():
         door.root.visual.dye_shapes(Color.from_rgba(red=0.55, green=0.27, blue=0.07))
 
     with world.modify_world():
-        wall.add(door.entry_way)
+        wall.add(part=door.entry_way)
 
     with world.modify_world():
         handle = Handle.create_with_new_body_in_world(
@@ -64,11 +71,11 @@ def wall_door_handle_world():
             scale=Scale(0.05, 0.02, 0.2),
         )
         handle.root.visual.dye_shapes(Color.from_rgba(red=0.8, green=0.8, blue=0.1))
-        door.add(handle)
+        door.add(part=handle)
 
     door.mount_on_movable_joint(
-        RevoluteConnectionSpecification(
-            axis=Vector3.Z(),
+        ScrewAxisConnectionSpecification(
+            screw_axis=ScrewAxisConnection.create_revolute_screw_axis(axis=Vector3.Z()),
             dof_limits=DegreeOfFreedomLimits(
                 lower=DerivativeMap(position=0.0, velocity=0.0),
                 upper=DerivativeMap(position=np.pi / 2, velocity=1.0),
@@ -95,7 +102,7 @@ def test_door_opening(wall_door_handle_world, _hsr_world_setup, rclpy_node):
     run_plan(
         Sage10kOpenDoor(door=door),
         [
-            RobotAccess(robot),
+            RobotAccess(robot=robot),
             StatementGrounding(query_backend=ProbabilisticBackend()),
         ],
     )

@@ -13,30 +13,30 @@ from pathlib import Path
 
 import numpy as np
 
+import cramph.orm.ormatic_interface
 import segmind
-
-# imported for its alternative mappings, which are collected through a global subclass
-# scan: without it segmind's spatial fields degrade to JSON columns
-import semantic_digital_twin.orm.model
 from krrood.ormatic.custom_types import NumpyType
-from krrood.adapters.json_serializer import SubclassJSONSerializer
 from krrood.ormatic.ormatic import ORMatic
 
 from segmind.event_segmentation import Segmind
 from segmind.exceptions import NoSemanticAnnotationToWatch
 
 ignored_classes = {
-    SubclassJSONSerializer,
     Segmind,
     NoSemanticAnnotationToWatch,
 }
 
-dependencies = []
+dependencies = [cramph.orm.ormatic_interface]
 
 type_mappings = {np.ndarray: NumpyType}
 
 # Create an ORMatic object with the classes to be mapped
-ormatic = ORMatic.from_package([segmind], dependencies, ignored_classes, type_mappings)
+ormatic = ORMatic.from_package(
+    packages=[segmind],
+    ormatic_interface_dependencies=dependencies,
+    ignored_classes=ignored_classes,
+    type_mappings=type_mappings,
+)
 logging.getLogger("krrood").setLevel(logging.DEBUG)
 
 
@@ -47,4 +47,4 @@ ormatic_interface_path = (
     Path(__file__).parents[1] / "src" / "segmind" / "orm" / "ormatic_interface.py"
 )
 with open(ormatic_interface_path, "w") as f:
-    ormatic.to_sqlalchemy_file(f)
+    ormatic.to_sqlalchemy_file(file=f)

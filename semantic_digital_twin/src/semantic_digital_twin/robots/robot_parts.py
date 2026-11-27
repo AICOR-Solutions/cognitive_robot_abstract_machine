@@ -1,3 +1,7 @@
+"""
+The parts a robot is made of: kinematic chains, sensors, cameras, fingers and the like.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -27,7 +31,7 @@ from krrood.class_diagrams.attribute_introspector import (
     DataclassOnlyIntrospector,
 )
 from krrood.entity_query_language.factories import a, contains, entity, variable
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
 from krrood.utils import get_generic_type_parameters
 from semantic_digital_twin.datastructures.camera_model import (
@@ -97,18 +101,19 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.world_description.derivatives import DerivativeMap
-from krrood_spatial_math.spatial_types import Point3, Pose
+from krrood_spatial_math.spatial_types import Point3, Pose, Pose2D
 from semantic_digital_twin.world_description.connection_properties import JointServo
 from semantic_digital_twin.world_description.connections import (
     ActiveConnection,
     ActiveConnection1DOF,
     FixedConnection,
-    PrismaticConnection,
+    ScrewAxisConnection,
     WheeledDrive,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
 )
+from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
 from semantic_digital_twin.world_description.geometry import (
     Scale,
     VolumetricBoundingBox,
@@ -182,7 +187,7 @@ class HasRobotParts(ABC):
             seen.add(self.id)
             robot_parts.append(self)
 
-        for field_ in introspector.discover(self.__class__):
+        for field_ in introspector.discover(owner_cls=self.__class__):
             value = getattr(self, field_.public_name)
 
             if isinstance(value, CollectionKind.ELEMENT_SEQUENCE.value):
@@ -202,7 +207,7 @@ class HasRobotParts(ABC):
         """
         introspector = DataclassOnlyIntrospector()
 
-        for attr in introspector.discover(self.__class__):
+        for attr in introspector.discover(owner_cls=self.__class__):
             field_name = attr.public_name
             field_type = attr.field.type
 
@@ -412,7 +417,9 @@ class AbstractRobotPart(HasRootBody, HasRobotParts, ABC):
         """
         for robot_part in self._robot_parts:
             for connection in robot_part.active_connections:
-                connection.has_hardware_interface = True
+                self._world.set_dofs_has_hardware_interface(
+                    connection.active_dofs, True
+                )
 
     @property
     def active_connections(self) -> list[ActiveConnection]:
@@ -534,13 +541,12 @@ class HasGripperActionServers(AbstractRobotPart, ABC):
 
 
 @dataclass(eq=False)
-class KinematicChain(AbstractRobotPart, HasInputSource[JointPositionSource], ABC):
+class RobotKinematicChain(
+    AbstractRobotPart, HasInputSource[JointPositionSource], KinematicChain, ABC
+):
     """
-    A kinematic chain is a robot part that consists of a chain of bodies and connections
-    between them.
-
-    It has a root body and a tip body, and the connections between them can be computed
-    using the world description.
+    A robot part that consists of the chain of bodies and connections from its root body
+    to its tip body, so it can stand wherever a :class:`KinematicChain` is taken.
     """
 
     tip: Body = field(kw_only=True)
@@ -617,7 +623,8 @@ class KinematicChain(AbstractRobotPart, HasInputSource[JointPositionSource], ABC
     def approximate_length(self) -> float:
         """
         Approximates the length of the kinematic chain by adding up  the distance
-        between each body pair along the chain. For Prismatic Connections the upper
+        between each body pair along the chain. For a :class:`ScrewAxisConnection` that
+        :attr:`~ScrewAxisConnection.behaves_like_a_prismatic_connection`, the upper
         limit of the connection is used, so the function returns the maximum length.
 
         :return: the approximate length of the kinematic chain
@@ -628,7 +635,10 @@ class KinematicChain(AbstractRobotPart, HasInputSource[JointPositionSource], ABC
             child_pose = connection.child.global_pose
             dist = (
                 connection.dof.limits.upper.position
-                if isinstance(connection, PrismaticConnection)
+                if (
+                    isinstance(connection, ScrewAxisConnection)
+                    and connection.behaves_like_a_prismatic_connection
+                )
                 else parent_pose.position.euclidean_distance(child_pose.position)
             )
             length += dist
@@ -803,7 +813,7 @@ class RobotCamera(Camera[TCameraModel], AbstractRobotPart, Generic[TCameraModel]
 
 
 @dataclass(eq=False)
-class Finger(KinematicChain, ABC):
+class Finger(RobotKinematicChain, ABC):
     """
     A finger is a kinematic chain attached to a gripper to manipulate objects.
     """
@@ -864,7 +874,7 @@ class EndEffector(AbstractRobotPart, ABC):
         :attr:`tool_frame`.
 
         It is the x-axis of the grasp frame
-        :meth:`~semantic_digital_twin.semantic_annotations.mixins.HasGraspCandidates.grasp_candidates`
+        :meth:`~semantic_digital_twin.semantic_annotations.mixins.IsGraspable.grasp_candidates`
         describes.
         """
 
@@ -875,7 +885,7 @@ class EndEffector(AbstractRobotPart, ABC):
         The axis the fingers close along, expressed in :attr:`tool_frame`.
 
         It is the y-axis of the grasp frame
-        :meth:`~semantic_digital_twin.semantic_annotations.mixins.HasGraspCandidates.grasp_candidates`
+        :meth:`~semantic_digital_twin.semantic_annotations.mixins.IsGraspable.grasp_candidates`
         describes, and has to be perpendicular to :attr:`approach_axis`.
         """
 
@@ -954,9 +964,20 @@ class EndEffector(AbstractRobotPart, ABC):
         body = self.held_body
         if body is None:
             raise NothingHeld(self)
+        return self.body_T_grasp(body=body, tool_P_grasp=tool_P_point)
+
+    def body_T_grasp(self, *, body: Body, tool_P_grasp: Point3) -> Pose:
+        """
+        The grasp this gripper has on `body` as both stand now, whether or not `body`
+        hangs off the tool frame.
+
+        :param body: The body the grasp is on.
+        :param tool_P_grasp: The point of the gripper the grasp sits at.
+        :return: The grasp frame, in the frame of `body`.
+        """
         body_T_tool = self._world.transform(self.tool_frame.global_transform, body)
         return HomogeneousTransformationMatrix.from_point_rotation_matrix(
-            point=body_T_tool @ tool_P_point,
+            point=body_T_tool @ tool_P_grasp,
             rotation_matrix=body_T_tool.rotation_matrix @ self.tool_R_grasp,
             reference_frame=body,
         ).pose
@@ -979,7 +1000,7 @@ class EndEffector(AbstractRobotPart, ABC):
 
 
 @dataclass(eq=False)
-class Torso(KinematicChain, ABC):
+class Torso(RobotKinematicChain, ABC):
     """
     The torso of a robot, which is a kinematic chain providing additional shared degrees
     of freedom to its attachments, such as arms or the neck.
@@ -994,7 +1015,7 @@ class Torso(KinematicChain, ABC):
 
 
 @dataclass(eq=False)
-class Arm(KinematicChain, HasEndEffector[TGenericEndEffector], ABC):
+class Arm(RobotKinematicChain, HasEndEffector[TGenericEndEffector], ABC):
     """
     An arm is a kinematic chain that has an end effector attached to it.
     """
@@ -1002,7 +1023,7 @@ class Arm(KinematicChain, HasEndEffector[TGenericEndEffector], ABC):
 
 @dataclass(eq=False)
 class Neck(
-    KinematicChain,
+    RobotKinematicChain,
     HasSensors[Unpack[TGenericSensors]],
     ABC,
 ):
@@ -1199,7 +1220,7 @@ class MobileBase(
         """
         return RotationMatrix.from_vectors(x=self.forward_axis, z=Vector3.Z())
 
-    def pose_facing(self, heading: Pose) -> Pose:
+    def pose_facing(self, *, heading: Pose | Pose2D) -> Pose:
         """
         The base pose whose :attr:`forward_axis` points along ``heading``.
 
@@ -1207,9 +1228,10 @@ class MobileBase(
         its x-axis, so the same heading serves bases modelled with different axes. Its
         position is kept as it is.
         """
+        reference_T_heading = heading.homogeneous_matrix
         return HomogeneousTransformationMatrix.from_point_rotation_matrix(
-            heading.position,
-            heading.rotation_matrix @ self.base_R_front.inverse(),
+            reference_T_heading.position,
+            reference_T_heading.rotation_matrix @ self.base_R_front.inverse(),
             reference_frame=heading.reference_frame,
         ).pose
 
@@ -1318,6 +1340,21 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
             < collision_manager.get_violated_distance(contact.body_a, contact.body_b)
             for contact in collision_manager.compute_collisions().contacts
             if contact.body_a in own_bodies or contact.body_b in own_bodies
+        )
+
+    @property
+    def is_within_an_external_buffer_zone(self) -> bool:
+        """
+        :return: Whether any body of this robot is closer to a body outside it than the
+            buffer-zone distance the active collision rules keep between the two.
+        """
+        own_bodies = set(self.bodies_with_collision)
+        collision_manager = self._world.collision_manager
+        return any(
+            contact.distance
+            < collision_manager.get_buffer_zone_distance(contact.body_a, contact.body_b)
+            for contact in collision_manager.compute_collisions().contacts
+            if (contact.body_a in own_bodies) != (contact.body_b in own_bodies)
         )
 
     @classmethod

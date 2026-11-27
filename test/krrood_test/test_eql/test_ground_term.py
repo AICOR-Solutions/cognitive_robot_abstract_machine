@@ -6,7 +6,15 @@ the object it belongs to.
 from __future__ import annotations
 
 from krrood.class_diagrams.call_arguments import CallArguments
-from krrood.entity_query_language.ground_term import CallTerm, ObjectIdentity
+from krrood.entity_query_language.core.mapped_variable import Attribute
+from krrood.entity_query_language.ground_term import (
+    AttributeTerm,
+    CallTerm,
+    GroundTermExpression,
+    GroundTermType,
+    ObjectIdentity,
+)
+from krrood.entity_query_language.utils import T
 
 from ..dataset.objects_compared_by_value import PointComparedByValue
 
@@ -14,42 +22,55 @@ from ..dataset.objects_compared_by_value import PointComparedByValue
 
 
 def test_identity_of_an_object_differs_from_the_object_itself():
-    point = PointComparedByValue(1.0)
+    point = PointComparedByValue(coordinate=1.0)
 
-    assert ObjectIdentity(point) != point
-    assert point != ObjectIdentity(point)
+    assert ObjectIdentity(identified_object=point) != point
+    assert point != ObjectIdentity(identified_object=point)
 
 
 def test_identities_of_one_object_are_equal_and_hash_alike():
-    point = PointComparedByValue(1.0)
+    point = PointComparedByValue(coordinate=1.0)
 
-    assert ObjectIdentity(point) == ObjectIdentity(point)
-    assert hash(ObjectIdentity(point)) == hash(ObjectIdentity(point))
+    assert ObjectIdentity(identified_object=point) == ObjectIdentity(
+        identified_object=point
+    )
+    assert hash(ObjectIdentity(identified_object=point)) == hash(
+        ObjectIdentity(identified_object=point)
+    )
 
 
 def test_identities_of_equal_objects_differ():
-    assert ObjectIdentity(PointComparedByValue(1.0)) != ObjectIdentity(
-        PointComparedByValue(1.0)
-    )
+    assert ObjectIdentity(
+        identified_object=PointComparedByValue(coordinate=1.0)
+    ) != ObjectIdentity(identified_object=PointComparedByValue(coordinate=1.0))
 
 
 # %% method receivers
 
 
 def test_method_call_is_one_ground_term_whether_its_receiver_is_bound_or_passed():
-    point = PointComparedByValue(1.0)
+    point = PointComparedByValue(coordinate=1.0)
 
-    assert CallTerm.from_call(point.shifted_by, CallArguments((1.0,))) == (
-        CallTerm.from_call(PointComparedByValue.shifted_by, CallArguments((point, 1.0)))
+    assert CallTerm.from_call(
+        callee=point.shifted_by, arguments=CallArguments(keyword={"distance": 1.0})
+    ) == (
+        CallTerm.from_call(
+            callee=PointComparedByValue.shifted_by,
+            arguments=CallArguments(positional=(point,), keyword={"distance": 1.0}),
+        )
     )
 
 
 def test_method_calls_on_equal_receivers_are_different_ground_terms():
-    first = PointComparedByValue(1.0)
-    second = PointComparedByValue(1.0)
+    first = PointComparedByValue(coordinate=1.0)
+    second = PointComparedByValue(coordinate=1.0)
 
-    assert CallTerm.from_call(first.shifted_by, CallArguments((1.0,))) != (
-        CallTerm.from_call(second.shifted_by, CallArguments((1.0,)))
+    assert CallTerm.from_call(
+        callee=first.shifted_by, arguments=CallArguments(keyword={"distance": 1.0})
+    ) != (
+        CallTerm.from_call(
+            callee=second.shifted_by, arguments=CallArguments(keyword={"distance": 1.0})
+        )
     )
 
 
@@ -57,10 +78,39 @@ def test_function_compares_its_arguments_by_value():
     def distance(first: PointComparedByValue, second: PointComparedByValue) -> float:
         return abs(first.coordinate - second.coordinate)
 
-    origin = PointComparedByValue(0.0)
+    origin = PointComparedByValue(coordinate=0.0)
 
     assert CallTerm.from_call(
-        distance, CallArguments((origin, PointComparedByValue(1.0)))
+        callee=distance,
+        arguments=CallArguments(
+            positional=(origin, PointComparedByValue(coordinate=1.0))
+        ),
     ) == CallTerm.from_call(
-        distance, CallArguments((PointComparedByValue(0.0), PointComparedByValue(1.0)))
+        callee=distance,
+        arguments=CallArguments(
+            positional=(
+                PointComparedByValue(coordinate=0.0),
+                PointComparedByValue(coordinate=1.0),
+            )
+        ),
     )
+
+
+# %% the types an expression that reads ground terms is generic over
+
+
+def test_expression_binds_the_value_type_of_the_ground_terms_it_reads():
+    """
+    An attribute of a collection type reads ground terms whose values are collections.
+    """
+
+    class CollectionAttribute(Attribute[list[int]]):
+        """
+        An attribute whose values are lists of integers.
+        """
+
+    assert issubclass(CollectionAttribute, GroundTermExpression)
+    assert (
+        CollectionAttribute.get_type_of_generic_parameter(parameter=GroundTermType),
+        CollectionAttribute.get_type_of_generic_parameter(parameter=T),
+    ) == (AttributeTerm, list[int])

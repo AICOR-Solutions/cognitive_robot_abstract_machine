@@ -1,19 +1,33 @@
+import datetime
 import logging
 
 import pytest
 
 from krrood.class_diagrams.class_diagram import ClassDiagram
 from krrood.class_diagrams.wrapped_field import WrappedField
-from krrood.ormatic.field_storage import CustomTypeRule, FieldStorage, FieldToStore
+from krrood.ormatic.field_storage import (
+    CustomTypeRule,
+    FieldStorage,
+    FieldToStore,
+    ValueStorage,
+)
 from krrood.ormatic.ormatic import ORMatic
-from ..dataset.field_storage_classes import FieldsOfEveryStorage, StorageLeaf
+from ..dataset.field_storage_classes import (
+    FieldsOfEveryStorage,
+    StorageColour,
+    StorageLeaf,
+    UnmappedRecord,
+    ValueWithoutSerializer,
+)
 
 # %% helpers
 
 
 @pytest.fixture
 def ormatic() -> ORMatic:
-    return ORMatic(ClassDiagram([StorageLeaf, FieldsOfEveryStorage]))
+    return ORMatic(
+        class_dependency_graph=ClassDiagram(classes=[StorageLeaf, FieldsOfEveryStorage])
+    )
 
 
 def field_named(ormatic: ORMatic, name: str) -> WrappedField:
@@ -21,7 +35,7 @@ def field_named(ormatic: ORMatic, name: str) -> WrappedField:
     :return: The field of :class:`FieldsOfEveryStorage` with the given name.
     """
     wrapped_class = ormatic.class_dependency_graph.get_wrapped_class(
-        FieldsOfEveryStorage
+        clazz=FieldsOfEveryStorage
     )
     return next(f for f in wrapped_class.fields if f.field.name == name)
 
@@ -42,20 +56,60 @@ def field_named(ormatic: ORMatic, name: str) -> WrappedField:
         ("span", FieldStorage.JSON),
         ("numbers", FieldStorage.JSON),
         ("days", FieldStorage.JSON),
-        ("lookup", FieldStorage.NOT_STORED),
+        ("record", FieldStorage.JSON),
+        ("records", FieldStorage.JSON),
+        ("lookup", FieldStorage.JSON),
+        ("nested_numbers", FieldStorage.JSON),
+        ("nested_leaves", FieldStorage.MANY_TO_MANY),
+        ("leaves_by_name", FieldStorage.MANY_TO_MANY),
+        ("names_by_leaf", FieldStorage.MANY_TO_MANY),
+        ("leaf_lists_by_name", FieldStorage.MANY_TO_MANY),
+        ("anything_by_name", FieldStorage.NOT_STORED),
+        ("untyped_lookup", FieldStorage.NOT_STORED),
         ("anything", FieldStorage.NOT_STORED),
     ],
 )
 def test_field_is_stored_the_way_its_type_calls_for(ormatic, field_name, storage):
     assert (
-        ormatic.field_classifier.classify(field_named(ormatic, field_name)) is storage
+        ormatic.field_classifier.classify(
+            wrapped_field=field_named(ormatic, field_name)
+        )
+        is storage
     )
+
+
+@pytest.mark.parametrize(
+    "value_type, storage",
+    [
+        (StorageLeaf, ValueStorage.REFERENCE),
+        (int, ValueStorage.COLUMN),
+        (str, ValueStorage.COLUMN),
+        (StorageColour, ValueStorage.COLUMN),
+        (datetime.date, ValueStorage.COLUMN),
+        (UnmappedRecord, ValueStorage.JSON),
+        (type, ValueStorage.COLUMN),
+        (ValueWithoutSerializer, ValueStorage.NOT_STORED),
+    ],
+)
+def test_key_or_value_of_a_collection_is_stored_the_way_its_type_calls_for(
+    ormatic, value_type, storage
+):
+    field_to_store = FieldToStore(
+        wrapped_field=field_named(ormatic, "leaves_by_name"), ormatic=ormatic
+    )
+
+    assert field_to_store.value_storage(value_type=value_type) is storage
 
 
 def test_classification_logs_how_the_field_is_stored(ormatic, caplog):
     day = field_named(ormatic, "day")
 
     with caplog.at_level(logging.INFO, logger="krrood.ormatic.field_storage"):
-        ormatic.field_classifier.classify(day)
+        ormatic.field_classifier.classify(wrapped_field=day)
 
-    assert CustomTypeRule.describe(FieldToStore(day, ormatic)) in caplog.messages
+    assert (
+        CustomTypeRule.describe(
+            field_to_store=FieldToStore(wrapped_field=day, ormatic=ormatic)
+        )
+        in caplog.messages
+    )

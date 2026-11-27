@@ -1,3 +1,8 @@
+"""
+Semantic annotations of the furniture, appliances, doors, handles and other things a
+world contains.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -7,7 +12,7 @@ from typing_extensions import Iterable, Iterator, Self, TYPE_CHECKING
 
 import numpy as np
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math import symbolic_math
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
@@ -23,31 +28,46 @@ from semantic_digital_twin.exceptions import (
     MissingMovableJointError,
 )
 from semantic_digital_twin.reasoning.predicates import InsideOf
-from semantic_digital_twin.semantic_annotations.part_whole import (
+from semantic_digital_twin.robots.exceptions import MissingMobileBaseError
+from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
+from semantic_digital_twin.semantic_annotations.part_whole.relationship_marker import (
     IsPartWholeRelationship,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
-    HasCounterTop,
-    HasCabinets,
     HasSupportingSurface,
     HasRootRegion,
+    HasCaseAsRootBody,
+    HasMovableJoint,
+    IsPerceivable,
+    HasRootBody,
+    IsStorageSpace,
+    IsGraspable,
+    HasDrawnGraspsByDefault,
+)
+from semantic_digital_twin.semantic_annotations.part_whole.furniture_parts import (
+    HasCounterTop,
+    HasCabinets,
     HasDrawers,
     HasDoors,
     HasHandle,
     HasHandles,
-    HasCaseAsRootBody,
-    HasMovableJoint,
     HasApertures,
-    IsPerceivable,
-    HasRootBody,
-    IsStorageSpace,
     HasLegs,
     HasSink,
     HasShelfLayers,
-    HasGraspCandidates,
     HasRim,
-    HasDrawnGraspsByDefault,
 )
+from semantic_digital_twin.semantic_annotations.part_whole.fruit_parts import (
+    HasCore,
+    HasFlesh,
+    HasPeel,
+    HasPit,
+    HasPith,
+    HasSeedChamber,
+    HasSeeds,
+    HasStem,
+)
+from semantic_digital_twin.semantic_annotations.qualities.mixins import HasRipeness
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.grasping.grasp_strategies import (
     GraspABar,
@@ -87,7 +107,11 @@ from semantic_digital_twin.specifications.semantic_annotations import (
 )
 
 if TYPE_CHECKING:
+    from semantic_digital_twin.robots.robot_parts import AbstractRobot
     from semantic_digital_twin.world import World
+    from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+        PlanarGraphOfBoundingBoxes,
+    )
 
 
 @dataclass(eq=False)
@@ -98,7 +122,7 @@ class Furniture(SemanticAnnotation, ABC):
 
 
 @dataclass(eq=False)
-class Handle(HasGraspCandidates):
+class Handle(IsGraspable):
     """
     A handle is a physical entity that can be grasped by a hand or a robotic gripper to
     open or close an object.
@@ -552,18 +576,6 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasMovableJoint):
         """
         return HomogeneousTransformationMatrix()
 
-    @property
-    def opening_ratio(self) -> float:
-        """
-        :return: How far this drawer stands pulled out, as a fraction of its travel.
-        """
-        if self.movable_joint is None:
-            raise MissingMovableJointError(self)
-        limits = self.movable_joint.dof.limits
-        return (self.movable_joint.position - limits.lower.position) / (
-            limits.upper.position - limits.lower.position
-        )
-
 
 @dataclass(eq=False)
 class Elevator(HasCaseAsRootBody, HasDoors, HasMovableJoint):
@@ -707,6 +719,30 @@ class Wardrobe(Cabinet): ...
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
+    """
+    A floor that robots and furniture stand on.
+    """
+
+    def navigable_space(
+        self, *, robot: AbstractRobot, margin: float
+    ) -> PlanarGraphOfBoundingBoxes:
+        """
+        :param robot: A robot with a mobile base, standing on this floor.
+        :param margin: How far, beyond its radius, the base is to keep from obstacles.
+        :return: The free space above this floor that the robot's base can stand in,
+            kept clear of every obstacle up to the robot's height by the base's radius
+            and ``margin``.
+        :raises MissingMobileBaseError: If the robot has no mobile base.
+        """
+        if not isinstance(robot, HasMobileBase):
+            raise MissingMobileBaseError(robot_part=robot)
+        return self.planar_free_space(
+            max_height=robot.as_bounding_box_collection_in_frame(robot.root)
+            .bounding_box()
+            .scale.z,
+            bloat_obstacles=robot.mobile_base.base_radius + margin,
+        )
+
     @classmethod
     def create_with_new_body_from_polytope_in_world(
         cls,
@@ -838,7 +874,7 @@ class Wall(HasApertures):
             for door in self._world.get_semantic_annotations_by_type(Door)
             if door.entry_way
             and InsideOf(
-                door.entry_way.root, self.root, minimum_containment_ratio=0.1
+                body=door.entry_way.root, other=self.root, minimum_containment_ratio=0.1
             )()
         ]
 
@@ -920,21 +956,21 @@ class Wall(HasApertures):
 
 
 @dataclass(eq=False)
-class Container(HasGraspCandidates):
+class Container(IsGraspable):
     """
     An object that holds contents and has an opening they go in and out through.
     """
 
 
 @dataclass(eq=False)
-class Cookware(HasGraspCandidates):
+class Cookware(IsGraspable):
     """
     An object used to cook with.
     """
 
 
 @dataclass(eq=False)
-class Tableware(HasGraspCandidates):
+class Tableware(IsGraspable):
     """
     An object a table is set with for a meal.
     """
@@ -948,7 +984,10 @@ class Bottle(Container):
 
 
 @dataclass(eq=False)
-class Statue(HasGraspCandidates): ...
+class Statue(IsGraspable):
+    """
+    A sculpture small enough to be picked up.
+    """
 
 
 @dataclass(eq=False)
@@ -1054,7 +1093,7 @@ class Bowl(HasRim, HasSupportingSurface, Container, Tableware, IsPerceivable):
 
 # Food Items
 @dataclass(eq=False)
-class Food(HasGraspCandidates):
+class Food(IsGraspable):
     """
     A Group class for Food.
     """
@@ -1151,6 +1190,13 @@ class SaltContainer(Container, IsPerceivable):
     """
 
 
+@dataclass(eq=False, kw_only=True)
+class UnknownObject(HasRootBody, IsPerceivable):
+    """
+    An object perception found that no more specific semantic annotation describes.
+    """
+
+
 @dataclass(eq=False)
 class Produce(Food):
     """
@@ -1161,10 +1207,88 @@ class Produce(Food):
     pass
 
 
-@dataclass(eq=False)
-class Fruit(Produce):
+@dataclass(eq=False, kw_only=True)
+class Fruit(Produce, HasRipeness):
     """
     Fruit.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class FruitPart(HasRootBody):
+    """
+    An anatomical part of a fruit, such as its peel or a seed.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Peel(FruitPart):
+    """
+    The outer layer of a fruit, its skin or rind (botanically the exocarp, Plant
+    Ontology PO:0009085).
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Flesh(FruitPart):
+    """
+    The soft tissue between the peel and the inside of a fruit, which is usually eaten
+    (botanically mostly the mesocarp, Plant Ontology PO:0009087).
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class CitrusSegment(Flesh):
+    """
+    One of the wedge-shaped portions the flesh of a citrus fruit divides into, each
+    filled with juice sacs inside a thin membrane (botanically a fruit locule, Plant
+    Ontology PO:0025270).
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Core(FruitPart):
+    """
+    The tough centre of a fruit such as an apple that holds its seeds (botanically the
+    endocarp, Plant Ontology PO:0009086).
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Seed(FruitPart):
+    """
+    A single seed that lies loose in a fruit's flesh or core (Plant Ontology
+    PO:0009010).
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Stem(FruitPart):
+    """
+    The stalk a fruit hung from on its plant.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Pit(FruitPart):
+    """
+    The single large, hard seed or stone at the centre of a fruit such as an avocado or
+    a peach.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class SeedChamber(FruitPart):
+    """
+    The soft central tissue of a fruit such as a cucumber in which its small seeds are
+    embedded.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Pith(FruitPart):
+    """
+    The pale, firmer centre of a fruit such as a strawberry.
     """
 
 
@@ -1196,24 +1320,76 @@ class Carrot(Vegetable):
     """
 
 
-@dataclass(eq=False)
-class Apple(Fruit):
+@dataclass(eq=False, kw_only=True)
+class Apple(Fruit, HasPeel, HasFlesh, HasCore, HasSeeds, HasStem):
     """
     An apple.
     """
 
 
-@dataclass(eq=False)
-class Banana(Fruit):
+@dataclass(eq=False, kw_only=True)
+class Avocado(Fruit, HasPeel, HasFlesh, HasPit):
+    """
+    An avocado.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Banana(Fruit, HasPeel, HasFlesh):
     """
     A banana.
     """
 
 
-@dataclass(eq=False)
-class Orange(Fruit):
+@dataclass(eq=False, kw_only=True)
+class Cucumber(Fruit, HasPeel, HasFlesh, HasSeedChamber):
+    """
+    A cucumber, a fruit in the botanical sense.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class CitrusFruit(Fruit, HasPeel):
+    """
+    A citrus fruit, such as an orange or a lemon, whose flesh is divided into segments
+    (botanically a hesperidium, Plant Ontology PO:0030109).
+    """
+
+    citrus_segments: list[CitrusSegment] = field(
+        default_factory=list,
+        hash=False,
+        metadata=IsPartWholeRelationship().as_dict(),
+    )
+    """
+    The segments the flesh of the citrus fruit is divided into.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Orange(CitrusFruit):
     """
     An orange.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Peach(Fruit, HasPeel, HasFlesh, HasPit, HasStem):
+    """
+    A peach.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Strawberry(Fruit, HasPeel, HasFlesh, HasPith):
+    """
+    A strawberry.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
+class Watermelon(Fruit, HasPeel, HasFlesh, HasSeeds):
+    """
+    A watermelon.
     """
 
 
@@ -1333,7 +1509,10 @@ class WallDecor(Decor):
 
 
 @dataclass(eq=False)
-class Cloth(HasGraspCandidates): ...
+class Cloth(IsGraspable):
+    """
+    A piece of fabric, such as a towel or a rag.
+    """
 
 
 @dataclass(eq=False)
@@ -1391,7 +1570,7 @@ class Vase(Container):
 
 
 @dataclass(eq=False)
-class Book(HasGraspCandidates):
+class Book(IsGraspable):
     """
     A book.
     """
@@ -1466,21 +1645,21 @@ class Spoon(Cutlery, IsPerceivable): ...
 
 
 @dataclass(eq=False)
-class Pencil(HasGraspCandidates):
+class Pencil(IsGraspable):
     """
     A pencil.
     """
 
 
 @dataclass(eq=False)
-class Pen(HasGraspCandidates):
+class Pen(IsGraspable):
     """
     A pen.
     """
 
 
 @dataclass(eq=False)
-class ShapeSortingPiece(HasGraspCandidates):
+class ShapeSortingPiece(IsGraspable):
     """
     A loose piece of a shape-sorting toy, which drops through the hole of its
     own outline.
@@ -1529,7 +1708,7 @@ class ShapeSortingPiece(HasGraspCandidates):
 
 
 @dataclass(eq=False)
-class Baseball(HasGraspCandidates):
+class Baseball(IsGraspable):
     """
     A baseball.
     """
@@ -1565,7 +1744,7 @@ class Agent(HasRootBody):
 
 
 @dataclass(eq=False)
-class Human(Agent):
+class Human(Agent, IsPerceivable):
     """
     Represents a human agent in the environment.
 
@@ -1578,7 +1757,7 @@ class Human(Agent):
 
 
 @dataclass(eq=False)
-class Parcel(HasGraspCandidates):
+class Parcel(IsGraspable):
     """
     A parcel, as handled in a warehouse.
     """
@@ -1591,7 +1770,10 @@ class SemanticEnvironmentAnnotation(HasRootBody):
     """
 
     def obstacle_entities(
-        self, search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3]
+        self,
+        *,
+        search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
+        excluded_bodies: Iterable[Body] = (),
     ) -> list[Body]:
         """
         Collect the obstacle bodies to consider within ``search_space``.
@@ -1601,22 +1783,23 @@ class SemanticEnvironmentAnnotation(HasRootBody):
 
         :param search_space: The search space; its reference frame is used to look up
             the owning world.
+        :param excluded_bodies: Bodies that are no obstacles either, such as an object
+            to be reached into.
         :return: The obstacle bodies to consider.
         """
         world = search_space.reference_frame._world
-        return [
-            body
-            for body in self.bodies_with_collision
-            if body not in world.robot_bodies_with_collision
-        ]
+        left_out = set(world.robot_bodies_with_collision) | set(excluded_bodies)
+        return [body for body in self.bodies_with_collision if body not in left_out]
 
     def build_bloated_obstacle_collection(
         self,
+        *,
         search_space: BoundingBoxCollection[VolumetricBoundingBox, Point3],
         semantic_wall_annotation: Wall | None = None,
         bloat_obstacles: float = 0.0,
         bloat_walls: float = 0.0,
         obstacle_height_clearance: float = 0.01,
+        excluded_bodies: Iterable[Body] = (),
     ) -> BoundingBoxCollection[VolumetricBoundingBox, Point3]:
         """
         Collect and bloat this annotation's obstacle bounding boxes.
@@ -1633,12 +1816,16 @@ class SemanticEnvironmentAnnotation(HasRootBody):
             dimension.
         :param obstacle_height_clearance: Amount to expand every obstacle bounding box
             in z, regardless of ``bloat_obstacles``/``bloat_walls``.
+        :param excluded_bodies: Bodies that are no obstacles, see
+            :meth:`obstacle_entities`.
         :return: A collection of the bloated obstacle and wall bounding boxes.
         """
         world_root = search_space.reference_frame
         origin = HomogeneousTransformationMatrix(reference_frame=world_root)
 
-        entities_to_consider = self.obstacle_entities(search_space)
+        entities_to_consider = self.obstacle_entities(
+            search_space=search_space, excluded_bodies=excluded_bodies
+        )
 
         collections = (
             entity.collision.as_bounding_box_collection_at_origin(origin)
@@ -1714,7 +1901,7 @@ class Cooktop(HasRootBody):
 
 
 @dataclass(eq=False)
-class Tool(HasGraspCandidates, ABC):
+class Tool(IsGraspable, ABC):
     """
     A tool that is held by a robot's end effector to act on other bodies.
     """
@@ -1805,7 +1992,7 @@ class Whisk(ToolWithHandle):
         return [
             AlignmentPair(
                 tip_normal=Vector3(-1, 0, 0, reference_frame=self.root),
-                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+                reference_normal=Vector3(0, 0, 1, reference_frame=target),
             )
         ]
 
@@ -1820,11 +2007,11 @@ class CuttingKnife(ToolWithHandle):
         return [
             AlignmentPair(
                 tip_normal=Vector3(1, 0, 0, reference_frame=self.root),
-                goal_normal=Vector3(0, 1, 0, reference_frame=target),
+                reference_normal=Vector3(0, 1, 0, reference_frame=target),
             ),
             AlignmentPair(
                 tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
-                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+                reference_normal=Vector3(0, 0, 1, reference_frame=target),
             ),
         ]
 
@@ -1839,7 +2026,7 @@ class PouringCup(Tool, Container):
         return [
             AlignmentPair(
                 tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
-                goal_normal=Vector3(0, 0, 1, reference_frame=target),
+                reference_normal=Vector3(0, 0, 1, reference_frame=target),
             )
         ]
 
@@ -1858,13 +2045,13 @@ class Sponge(Tool):
             return [
                 AlignmentPair(
                     tip_normal=Vector3(0, 0, 1, reference_frame=self.root),
-                    goal_normal=Vector3(0, 0, -1, reference_frame=target),
+                    reference_normal=Vector3(0, 0, -1, reference_frame=target),
                 )
             ]
         return [
             AlignmentPair(
                 tip_normal=Vector3(0, 0, -1, reference_frame=self.root),
-                goal_normal=self._pose_surface_normal(target),
+                reference_normal=self._pose_surface_normal(target),
             )
         ]
 

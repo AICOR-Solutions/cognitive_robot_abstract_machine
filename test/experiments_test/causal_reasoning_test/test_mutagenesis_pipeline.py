@@ -13,7 +13,6 @@ skipping there.
 
 from __future__ import annotations
 
-import experiments.orm.ormatic_interface  # type: ignore  # noqa: F401
 import numpy as np
 import pytest
 from random_events.product_algebra import SimpleEvent
@@ -145,7 +144,7 @@ def _predict_mutagenic(
     true_event = (
         SimpleEvent.from_data({mutagenic_variable: True})
         .as_composite_set()
-        .fill_missing_variables_pure(conditioning.distribution.variables)
+        .fill_missing_variables_pure(variables=conditioning.distribution.variables)
     )
     return conditioning.distribution.probability(true_event) > 0.5
 

@@ -5,12 +5,13 @@ Dataclasses whose fields cover every way ORMatic can store a field.
 from __future__ import annotations
 
 import datetime
+import enum
 from dataclasses import dataclass
 
-from typing_extensions import Dict, List, Type
+from typing_extensions import Any, Dict, List, Type
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StorageLeaf:
     """
     A mapped class that other fields refer to.
@@ -22,7 +23,37 @@ class StorageLeaf:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
+class UnmappedRecord:
+    """
+    A dataclass no table maps, which only the serializer for any dataclass writes.
+    """
+
+    number: int
+    """
+    A number.
+    """
+
+
+class StorageColour(enum.Enum):
+    """
+    An enum, which a column of its own type holds.
+    """
+
+    RED = 1
+    """
+    A colour.
+    """
+
+
+class ValueWithoutSerializer:
+    """
+    A class that no table maps and no serializer writes; it is not a dataclass, since
+    the serializer for any dataclass would write it.
+    """
+
+
+@dataclass(kw_only=True)
 class FieldsOfEveryStorage:
     """
     Holds one field for each way ORMatic can store a field.
@@ -78,9 +109,54 @@ class FieldsOfEveryStorage:
     A collection of values of a type with a type mapping.
     """
 
+    record: UnmappedRecord
+    """
+    A value of a dataclass no table maps.
+    """
+
+    records: List[UnmappedRecord]
+    """
+    A collection of values of a dataclass no table maps.
+    """
+
     lookup: Dict[str, int]
     """
-    A dictionary, which ORMatic cannot store.
+    A dictionary of builtins.
+    """
+
+    nested_numbers: list[list[float]]
+    """
+    A nested collection of builtins.
+    """
+
+    nested_leaves: list[list[StorageLeaf]]
+    """
+    A nested collection of instances of a mapped class.
+    """
+
+    leaves_by_name: dict[str, StorageLeaf]
+    """
+    A dictionary whose values are instances of a mapped class.
+    """
+
+    names_by_leaf: dict[StorageLeaf, str]
+    """
+    A dictionary whose keys are instances of a mapped class.
+    """
+
+    leaf_lists_by_name: dict[str, list[StorageLeaf]]
+    """
+    A dictionary whose values are collections of instances of a mapped class.
+    """
+
+    anything_by_name: dict[str, Any]
+    """
+    A dictionary whose values no rule knows how to store.
+    """
+
+    untyped_lookup: dict
+    """
+    A dictionary without key and value types.
     """
 
     anything: object

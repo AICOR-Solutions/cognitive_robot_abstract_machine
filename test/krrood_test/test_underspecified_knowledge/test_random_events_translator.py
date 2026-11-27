@@ -25,7 +25,6 @@ from ..dataset.example_classes import (
     KRROODPose,
     KRROODPosition,
 )
-from ..dataset.ormatic_interface import *  # type: ignore
 
 # %% helpers
 
@@ -45,7 +44,7 @@ def translate(condition) -> Event:
     :param condition: The where condition to translate.
     :return: The random event that corresponds to the condition.
     """
-    return WhereExpressionToRandomEventTranslator(condition).translate()
+    return WhereExpressionToRandomEventTranslator(conditions_root=condition).translate()
 
 
 def translate_where_conditions(query) -> Event:
@@ -85,10 +84,10 @@ def test_underspecification_with_where():
 
     result_by_hand = SimpleEvent.from_data(
         {
-            Continuous("KRROODPose.orientation.x"): ~singleton(1.0),
-            Continuous("KRROODPose.position.y"): open(0.0, 10),
-            Continuous("KRROODPose.position.z"): closed(-1.0, 1.0),
-            Continuous("KRROODPose.position.x"): singleton(0.0),
+            Continuous(name="KRROODPose.orientation.x"): ~singleton(1.0),
+            Continuous(name="KRROODPose.position.y"): open(0.0, 10),
+            Continuous(name="KRROODPose.position.z"): closed(-1.0, 1.0),
+            Continuous(name="KRROODPose.position.x"): singleton(0.0),
         }
     )
 
@@ -114,24 +113,24 @@ def test_disjunction_of_conjunctions():
     )
 
     variables = [
-        Continuous("KRROODPose.position.x"),
-        Continuous("KRROODPose.position.y"),
-        Continuous("KRROODPose.position.z"),
-        Continuous("KRROODPose.orientation.z"),
+        Continuous(name="KRROODPose.position.x"),
+        Continuous(name="KRROODPose.position.y"),
+        Continuous(name="KRROODPose.position.z"),
+        Continuous(name="KRROODPose.orientation.z"),
     ]
     [position_x, position_y, position_z, orientation_z] = variables
 
     fixed_x = SimpleEvent.from_data({position_x: singleton(0.0)})
-    fixed_x.fill_missing_variables(variables)
+    fixed_x.fill_missing_variables(variables=variables)
     bounded_y_and_z = SimpleEvent.from_data(
         {
             position_z: closed(-1.0, 1.0),
             position_y: closed_open(-np.inf, 10.0),
         }
     )
-    bounded_y_and_z.fill_missing_variables(variables)
+    bounded_y_and_z.fill_missing_variables(variables=variables)
     positive_orientation_z = SimpleEvent.from_data({orientation_z: open(0.0, np.inf)})
-    positive_orientation_z.fill_missing_variables(variables)
+    positive_orientation_z.fill_missing_variables(variables=variables)
 
     assert_equal_events(
         translated,
@@ -154,19 +153,19 @@ def test_where_condition_outside_disjunctive_normal_form():
 
     translated = translate_where_conditions(query)
 
-    position_x = Continuous("KRROODPose.position.x")
-    position_y = Continuous("KRROODPose.position.y")
+    position_x = Continuous(name="KRROODPose.position.x")
+    position_y = Continuous(name="KRROODPose.position.y")
     variables = [position_x, position_y]
 
     bounded_x = SimpleEvent.from_data({position_x: open(0.0, 10.0)})
-    bounded_x.fill_missing_variables(variables)
+    bounded_x.fill_missing_variables(variables=variables)
     positive_y = SimpleEvent.from_data(
         {
             position_x: closed_open(-np.inf, 10.0),
             position_y: open(0.0, np.inf),
         }
     )
-    positive_y.fill_missing_variables(variables)
+    positive_y.fill_missing_variables(variables=variables)
 
     assert_equal_events(translated, Event.from_simple_sets(bounded_x, positive_y))
 
@@ -184,7 +183,7 @@ def test_disjunction_nested_in_conjunction_keeps_shared_variable():
         )
     )
 
-    position_x = Continuous("KRROODPose.position.x")
+    position_x = Continuous(name="KRROODPose.position.x")
     lower_part = SimpleEvent.from_data({position_x: open(0.0, 1.0)})
     upper_part = SimpleEvent.from_data({position_x: open(5.0, np.inf)})
 
@@ -244,7 +243,7 @@ def test_query_rooted_condition_translates_like_the_variable_rooted_one():
 
 def test_quantified_where_condition():
     pose = underspecified_pose()
-    position_variable = variable(KRROODPosition, [KRROODPosition(1.0, 2.0, 3.0)])
+    position_variable = variable(KRROODPosition, [KRROODPosition(x=1.0, y=2.0, z=3.0)])
     query = pose.where(
         for_all(position_variable, position_variable.x > 0.0),
     )

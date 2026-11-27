@@ -119,7 +119,7 @@ class StalledCycleHalt:
             self.last_command_time = time.monotonic()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ControlLoop:
     """
     Runs a compiled motion statechart until it ends.
@@ -234,7 +234,7 @@ class ControlLoop:
         """
         if not self.action_server.is_cancel_requested():
             return
-        self.action_server.loginfo("canceled")
+        self.action_server.loginfo(message="canceled")
         raise ExecutionCanceledException(
             action_server_name=self.action_server.action_name,
             goal_id=self.action_server.goal_id,
@@ -246,7 +246,7 @@ class ControlLoop:
         """
         if not self.client_watchdog.is_client_gone():
             return
-        self.action_server.loginfo("client disconnected")
+        self.action_server.loginfo(message="client disconnected")
         raise ClientDisconnectedError(client=self.client_watchdog.client)
 
     def publish_commands(self) -> None:
@@ -267,5 +267,5 @@ class ControlLoop:
         """
         for command_publisher in self.command_publishers:
             command_publisher.stop()
-        MotionControl.set_velocity_acceleration_jerk_to_zero(self.world)
+        MotionControl.set_velocity_acceleration_jerk_to_zero(world=self.world)
         self.world.notify_state_change()

@@ -47,18 +47,24 @@ def test_the_place_setting_rests_where_it_starts_and_where_it_is_laid():
     world = WorldSpecification.from_urdf(demo.SceneFile.APARTMENT.path).create_world()
     milk, bowl, spoon = demonstration.milk, demonstration.bowl, demonstration.spoon
     for placed_object in demonstration.place_setting:
-        placed_object.spawn(world)
+        placed_object.spawn(world=world)
     counter = world.get_body_by_name(ApartmentSurface.COUNTER)
     spoon_drawer = world.get_body_by_name(ApartmentSurface.SPOON_DRAWER)
     table = world.get_body_by_name(ApartmentSurface.TABLE)
 
-    assert SupportedBy(milk.annotation_in(world).root, counter)()
-    assert SupportedBy(bowl.annotation_in(world).root, counter)()
-    assert SupportedBy(spoon.annotation_in(world).root, spoon_drawer)()
+    assert SupportedBy(
+        supported=milk.annotation_in(world=world).root, supporting=counter
+    )()
+    assert SupportedBy(
+        supported=bowl.annotation_in(world=world).root, supporting=counter
+    )()
+    assert SupportedBy(
+        supported=spoon.annotation_in(world=world).root, supporting=spoon_drawer
+    )()
 
     for placed_object in demonstration.place_setting:
-        body = placed_object.annotation_in(world).root
-        target = placed_object.target_location(world).homogeneous_matrix
+        body = placed_object.annotation_in(world=world).root
+        target = placed_object.target_location(world=world).homogeneous_matrix
         with world.modify_world():
             world.remove_connection(body.parent_connection)
             world.add_connection(
@@ -67,6 +73,12 @@ def test_the_place_setting_rests_where_it_starts_and_where_it_is_laid():
                 )
             )
 
-    assert SupportedBy(milk.annotation_in(world).root, table)()
-    assert SupportedBy(bowl.annotation_in(world).root, table)()
-    assert SupportedBy(spoon.annotation_in(world).root, table)()
+    assert SupportedBy(
+        supported=milk.annotation_in(world=world).root, supporting=table
+    )()
+    assert SupportedBy(
+        supported=bowl.annotation_in(world=world).root, supporting=table
+    )()
+    assert SupportedBy(
+        supported=spoon.annotation_in(world=world).root, supporting=table
+    )()

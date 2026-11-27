@@ -1,9 +1,14 @@
+"""
+Tests for the robot interface configurations: their construction, pacing and the joints
+they control.
+"""
+
 import json
 from dataclasses import dataclass, fields, is_dataclass
 
 import pytest
 
-from giskardpy.data_types.exceptions import NoControlledJointsError
+from giskardpy.exceptions import NoControlledJointsError
 from cramph.executor import NoPacing, RealTimePacer
 from giskardpy.middleware.ros2.exceptions import NoUniqueDriveError
 from giskardpy.middleware.ros2.giskard import Giskard
@@ -72,7 +77,7 @@ def test_attaching_lets_the_interface_reach_the_server_config():
         qp_controller_config=QPControllerConfig(target_frequency=50),
     )
 
-    interface.attach(giskard)
+    interface.attach(giskard=giskard)
 
     assert interface.server_config is server_config
 
@@ -120,7 +125,7 @@ def set_up_standalone(world_source: WorldSource) -> Giskard:
 
 
 def test_standalone_controls_the_joints_tracy_declares(
-    init_rospy, tracy_world, tracy_world_specification
+    init_background_node, tracy_world, tracy_world_specification
 ) -> None:
     giskard = set_up_standalone(tracy_world_specification)
 
@@ -130,7 +135,7 @@ def test_standalone_controls_the_joints_tracy_declares(
 
 
 def test_standalone_controls_the_joints_daisy_declares(
-    init_rospy, daisy_world, daisy_world_specification
+    init_background_node, daisy_world, daisy_world_specification
 ) -> None:
     giskard = set_up_standalone(daisy_world_specification)
 
@@ -140,7 +145,7 @@ def test_standalone_controls_the_joints_daisy_declares(
 
 
 def test_standalone_controls_the_joints_the_pr2_declares(
-    init_rospy, pr2_world_copy, pr2_world_specification
+    init_background_node, pr2_world_copy, pr2_world_specification
 ) -> None:
     giskard = set_up_standalone(pr2_world_specification)
 
@@ -150,7 +155,7 @@ def test_standalone_controls_the_joints_the_pr2_declares(
 
 
 def test_standalone_controls_the_joints_the_hsr_declares(
-    init_rospy, _hsr_world_setup, hsr_world_specification
+    init_background_node, _hsr_world_setup, hsr_world_specification
 ) -> None:
     giskard = set_up_standalone(hsr_world_specification)
 
@@ -160,7 +165,7 @@ def test_standalone_controls_the_joints_the_hsr_declares(
 
 
 def test_standalone_controls_the_joints_stretch_declares(
-    init_rospy, stretch_world_copy, stretch_world_specification
+    init_background_node, stretch_world_copy, stretch_world_specification
 ) -> None:
     giskard = set_up_standalone(stretch_world_specification)
 
@@ -193,7 +198,7 @@ def test_a_world_with_a_differential_drive_robot_controls_its_drive(
 # %% in closed loop only commanded joints are controlled
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GroupCommandingInterface(ClosedLoopRobotInterfaceConfig):
     """
     An interface that commands one group of joints.
@@ -226,7 +231,7 @@ def closed_loop_pr2(
 
 
 def test_a_closed_loop_interface_that_commands_nothing_controls_no_joint(
-    init_rospy,
+    init_background_node,
     pr2_world_specification,
 ) -> None:
     giskard = closed_loop_pr2(
@@ -238,7 +243,7 @@ def test_a_closed_loop_interface_that_commands_nothing_controls_no_joint(
 
 
 def test_closed_loop_controls_exactly_the_commanded_joints(
-    init_rospy, pr2_world_specification
+    init_background_node, pr2_world_specification
 ) -> None:
     interface = GroupCommandingInterface(
         joint_names=[PR2Joint.HEAD_PAN, PR2Joint.HEAD_TILT]
@@ -284,7 +289,7 @@ def test_a_world_following_giskard_controls_the_joints_it_commands(
 
 
 def test_closed_loop_does_not_control_a_drive_nothing_commands(
-    init_rospy, pr2_world_specification
+    init_background_node, pr2_world_specification
 ) -> None:
     giskard = closed_loop_pr2(
         GroupCommandingInterface(joint_names=[PR2Joint.HEAD_PAN]),
@@ -300,7 +305,7 @@ def test_closed_loop_does_not_control_a_drive_nothing_commands(
 # %% commanding the drive
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DriveCommandingInterface(ClosedLoopRobotInterfaceConfig):
     """
     An interface that commands the drive of the robot without naming the drive.
@@ -311,7 +316,7 @@ class DriveCommandingInterface(ClosedLoopRobotInterfaceConfig):
 
 
 def test_a_drive_command_without_a_drive_commands_the_only_drive_of_the_world(
-    init_rospy,
+    init_background_node,
     pr2_world_specification,
 ) -> None:
     giskard = closed_loop_pr2(DriveCommandingInterface(), pr2_world_specification)
@@ -324,7 +329,7 @@ def test_a_drive_command_without_a_drive_commands_the_only_drive_of_the_world(
 
 
 def test_a_drive_command_without_a_drive_in_a_world_without_a_drive_raises(
-    init_rospy,
+    init_background_node,
     tracy_world_specification,
 ) -> None:
     giskard = Giskard(
@@ -341,7 +346,7 @@ def test_a_drive_command_without_a_drive_in_a_world_without_a_drive_raises(
 # %% reading the robot's own parts from the robot
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PartReadingInterface(GroupCommandingInterface):
     """
     An interface that reads every part of the robot from the robot itself, on the topics
@@ -354,7 +359,7 @@ class PartReadingInterface(GroupCommandingInterface):
 
 
 @pytest.fixture()
-def pr2_reading_its_own_parts(init_rospy, pr2_world_specification) -> Giskard:
+def pr2_reading_its_own_parts(init_background_node, pr2_world_specification) -> Giskard:
     """
     A closed-loop Giskard whose PR2 is read from what the robot publishes.
     """
@@ -422,7 +427,7 @@ def test_the_base_pose_is_read_by_both_loops_from_one_source(
     )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BaseReadingInterface(GroupCommandingInterface):
     """
     An interface that reads only the robot's base from the robot itself, leaving its
@@ -431,11 +436,11 @@ class BaseReadingInterface(GroupCommandingInterface):
 
     def setup(self):
         super().setup()
-        self.sync_robot_part(self.robot.mobile_base)
+        self.sync_robot_part(robot_part=self.robot.mobile_base)
 
 
 @pytest.fixture()
-def pr2_reading_only_its_base(init_rospy, pr2_world_specification) -> Giskard:
+def pr2_reading_only_its_base(init_background_node, pr2_world_specification) -> Giskard:
     """
     A closed-loop Giskard whose PR2 reads only its base from what the robot publishes.
     """
@@ -472,7 +477,7 @@ def test_syncing_one_part_leaves_the_other_parts_reading_the_world(
 # %% reading the robot from a joint state topic
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ControlLoopMimic:
     """
     Holds the inputs a control loop reads in every cycle.
@@ -484,7 +489,7 @@ class ControlLoopMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionServerMimic:
     """
     Holds the inputs read between goals and the control loop that executes a goal.
@@ -501,7 +506,7 @@ class MotionServerMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ContextMimic:
     """
     Holds the world a motion is executed in.
@@ -513,7 +518,7 @@ class ContextMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ExecutorMimic:
     """
     Holds the context of the motion.
@@ -525,7 +530,7 @@ class ExecutorMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RobotMimic:
     """
     A robot that is only known by its name.
@@ -537,7 +542,7 @@ class RobotMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GiskardMimic:
     """
     Offers the parts of Giskard that a robot interface configures.
@@ -559,24 +564,24 @@ class GiskardMimic:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class JointStateTopicInterface(ClosedLoopRobotInterfaceConfig):
     """
     Reads the state of the robot from a single joint state topic.
     """
 
     def setup(self):
-        self.sync_joint_state_topic("joint_states")
+        self.sync_joint_state_topic(topic_name="joint_states")
 
 
 def test_closed_loop_does_not_rewrite_a_joint_state_it_already_wrote(
-    init_rospy, mini_world: World
+    init_background_node, mini_world: World
 ):
     [connection] = mini_world.connections
     control_loop_inputs = WorldStateInputs(world=mini_world)
     interface = JointStateTopicInterface()
     interface.attach(
-        GiskardMimic(
+        giskard=GiskardMimic(
             executor=ExecutorMimic(context=ContextMimic(world=mini_world)),
             robot=RobotMimic(name="robot"),
             motion_server=MotionServerMimic(
