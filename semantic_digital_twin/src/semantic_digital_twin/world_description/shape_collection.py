@@ -79,7 +79,7 @@ class ShapeCollection(SubclassJSONSerializer):
         """
         :return: The names of the colors the shapes of this collection show.
         """
-        return {ColorName.from_color(shape.color) for shape in self.shapes}
+        return {ColorName.from_color(color=shape.color) for shape in self.shapes}
 
     def transform_all_shapes_to_own_frame(self):
         """

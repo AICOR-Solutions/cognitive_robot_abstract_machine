@@ -341,7 +341,7 @@ def test_in_field_of_view_agrees_with_the_camera(camera_and_target, x, y, depth)
 
     observed = _observe_at(InFieldOfView(camera=camera, target=target), point)
 
-    expected = camera.is_in_field_of_view(point)
+    expected = camera.is_in_field_of_view(point=point)
     assert observed == (
         ObservationStateValue.TRUE if expected else ObservationStateValue.FALSE
     )
@@ -359,7 +359,7 @@ def test_a_target_within_the_margin_of_an_edge_is_out_of_view(camera_and_target)
         InFieldOfView(camera=camera, target=target, margin=margin), near_the_edge
     )
 
-    assert camera.is_in_field_of_view(near_the_edge)
+    assert camera.is_in_field_of_view(point=near_the_edge)
     assert observed == ObservationStateValue.FALSE
 
 

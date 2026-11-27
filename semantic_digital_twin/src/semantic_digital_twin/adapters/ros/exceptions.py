@@ -126,12 +126,12 @@ class WorldUpdateReferencesUnknownEntityError(UsageError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WorldServiceDidNotAnswer(DataclassException, TimeoutError):
     """
     Raised when the service serving a world did not answer a request for it in time,
-    although the request was sent again while unanswered; a :class:`TimeoutError`, as
-    a fetch that runs out of time raises.
+    although the request was sent again while unanswered; a :class:`TimeoutError`, as a
+    fetch that runs out of time raises.
     """
 
     service: str = field(kw_only=True)
@@ -155,6 +155,8 @@ class WorldServiceDidNotAnswer(DataclassException, TimeoutError):
             "Check that the process serving the world, such as Giskard, runs and is "
             "not stuck, then try again."
         )
+
+
 # %% services
 
 

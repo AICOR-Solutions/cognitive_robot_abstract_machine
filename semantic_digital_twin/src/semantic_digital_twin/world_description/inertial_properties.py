@@ -285,7 +285,7 @@ class Inertial:
 
     @classmethod
     def from_mesh(
-        cls, mesh: trimesh.Trimesh, density: float, reference_frame: CartesianFrame3D
+        cls, *, mesh: trimesh.Trimesh, density: float, reference_frame: CartesianFrame3D
     ) -> Self:
         """
         :param mesh: The shape of a body of uniform density, in the body's frame.

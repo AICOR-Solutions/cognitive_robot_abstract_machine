@@ -141,7 +141,7 @@ class CenterOfMassOverTheFeet(Task):
         center_of_mass = floor_plan.coordinates(
             point=self._root_pose.root_T_tip.dot(
                 world.compose_center_of_mass_expression(
-                    self.robot_root, self.robot_root
+                    branch_root=self.robot_root, reference_frame=self.robot_root
                 )
             )
         )

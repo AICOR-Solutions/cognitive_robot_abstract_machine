@@ -616,7 +616,7 @@ class Body(KinematicStructureEntity):
         self.visual = visual
         self.collision = collision
 
-    def update_visual_color(self, color: Color) -> None:
+    def update_visual_color(self, *, color: Color) -> None:
         """
         Give every visual shape of this body ``color``, recorded in the world's
         modification history like :meth:`update_shapes`.

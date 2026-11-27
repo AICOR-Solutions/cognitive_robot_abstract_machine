@@ -38,7 +38,7 @@ class BaseHeldWhereItStands(SucceedsOnObservingTrue, StatechartNode):
         """
         walking = self.context.require_extension(
             extension_type=WalkingBasesHeld
-        ).simulation.walking_robot_rooted_at(self.robot_root)
+        ).simulation.walking_robot_rooted_at(root=self.robot_root)
         if walking.hold_when_still():
             return ObservationStateValue.TRUE
         return ObservationStateValue.UNKNOWN

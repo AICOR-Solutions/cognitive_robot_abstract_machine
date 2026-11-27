@@ -160,9 +160,9 @@ class HasFingers(
         """
         with self._world.reset_state_context():
             self.get_joint_state_by_type(GripperState.CLOSE).apply_to(self._world)
-            tool_P_thumb = self._tool_P_fingertip(self.thumb)
+            tool_P_thumb = self._tool_P_fingertip(finger=self.thumb)
             tool_P_other_tips = [
-                self._tool_P_fingertip(finger)
+                self._tool_P_fingertip(finger=finger)
                 for finger in self.fingers
                 if finger is not self.thumb
             ]
@@ -173,7 +173,7 @@ class HasFingers(
             Point3(*tool_P_others, reference_frame=self.tool_frame)
         )
 
-    def _tool_P_fingertip(self, finger: Finger) -> Point3:
+    def _tool_P_fingertip(self, *, finger: Finger) -> Point3:
         """
         :param finger: One of the hand's fingers.
         :return: Where its tip is as the hand stands, in :attr:`EndEffector.tool_frame`.
@@ -511,16 +511,15 @@ class HasTwoFingers(
         return connections
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, kw_only=True)
 class PinchesWithTheThumb(RobotPartMixin, ABC):
     """
-    Mixin class for hands that hold an object pinched between the thumb and the fingers
-    opposing it, rather than closing two fingers to a width.
+    Mixin class for hands that pinch an object between the thumb and the opposing
+    fingers.
 
-    Such a hand's closed state is a posture shaped to touch the object the hand is made
-    to hold. A servo grips only with the position error it is left with, so in a
-    physical simulation the hand closes to :attr:`squeezed_joint_state` instead, which
-    sends the pinching fingers past the object's surface.
+    Its closed state is a posture touching the object; since a servo grips only with its
+    remaining position error, a physical simulation closes the hand to
+    :attr:`squeezed_joint_state`, past the object's surface, instead.
     """
 
     @property

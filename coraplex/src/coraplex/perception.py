@@ -163,7 +163,9 @@ class PerceptionQuery(SubclassJSONSerializer):
         :return: Whether the centre of the region lies in the field of view of the
             robot's camera now, so the camera can look for the object there.
         """
-        return self.robot.get_default_camera().is_in_field_of_view(self.region.center)
+        return self.robot.get_default_camera().is_in_field_of_view(
+            point=self.region.center
+        )
 
     def to_json(self, **kwargs) -> dict[str, Any]:
         """
@@ -327,7 +329,7 @@ class Detection:
         body.parent_connection.origin = origin
         if self.color is not None and self.color not in body.visual.color_names():
             with world.modify_world():
-                body.update_visual_color(self.color.representative_color)
+                body.update_visual_color(color=self.color.representative_color)
 
     def perceived_origin(
         self, *, body: Body, world: World, trust_orientation: bool

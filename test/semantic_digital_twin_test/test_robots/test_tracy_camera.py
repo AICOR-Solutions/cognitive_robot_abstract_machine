@@ -109,7 +109,7 @@ def test_the_middle_of_tracys_table_lies_in_its_cameras_field_of_view(
         0.55, 0.0, tracy.table.top_z, reference_frame=tracy._world.root
     )
 
-    assert camera.is_in_field_of_view(table_middle)
+    assert camera.is_in_field_of_view(point=table_middle)
 
 
 def test_the_side_edge_of_tracys_table_lies_outside_its_cameras_field_of_view(
@@ -121,7 +121,7 @@ def test_the_side_edge_of_tracys_table_lies_outside_its_cameras_field_of_view(
     camera = tracy.get_default_camera()
     side_edge = Point3(0.6, 0.75, tracy.table.top_z, reference_frame=tracy._world.root)
 
-    assert not camera.is_in_field_of_view(side_edge)
+    assert not camera.is_in_field_of_view(point=side_edge)
 
 
 def test_a_point_behind_tracys_camera_lies_outside_its_field_of_view(
@@ -135,7 +135,7 @@ def test_a_point_behind_tracys_camera_lies_outside_its_field_of_view(
         Point3(0.0, 0.0, -0.5, reference_frame=camera.root), tracy._world.root
     )
 
-    assert not camera.is_in_field_of_view(behind)
+    assert not camera.is_in_field_of_view(point=behind)
 
 
 def test_a_point_nearer_than_its_range_lies_outside_tracys_cameras_field_of_view(
@@ -152,4 +152,4 @@ def test_a_point_nearer_than_its_range_lies_outside_tracys_cameras_field_of_view
         reference_frame=camera.root,
     )
 
-    assert not camera.is_in_field_of_view(too_near)
+    assert not camera.is_in_field_of_view(point=too_near)

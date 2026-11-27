@@ -105,7 +105,7 @@ class BodyColorRenderingMode(ColorRenderingMode):
             body = world.kinematic_structure[int(body_index)]
             body_rgb = self.get_body_color(body)
             color_rgb[segmentation == body_index] = body_rgb
-            color = self.shape_color(body)
+            color = self.shape_color(body=body)
             body_colors.setdefault(
                 color, BodyColorAssignment(color=color, bodies=[])
             ).bodies.append(body)
@@ -115,7 +115,7 @@ class BodyColorRenderingMode(ColorRenderingMode):
         )
 
     @classmethod
-    def shape_color(cls, body: Body) -> Color:
+    def shape_color(cls, *, body: Body) -> Color:
         """
         :param body: A body hit by the camera.
         :return: The color the whole body is rendered in: its first collision
@@ -131,14 +131,14 @@ class BodyColorRenderingMode(ColorRenderingMode):
         :param body: Body whose geometry supplies the color.
         :return: Unsigned-byte RGB channels for the selected body color.
         """
-        color = cls.shape_color(body)
+        color = cls.shape_color(body=body)
         channel_maximum = np.iinfo(np.uint8).max
         return np.clip(
             np.round(np.asarray(color.to_rgb()) * channel_maximum), 0, channel_maximum
         ).astype(np.uint8)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class VisualColorRenderingMode(BodyColorRenderingMode):
     """
     Color each visible body uniformly with its first visual geometry color, the color a
@@ -146,7 +146,7 @@ class VisualColorRenderingMode(BodyColorRenderingMode):
     """
 
     @classmethod
-    def shape_color(cls, body: Body) -> Color:
+    def shape_color(cls, *, body: Body) -> Color:
         """
         Differs from :meth:`BodyColorRenderingMode.shape_color` in taking the first
         visual geometry's color.

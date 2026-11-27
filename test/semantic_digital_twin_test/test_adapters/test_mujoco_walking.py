@@ -94,18 +94,26 @@ def _controller(simulation: MujocoSim) -> RecordingWalkingController:
 def test_a_walking_base_floats_on_three_slides_and_a_ball(drive_on_a_leg, tmp_path):
     builder = MujocoBuilder()
     builder.build_world(world=drive_on_a_leg._world, file_path=str(tmp_path / "s.xml"))
-    floating_base = MujocoFloatingBase(drive_on_a_leg, builder.element_names)
+    floating_base = MujocoFloatingBase(
+        drive=drive_on_a_leg, element_names=builder.element_names
+    )
     [pelvis] = [body for body in builder.spec.bodies if body.name == "pelvis"]
 
     assert [(joint.name, joint.type) for joint in pelvis.joints] == [
-        (floating_base.joint_name(FloatingBaseJoint.X), mujoco.mjtJoint.mjJNT_SLIDE),
-        (floating_base.joint_name(FloatingBaseJoint.Y), mujoco.mjtJoint.mjJNT_SLIDE),
         (
-            floating_base.joint_name(FloatingBaseJoint.HEIGHT),
+            floating_base.joint_name(joint=FloatingBaseJoint.X),
             mujoco.mjtJoint.mjJNT_SLIDE,
         ),
         (
-            floating_base.joint_name(FloatingBaseJoint.ORIENTATION),
+            floating_base.joint_name(joint=FloatingBaseJoint.Y),
+            mujoco.mjtJoint.mjJNT_SLIDE,
+        ),
+        (
+            floating_base.joint_name(joint=FloatingBaseJoint.HEIGHT),
+            mujoco.mjtJoint.mjJNT_SLIDE,
+        ),
+        (
+            floating_base.joint_name(joint=FloatingBaseJoint.ORIENTATION),
             mujoco.mjtJoint.mjJNT_BALL,
         ),
     ]
@@ -173,8 +181,8 @@ def test_the_controller_senses_the_bases_turn_in_the_bases_own_axes(
     [walking] = walking_simulation.walking
     ball = model.joint(
         MujocoFloatingBase(
-            walking.drive.connection, walking.drive.element_names
-        ).joint_name(FloatingBaseJoint.ORIENTATION)
+            drive=walking.drive.connection, element_names=walking.drive.element_names
+        ).joint_name(joint=FloatingBaseJoint.ORIENTATION)
     )
     turn = np.array([0.3, -0.5, 0.7])
     data.qvel[ball.dofadr[0] : ball.dofadr[0] + 3] = turn
@@ -208,16 +216,18 @@ def test_the_bases_measured_pose_is_the_drives_odometry(walking_simulation):
     model, data = simulator._mj_model, simulator._mj_data
     [walking] = walking_simulation.walking
     drive = walking.drive.connection
-    floating_base = MujocoFloatingBase(drive, walking.drive.element_names)
-    yaw = 0.4
-    data.qpos[model.joint(floating_base.joint_name(FloatingBaseJoint.X)).qposadr[0]] = (
-        0.3
+    floating_base = MujocoFloatingBase(
+        drive=drive, element_names=walking.drive.element_names
     )
+    yaw = 0.4
     data.qpos[
-        model.joint(floating_base.joint_name(FloatingBaseJoint.Y)).qposadr[0]
+        model.joint(floating_base.joint_name(joint=FloatingBaseJoint.X)).qposadr[0]
+    ] = 0.3
+    data.qpos[
+        model.joint(floating_base.joint_name(joint=FloatingBaseJoint.Y)).qposadr[0]
     ] = -0.2
     orientation = model.joint(
-        floating_base.joint_name(FloatingBaseJoint.ORIENTATION)
+        floating_base.joint_name(joint=FloatingBaseJoint.ORIENTATION)
     ).qposadr[0]
     data.qpos[orientation : orientation + 4] = [np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)]
 
@@ -242,7 +252,9 @@ def test_a_robot_counts_as_still_while_its_walking_legs_keep_stepping(
     def stepping(senses: WalkingSenses, command: PlanarVelocity) -> dict[str, float]:
         if len(controller.calls) % 10 == 0:
             controller.leg_target = -controller.leg_target
-        return RecordingWalkingController.leg_targets(controller, senses, command)
+        return RecordingWalkingController.leg_targets(
+            controller, senses=senses, command=command
+        )
 
     controller.leg_targets = stepping
     pacer = SteppedSimulationPacer(
@@ -291,7 +303,7 @@ def test_a_walking_base_is_built_with_a_hold_that_starts_released(drive_on_a_leg
     model = simulation.simulator._mj_model
     data = simulation.simulator._mj_data
     hold_name = MujocoFloatingBase(
-        drive_on_a_leg, walking.drive.element_names
+        drive=drive_on_a_leg, element_names=walking.drive.element_names
     ).hold_name
 
     assert model.equality(hold_name).type == mujoco.mjtEq.mjEQ_WELD

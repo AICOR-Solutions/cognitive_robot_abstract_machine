@@ -133,7 +133,9 @@ def center_of_mass_ahead_of_the_feet(world: World) -> float:
     """
     pelvis = world.get_body_by_name("pelvis")
     return float(
-        world.compose_center_of_mass_expression(pelvis, world.root).evaluate()[0]
+        world.compose_center_of_mass_expression(
+            branch_root=pelvis, reference_frame=world.root
+        ).evaluate()[0]
     )
 
 
