@@ -551,7 +551,7 @@ class VelocityStrategy(ExpressionEnforcementStrategy):
         return names
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AccelerationStrategy(VelocityStrategy):
     """
     Differs from :class:`VelocityStrategy` in bounding the change of the expression's

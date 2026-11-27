@@ -215,6 +215,10 @@ class InFieldOfView(EndedByOwner, MotionStatechartNode):
     """
 
     def build_artifacts(self) -> NodeArtifacts:
+        """
+        Observes whether the target lies inside the camera's range and field of view,
+        narrowed by :attr:`margin`, see :meth:`MotionStatechartNode.build_artifacts`.
+        """
         camera_P_target = self.context.world.compose_forward_kinematics_expression(
             self.camera.root, self.target
         ).position
@@ -241,6 +245,9 @@ class OutOfFieldOfView(InFieldOfView):
     """
 
     def build_artifacts(self) -> NodeArtifacts:
+        """
+        Negates the observation of :meth:`InFieldOfView.build_artifacts`.
+        """
         in_view = super().build_artifacts()
         return NodeArtifacts(observation=sm.logic_not(in_view.observation))
 

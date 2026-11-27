@@ -128,7 +128,7 @@ class BasePosition(DrivenBaseTask, HasCruiseVelocityParameter):
         for base_coordinate, goal_coordinate, cruise_velocity in zip(
             (parent_P_base.x, parent_P_base.y),
             (parent_P_goal.x, parent_P_goal.y),
-            self.cruise_velocities(parent_V_base_to_goal),
+            self.cruise_velocities(parent_V_base_to_goal=parent_V_base_to_goal),
         ):
             artifacts.geometry.add_position_constraint(
                 expression_current=base_coordinate,
@@ -141,7 +141,7 @@ class BasePosition(DrivenBaseTask, HasCruiseVelocityParameter):
         return artifacts
 
     def cruise_velocities(
-        self, parent_V_base_to_goal: Vector3
+        self, *, parent_V_base_to_goal: Vector3
     ) -> tuple[sm.ScalarData, sm.ScalarData]:
         """
         :param parent_V_base_to_goal: The way from the base to the goal along the floor,
@@ -182,13 +182,13 @@ class DrivenBaseRotation(DrivenBaseTask, HasCruiseAngularVelocityParameter, ABC)
         artifacts.geometry.add_yaw_goal_constraint(
             frame_R_current=parent_R_base,
             frame_R_goal=parent_R_goal,
-            cruise_velocity=self.turning_cruise_velocity(sm.abs(yaw_error)),
+            cruise_velocity=self.turning_cruise_velocity(angle_to_go=sm.abs(yaw_error)),
             quadratic_weight=self.weight,
         )
         artifacts.error = sm.abs(yaw_error)
         return artifacts
 
-    def turning_cruise_velocity(self, angle_to_go: sm.Scalar) -> sm.ScalarData:
+    def turning_cruise_velocity(self, *, angle_to_go: sm.Scalar) -> sm.ScalarData:
         """
         :param angle_to_go: How far the base still has to turn, in radians.
         :return: The speed the base turns towards the goal orientation at.
@@ -304,8 +304,12 @@ class PacedBasePosition(BasePosition):
     """
 
     def cruise_velocities(
-        self, parent_V_base_to_goal: Vector3
+        self, *, parent_V_base_to_goal: Vector3
     ) -> tuple[sm.ScalarData, sm.ScalarData]:
+        """
+        Approaches in proportion to the distance still to go, within :attr:`pace`'s
+        bounds, unlike :meth:`BasePosition.cruise_velocities`.
+        """
         distance = parent_V_base_to_goal.norm()
         speed = sm.limit(
             self.pace.slowing_rate * distance,
@@ -330,7 +334,11 @@ class PacedTurn(DrivenBaseRotation, ABC):
     How fast the base turns.
     """
 
-    def turning_cruise_velocity(self, angle_to_go: sm.Scalar) -> sm.ScalarData:
+    def turning_cruise_velocity(self, *, angle_to_go: sm.Scalar) -> sm.ScalarData:
+        """
+        Turns in proportion to the angle still to go, within :attr:`pace`'s bounds,
+        unlike :meth:`DrivenBaseRotation.turning_cruise_velocity`.
+        """
         return sm.limit(
             self.pace.slowing_rate * angle_to_go,
             self.pace.slowest_turn,
@@ -552,15 +560,10 @@ class HolonomicBaseGoal(DrivenBaseGoal):
 @dataclass(eq=False, repr=False, kw_only=True)
 class WalkingBaseGoal(DrivenBaseGoal):
     """
-    Walks a base on legs to the pose at the pace its walking controller walks up to a
-    pose, see :attr:`~semantic_digital_twin.robots.walking.WalkingController.pace`,
-    running these steps in one :class:`~cramph.composites.Sequence`, since legs walk
-    forward best:
-
-    1. Turn towards the goal position, without walking
-    2. Walk to the goal position, facing it as seen from the start, so a base that
-       overshoots does not turn round
-    3. Turn to the goal orientation, keeping the position
+    Walks a base on legs to the pose at its walking controller's pace, see
+    :attr:`~semantic_digital_twin.robots.walking.WalkingController.pace`, in one
+    :class:`~cramph.composites.Sequence`, since legs walk forward best: turn towards the
+    goal position, walk to it facing it as seen from the start, then turn to the pose.
     """
 
     pace: WalkingPace

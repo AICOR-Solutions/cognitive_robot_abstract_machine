@@ -31,7 +31,7 @@ from semantic_digital_twin.world import World
 # %% halting a stalled cycle
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StalledCycleHalt:
     """
     Commands the robot zero velocities while a control cycle stalls, such as while a
@@ -65,7 +65,7 @@ class StalledCycleHalt:
     """
 
     @contextmanager
-    def watching(self, command_publishers: list[CommandPublisher]) -> Iterator[None]:
+    def watching(self, *, command_publishers: list[CommandPublisher]) -> Iterator[None]:
         """
         Halt the robot through `command_publishers` whenever a cycle stalls while the
         block runs.
@@ -77,7 +77,7 @@ class StalledCycleHalt:
             stopped = Event()
             watcher = Thread(
                 target=self.halt_stalled_cycles,
-                args=(command_publishers, stopped),
+                kwargs={"command_publishers": command_publishers, "stopped": stopped},
                 name="stalled cycle halt",
                 daemon=True,
             )
@@ -87,7 +87,7 @@ class StalledCycleHalt:
             yield
 
     def halt_stalled_cycles(
-        self, command_publishers: list[CommandPublisher], stopped: Event
+        self, *, command_publishers: list[CommandPublisher], stopped: Event
     ) -> None:
         """
         Halt the robot once per stall until `stopped` is set.
@@ -189,7 +189,9 @@ class ControlLoop:
         :raises ExecutionCanceledException: If the goal was canceled.
         :raises ClientDisconnectedError: If the client of the goal disconnected.
         """
-        with self.stalled_cycle_halt.watching(self.command_publishers):
+        with self.stalled_cycle_halt.watching(
+            command_publishers=self.command_publishers
+        ):
             while True:
                 self.run_cycle()
                 if self.executor.statechart.is_ended():
