@@ -120,6 +120,7 @@ from giskardpy.motion_statechart.tasks.feature_functions import (
     HeightGoal,
     ReachPoint,
 )
+from giskardpy.motion_statechart.tasks.balance_tasks import CenterOfMassOverTheFeet
 from giskardpy.motion_statechart.tasks.grasp_bar import GraspBar
 from giskardpy.motion_statechart.tasks.joint_tasks import (
     JointPositionList,
@@ -133,6 +134,7 @@ from giskardpy.motion_statechart.tasks.weight_scaling_goals import MaxManipulabi
 from giskardpy.motion_statechart.tasks.wiggle_insert import WiggleInsert
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.robots.robot_parts import MobileBase
+from semantic_digital_twin.robots.walking import StandingBalance
 from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidCollisionBetweenGroups,
 )
@@ -861,6 +863,22 @@ def _joint_and_base_cases() -> list[NodeRoundTripCase]:
         NodeRoundTripCase(
             JointPositionList,
             lambda world: [_joint_goal(world)],
+            WorldFixture.PR2_WORLD,
+        ),
+        NodeRoundTripCase(
+            CenterOfMassOverTheFeet,
+            lambda world: [
+                CenterOfMassOverTheFeet(
+                    robot_root=_robot(world).root,
+                    feet=[world.get_body_by_name("r_gripper_palm_link")],
+                    balance=StandingBalance(
+                        foot_names=["r_gripper_palm_link"],
+                        support_margin=0.05,
+                        maximal_center_of_mass_speed=0.1,
+                        maximal_center_of_mass_acceleration=0.5,
+                    ),
+                )
+            ],
             WorldFixture.PR2_WORLD,
         ),
         NodeRoundTripCase(
