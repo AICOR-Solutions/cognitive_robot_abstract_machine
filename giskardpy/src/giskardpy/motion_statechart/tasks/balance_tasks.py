@@ -4,13 +4,16 @@ Tasks keeping a robot that stands on its legs balanced while its upper body move
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import reduce
 
 import krrood.symbolic_math.symbolic_math as sm
+from cramph.data_types import ObservationStateValues
+from giskardpy.motion_statechart.binding_policy import ForwardKinematicsBinding
 from giskardpy.motion_statechart.graph_node import MotionNodeArtifacts, Task
 from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
-from krrood_spatial_math.spatial_types import Point3
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.walking import StandingBalance
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -83,6 +86,32 @@ class CenterOfMassOverTheFeet(Task):
     nothing.
     """
 
+    _root_pose: ForwardKinematicsBinding = field(init=False, repr=False)
+    """
+    The pose of :attr:`robot_root` in the world, measured anew at every tick, so that
+    only the joints of the robot move its center of mass over its feet, not its base.
+    """
+
+    def set_up(self) -> None:
+        """
+        Bind the pose of the robot's root.
+        """
+        super().set_up()
+        self._root_pose = ForwardKinematicsBinding(
+            name=PrefixedName("root_pose", str(self.name)),
+            root=self.context.world.root,
+            tip=self.robot_root,
+            float_variable_data=self.context.float_variable_data,
+        )
+        self._root_pose.bind(self.context.world)
+
+    def on_start(self) -> None:
+        self._root_pose.bind(self.context.world)
+
+    def on_tick(self) -> ObservationStateValues | None:
+        self._root_pose.bind(self.context.world)
+        return None
+
     def build_artifacts(self) -> MotionNodeArtifacts:
         """
         Constrain the center of mass, along and across the way the robot faces, to the
@@ -93,7 +122,11 @@ class CenterOfMassOverTheFeet(Task):
         floor_plan = self._floor_plan()
         world = self.context.world
         center_of_mass = floor_plan.coordinates(
-            world.compose_center_of_mass_expression(self.robot_root, world.root)
+            self._root_pose.root_T_tip.dot(
+                world.compose_center_of_mass_expression(
+                    self.robot_root, self.robot_root
+                )
+            )
         )
         corners = [
             floor_plan.coordinates(corner) for corner in self._corners_of_the_feet()
@@ -117,28 +150,32 @@ class CenterOfMassOverTheFeet(Task):
             :attr:`robot_root` faces.
         """
         world = self.context.world
-        feet = [
-            world.compose_forward_kinematics_expression(world.root, foot).position
-            for foot in self.feet
-        ]
+        feet = [self._world_T_body(foot).position for foot in self.feet]
         origin = Point3(
             *(sum(foot[axis] for foot in feet) / len(feet) for axis in range(3)),
             reference_frame=world.root,
         )
-        facing = world.compose_forward_kinematics_expression(
-            world.root, self.robot_root
-        ).rotation_matrix.x_vector()
+        facing = self._root_pose.root_T_tip.rotation_matrix.x_vector()
         length = sm.sqrt(facing.x**2 + facing.y**2)
         return FloorPlan(origin=origin, forward=(facing.x / length, facing.y / length))
+
+    def _world_T_body(self, body: Body) -> HomogeneousTransformationMatrix:
+        """
+        :return: The pose of `body` in the world, moved by the robot's joints only.
+        """
+        return self._root_pose.root_T_tip.dot(
+            self.context.world.compose_forward_kinematics_expression(
+                self.robot_root, body
+            )
+        )
 
     def _corners_of_the_feet(self) -> list[Point3]:
         """
         :return: The corners of the box around each foot's collision shapes, in the
             world's root frame.
         """
-        world = self.context.world
         return [
-            world.compose_forward_kinematics_expression(world.root, foot).dot(corner)
+            self._world_T_body(foot).dot(corner)
             for foot in self.feet
             for corner in foot.collision.as_bounding_box_collection_in_frame(foot)
             .bounding_box()

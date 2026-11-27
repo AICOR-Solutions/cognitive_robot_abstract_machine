@@ -24,6 +24,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     PrismaticConnection,
+    RevoluteConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -43,15 +44,29 @@ def standing_world() -> World:
     """
     A pelvis of 10 kg standing a metre above two feet of 1 kg, each 0.2 m long, and an
     arm of 10 kg sliding forward from the pelvis.
+
+    The whole robot can lean on a joint above the pelvis, as a base whose tilt is
+    measured.
     """
     world = World()
     with world.modify_world():
         floor = Body(name=PrefixedName("floor"))
         pelvis = Body(name=PrefixedName("pelvis"), inertial=Inertial(mass=10.0))
+        lean = DegreeOfFreedom(
+            name=PrefixedName("lean"),
+            limits=DegreeOfFreedomLimits(
+                lower=DerivativeMap(-0.5, -1.0, None, None),
+                upper=DerivativeMap(0.5, 1.0, None, None),
+            ),
+            has_hardware_interface=True,
+        )
+        world.add_degree_of_freedom(lean)
         world.add_connection(
-            FixedConnection(
+            RevoluteConnection(
                 parent=floor,
                 child=pelvis,
+                raw_dof=lean,
+                axis=Vector3.Y(),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     z=1.0
                 ),
@@ -195,4 +210,15 @@ def test_the_center_of_mass_moves_no_faster_than_its_limits(standing_world, bala
     assert (
         np.max(np.abs(accelerations))
         <= balance.maximal_center_of_mass_acceleration + 1e-2
+    )
+
+
+def test_the_balance_moves_the_robots_joints_not_its_base(standing_world, balance):
+    """
+    A robot standing on legs cannot lean as a whole to balance; its base is measured.
+    """
+    reach_forward(standing_world, balance, ticks=200)
+
+    assert standing_world.get_connection_by_name("floor_T_pelvis").position == (
+        pytest.approx(0.0)
     )
