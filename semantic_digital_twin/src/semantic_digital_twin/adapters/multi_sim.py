@@ -2679,11 +2679,23 @@ class MujocoFloatingBase:
             objtype=mujoco.mjtObj.mjOBJ_BODY,
             name1=child_body_spec.name,
             name2=self.hold_name,
-            data=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            data=self.weld_data,
             active=False,
             solref=self.hold_stiffness,
             solimp=self.hold_impedance,
         )
+
+    @classproperty
+    def weld_data(cls) -> list[float]:
+        """
+        :return: The data of the weld holding the base, as long as MuJoCo keeps an
+            equality's data: no anchor, no offset, the identity orientation and a
+            torque scale of one, the rest left zero.
+        """
+        data = [0.0] * mujoco.mjNEQDATA
+        data[6] = 1.0
+        data[10] = 1.0
+        return data
 
     @classproperty
     def hold_stiffness(cls) -> list[float]:

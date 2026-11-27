@@ -8,11 +8,7 @@ from krrood.exceptions import DataclassException
 from semantic_digital_twin.exceptions import UsageError
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.datastructures.joint_state import JointState
     from semantic_digital_twin.robots.input_source import InputSource
-    from semantic_digital_twin.robots.robotiq_85_gripper import (
-        HasParallelGripperCommandServer,
-    )
     from semantic_digital_twin.robots.robot_part_mixins import RobotPartMixin
     from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
@@ -342,33 +338,3 @@ class StartPoseWithoutMobileBaseError(UsageError):
 
     def suggest_correction(self) -> str:
         return "Place the robot with its localization pose instead."
-
-
-# %% a gripper commanded through its driver
-
-
-@dataclass
-class CommandedJointNotInJointState(UsageError):
-    """
-    Raised when a joint state sets no position for the joint a gripper's driver commands.
-    """
-
-    gripper: HasParallelGripperCommandServer
-    """
-    The gripper commanded.
-    """
-
-    joint_state: JointState
-    """
-    The joint state without that position.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"The joint state {self.joint_state.name} sets no position for "
-            f"{self.gripper.commanded_joint.name}, the joint the driver of "
-            f"{self.gripper.name} commands."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Command the gripper into one of its own joint states."
