@@ -5,6 +5,7 @@ Every motion statechart node class sent through JSON inside a statechart.
 from __future__ import annotations
 
 import pytest
+from typing_extensions import Any
 
 from cramph.context import StatechartContext
 from cramph.executor import StatechartExecutor
@@ -15,6 +16,7 @@ from giskardpy.motion_statechart import ros2_nodes
 from giskardpy.motion_statechart.goals.base_pose_goals import (
     DifferentialDriveBaseGoal,
     HolonomicBaseGoal,
+    WalkingBaseGoal,
 )
 from giskardpy.motion_statechart.goals.cartesian_goals import CartesianPoseStraight
 from giskardpy.motion_statechart.goals.collision_avoidance import (
@@ -112,6 +114,9 @@ from giskardpy.motion_statechart.tasks.drive_tasks import (
     BasePosition,
     BaseTurnTowardsGoalPosition,
     DrivenBaseTask,
+    PacedBaseOrientation,
+    PacedBasePosition,
+    PacedBaseTurnTowardsGoalPosition,
 )
 from giskardpy.motion_statechart.tasks.feature_functions import (
     AlignPerpendicular,
@@ -134,7 +139,7 @@ from giskardpy.motion_statechart.tasks.weight_scaling_goals import MaxManipulabi
 from giskardpy.motion_statechart.tasks.wiggle_insert import WiggleInsert
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.robots.robot_parts import MobileBase
-from semantic_digital_twin.robots.walking import StandingBalance
+from semantic_digital_twin.robots.walking import StandingBalance, WalkingPace
 from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidCollisionBetweenGroups,
 )
@@ -235,8 +240,12 @@ def _joint_goal(world: World) -> JointPositionList:
     )
 
 
-def _driven_base_node(node_type: type[DrivenBaseTask], world: World) -> DrivenBaseTask:
+def _driven_base_node(
+    node_type: type[DrivenBaseTask], world: World, **parameters: Any
+) -> DrivenBaseTask:
     """
+    :param parameters: The parameters `node_type` takes beyond those of every
+        :class:`DrivenBaseTask`.
     :return: A node of `node_type` moving the base of the differential drive in `world`
         to a pose given in the drive's parent.
     """
@@ -246,6 +255,21 @@ def _driven_base_node(node_type: type[DrivenBaseTask], world: World) -> DrivenBa
         parent_T_goal_reference_frame=HomogeneousTransformationMatrix(
             reference_frame=_root(world)
         ),
+        **parameters,
+    )
+
+
+def _walking_pace() -> WalkingPace:
+    """
+    :return: A pace a base on legs walks up to a pose at.
+    """
+    return WalkingPace(
+        slowing_rate=1.0,
+        slowest_speed=0.1,
+        fastest_speed=0.4,
+        slowest_turn=0.2,
+        fastest_turn=0.6,
+        arrival_tolerance=0.05,
     )
 
 
@@ -427,6 +451,31 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 BaseOrientation,
                 BaseHeading,
                 BaseTurnTowardsGoalPosition,
+            ]
+        ],
+        NodeRoundTripCase(
+            WalkingBaseGoal,
+            lambda world: [
+                WalkingBaseGoal(
+                    mobile_base=world.get_semantic_annotations_by_type(MobileBase)[0],
+                    goal_pose=_pose(world),
+                    pace=_walking_pace(),
+                )
+            ],
+            WorldFixture.CYLINDER_BOT_DIFF_WORLD,
+        ),
+        *[
+            NodeRoundTripCase(
+                node_type,
+                lambda world, node_type=node_type: [
+                    _driven_base_node(node_type, world, pace=_walking_pace())
+                ],
+                WorldFixture.CYLINDER_BOT_DIFF_WORLD,
+            )
+            for node_type in [
+                PacedBasePosition,
+                PacedBaseOrientation,
+                PacedBaseTurnTowardsGoalPosition,
             ]
         ],
         NodeRoundTripCase(
