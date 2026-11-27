@@ -76,7 +76,8 @@ class TracyCubesPerceptionProcess:
         rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
         configure_logging(
             logging_config_file_name=str(
-                ModuleLoader.get_module_path(PACKAGE_NAME) / "logging_levels.yaml"
+                ModuleLoader.get_module_path(module_name=PACKAGE_NAME)
+                / "logging_levels.yaml"
             )
         )
         service = QueryService(

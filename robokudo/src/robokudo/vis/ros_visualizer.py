@@ -96,7 +96,7 @@ class SharedROSVisualizer(Visualizer, Visualizer.Observer, Node):
                 2,
             )
             self.ros_image_publisher.publish(
-                self.ros_image_cv_bridge.cv2_to_imgmsg(img_with_annotator_text)
+                self.ros_image_cv_bridge.cv2_to_imgmsg(cv_image=img_with_annotator_text)
             )
 
     def notify(
@@ -188,7 +188,7 @@ class AllAnnotatorROSVisualizer(Visualizer, Node):
             for annotator_name, annotator_output in annotator_outputs.outputs.items():
                 img = annotator_output.image
                 self.ros_image_publishers[annotator_name].publish(
-                    self.ros_image_cv_bridge.cv2_to_imgmsg(img)
+                    self.ros_image_cv_bridge.cv2_to_imgmsg(cv_image=img)
                 )
 
     def notify(

@@ -319,7 +319,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         return [
             CollectionReaderAnnotator(
                 descriptor=CollectionReaderDescriptorFactory.create_descriptor_from_camera_configuration(
-                    self.camera
+                    camera_config=self.camera
                 )
             ),
             ImagePreprocessorAnnotator("ImagePreprocessor"),

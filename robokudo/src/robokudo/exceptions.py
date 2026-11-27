@@ -487,7 +487,7 @@ class EmptyPointCloud(AnalysisPreconditionError):
         return "verify that the upstream point cloud producer wrote points to the CAS."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DepthImageNotRegistered(AnalysisPreconditionError):
     """
     Raised when the depth image does not match the color image scaled by the color-to-
@@ -528,7 +528,7 @@ class DepthImageNotRegistered(AnalysisPreconditionError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DepthNotMeasured(AnalysisPreconditionError):
     """
     Raised when a depth image holds no measured distance.
@@ -782,7 +782,7 @@ class ParentPipelineMissing(RoboKudoError, RuntimeError):
         return "add the behaviour as a descendant of a Pipeline."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class QueryServiceAlreadyRunning(RoboKudoError, RuntimeError):
     """
     Raised when a query service is started while it runs already.
@@ -803,7 +803,7 @@ class QueryServiceAlreadyRunning(RoboKudoError, RuntimeError):
         return "stop the service before starting it again."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class QueryServiceThreadFailed(RoboKudoError, RuntimeError):
     """
     Raised when a thread of a query service ends with an exception, after which the

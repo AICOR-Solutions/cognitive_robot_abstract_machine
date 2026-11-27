@@ -140,9 +140,9 @@ class ColorClusterExtractor(BaseAnnotator):
         start = default_timer()
         cas = self.get_cas()
         color_image = get_scaled_color_image_for_depth_image(
-            cas, cas.get(CASViews.COLOR_IMAGE)
+            cas, cas.get(view_name=CASViews.COLOR_IMAGE)
         )
-        depth_image = cas.get(CASViews.DEPTH_IMAGE)
+        depth_image = cas.get(view_name=CASViews.DEPTH_IMAGE)
         if not depth_image.any():
             raise DepthNotMeasured(context=self.name)
         areas = self.color_areas(color_image)
@@ -177,7 +177,7 @@ class ColorClusterExtractor(BaseAnnotator):
             cas.annotations.append(hypothesis)
             objects += 1
             self.draw_area(drawing, area, area.color, 3)
-        self.get_annotator_output_struct().set_image(drawing)
+        self.get_annotator_output_struct().set_image(img=drawing)
         self.feedback_message = (
             f"{objects} objects of {len(areas)} color areas in "
             f"{default_timer() - start:.3f}s"
@@ -240,7 +240,7 @@ class ColorClusterExtractor(BaseAnnotator):
         points = open3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd,
             Open3DCameraModelAdapter.to_intrinsic(
-                self.get_cas().pointcloud_camera_model
+                camera_model=self.get_cas().pointcloud_camera_model
             ),
         )
         if len(points.points) < parameters.minimum_points:

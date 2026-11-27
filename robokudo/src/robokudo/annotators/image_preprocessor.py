@@ -161,8 +161,8 @@ class ImagePreprocessorAnnotator(BaseAnnotator):
                 scaled_color_width=resized_color.shape[1],
                 scaled_color_height=resized_color.shape[0],
             )
-            self.rk_logger.error(str(not_registered))
-            QueryHandler.send_feedback_str(str(not_registered))
+            logger.error(str(not_registered))
+            QueryHandler.send_feedback_str(feedback_str=str(not_registered))
             raise_to_blackboard(not_registered)
             return Status.FAILURE
         # open3d expects color images in RGB order

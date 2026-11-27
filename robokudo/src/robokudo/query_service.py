@@ -20,12 +20,12 @@ from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.world import World
 from typing_extensions import Any, Callable
 
-import robokudo.world
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import QueryServiceAlreadyRunning, QueryServiceThreadFailed
 from robokudo.garden import grow_tree
 from robokudo.identifier import BBIdentifier
+from robokudo.pipeline import Pipeline
 from robokudo.utils.error_handling import raise_to_blackboard
 from robokudo.utils.tree import setup_with_descendants_rk
 from robokudo.vis.visualizer import Visualizer
@@ -110,13 +110,17 @@ class QueryService:
         :raises QueryServiceAlreadyRunning: If this service runs already.
         """
         if self._node is not None:
-            raise QueryServiceAlreadyRunning(self.analysis_engine.name())
-        robokudo.world.set_world(self.world)
-        robokudo.world.init_world_entity_tracker_from_world(self.world)
+            raise QueryServiceAlreadyRunning(
+                analysis_engine_name=self.analysis_engine.name()
+            )
         self._node = rclpy.create_node(PACKAGE_NAME)
         ROSNodeRegistry().register(self._node)
+        engine_tree = self.analysis_engine.implementation()
+        for behaviour in engine_tree.iterate():
+            if isinstance(behaviour, Pipeline):
+                behaviour.world = self.world
         tree = grow_tree(
-            self.analysis_engine.implementation(),
+            engine_tree,
             node=self._node,
             include_gui=bool(self.visualizer_types),
             visualizer_types=self.visualizer_types,
