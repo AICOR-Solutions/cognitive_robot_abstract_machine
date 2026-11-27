@@ -22,7 +22,15 @@ from semantic_digital_twin.robots.walking import (
 from ...dataset.robots_on_legs import RecordingWalkingController, robot_on_a_leg_drive
 from ...pytest_environment import runs_in_continuous_integration
 
-from semantic_digital_twin.world_description.connections import OmniDrive
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.world_description.connections import (
+    FixedConnection,
+    OmniDrive,
+)
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.adapters.multi_sim import (
     FloatingBaseJoint,
     MujocoBuilder,
@@ -310,29 +318,49 @@ def test_a_base_that_walks_then_stands_is_held_from_the_start(
 
 
 @needs_mujoco_in_ci
-def test_a_held_base_stands_in_the_controllers_standing_posture_unasked(
+def test_a_held_base_is_balanced_by_its_controller_until_held_and_then_not_asked(
     walk_then_fix_simulation,
 ):
-    world = walk_then_fix_simulation.world
     controller = _controller(walk_then_fix_simulation)
+    asked_until_held = len(controller.calls)
 
     walk_then_fix_simulation.step_simulation(timedelta(seconds=0.5))
 
-    assert controller.calls == []
-    assert world.state[world.get_connection_by_name("leg").raw_dof.id].position == (
-        pytest.approx(controller.standing_posture["leg"], abs=0.02)
+    assert asked_until_held > 0
+    assert len(controller.calls) == asked_until_held
+
+
+@needs_mujoco_in_ci
+def test_a_released_base_goes_on_from_what_its_controller_remembered(
+    walk_then_fix_simulation,
+):
+    controller = _controller(walk_then_fix_simulation)
+    remembered = list(controller.calls)
+
+    walking = _walking(walk_then_fix_simulation)
+    walking.release()
+    walk_then_fix_simulation.step_simulation(
+        timedelta(seconds=walking.landing_duration + 0.01)
     )
+
+    assert controller.calls[: len(remembered)] == remembered
+    assert len(controller.calls) > len(remembered)
 
 
 @needs_mujoco_in_ci
 def test_a_held_base_is_released_once_commanded_to_walk(walk_then_fix_simulation):
     controller = _controller(walk_then_fix_simulation)
-    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
+    command = _walking(walk_then_fix_simulation).walking_share * (
+        controller.pace.slowest_speed
+    )
+    _command_walking(walk_then_fix_simulation, command)
 
-    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.1))
+    walk_then_fix_simulation.step_simulation(
+        timedelta(seconds=_walking(walk_then_fix_simulation).landing_duration + 0.1)
+    )
 
     assert not _walking(walk_then_fix_simulation).held
-    assert controller.calls[-1][1].forward == controller.pace.slowest_speed
+    assert controller.calls[-1][1].forward == pytest.approx(command)
 
 
 @needs_mujoco_in_ci
@@ -340,7 +368,12 @@ def test_a_held_base_stays_held_while_commanded_slower_than_it_walks(
     walk_then_fix_simulation,
 ):
     controller = _controller(walk_then_fix_simulation)
-    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed / 2)
+    _command_walking(
+        walk_then_fix_simulation,
+        _walking(walk_then_fix_simulation).walking_share
+        * controller.pace.slowest_speed
+        / 2,
+    )
 
     walk_then_fix_simulation.step_simulation(timedelta(seconds=0.1))
 
@@ -353,8 +386,15 @@ def test_a_released_base_stands_while_commanded_slower_than_it_walks(
 ):
     controller = _controller(walk_then_fix_simulation)
     _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed)
-    walk_then_fix_simulation.step_simulation(timedelta(seconds=0.05))
-    _command_walking(walk_then_fix_simulation, controller.pace.slowest_speed / 2)
+    walk_then_fix_simulation.step_simulation(
+        timedelta(seconds=_walking(walk_then_fix_simulation).landing_duration + 0.05)
+    )
+    _command_walking(
+        walk_then_fix_simulation,
+        _walking(walk_then_fix_simulation).walking_share
+        * controller.pace.slowest_speed
+        / 2,
+    )
 
     walk_then_fix_simulation.step_simulation(timedelta(seconds=0.05))
 
@@ -430,3 +470,78 @@ def test_the_legs_of_a_fixed_base_follow_the_world(fixed_simulation):
 
     assert fixed_simulation.walking_actuator_names == set()
     assert world.state[leg.id].position == pytest.approx(-0.4, abs=0.02)
+
+
+@needs_mujoco_in_ci
+def test_a_base_is_held_lifted_clear_of_the_floor_it_stood_on(drive_on_a_leg):
+    world = drive_on_a_leg._world
+    with world.modify_world():
+        floor = Body(
+            name=PrefixedName("floor"),
+            collision=ShapeCollection([Box(scale=Scale(4.0, 4.0, 0.1))]),
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=world.root,
+                child=floor,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    z=0.61, reference_frame=world.root
+                ),
+            )
+        )
+    simulation = MujocoSim(
+        world=world, headless=True, walking_mode=PhysicalBaseMode.WALK_THEN_FIX
+    )
+    simulation.start_stepped_simulation()
+    model, data = simulation.simulator._mj_model, simulation.simulator._mj_data
+    floor_clearance = _walking(simulation).floor_clearance
+
+    def touches_within(margin: float) -> bool:
+        # a contact counts within the margins of both its geoms
+        model.geom_margin[:] = margin / 2
+        mujoco.mj_forward(model, data)
+        return data.ncon > 0
+
+    assert _walking(simulation).held
+    assert (
+        touches_within(0.9 * floor_clearance),
+        touches_within(1.1 * floor_clearance),
+    ) == (
+        False,
+        True,
+    )
+    simulation.stop_simulation()
+
+
+@needs_mujoco_in_ci
+def test_a_released_base_stands_at_the_height_it_was_built_at_in_the_world(
+    walk_then_fix_simulation,
+):
+    walking = _walking(walk_then_fix_simulation)
+    pelvis = walking.drive.connection.child
+    built_height = walking.localization_when_built[2, 3]
+
+    walking.release()
+
+    assert pelvis.global_pose.to_np()[2, 3] == pytest.approx(built_height)
+
+
+@needs_mujoco_in_ci
+def test_a_released_base_is_let_go_only_once_lowered_back_onto_its_legs(
+    walk_then_fix_simulation,
+):
+    walking = _walking(walk_then_fix_simulation)
+    model = walk_then_fix_simulation.simulator._mj_model
+    data = walk_then_fix_simulation.simulator._mj_data
+    weld = model.equality(walking.floating_base.hold_name).id
+    walking.release()
+
+    walk_then_fix_simulation.step_simulation(
+        timedelta(seconds=walking.landing_duration / 2)
+    )
+    welded_while_landing = bool(data.eq_active[weld])
+    walk_then_fix_simulation.step_simulation(
+        timedelta(seconds=walking.landing_duration)
+    )
+
+    assert (welded_while_landing, bool(data.eq_active[weld])) == (True, False)
