@@ -16,8 +16,6 @@ from semantic_digital_twin.robots.robot_parts import (
     AbstractRobotPart,
     Arm,
     EndEffector,
-    Neck,
-    Torso,
 )
 from krrood_spatial_math.spatial_types import Point3, Pose
 
@@ -248,9 +246,8 @@ class ParkArmsAction(ParallelAction, HasMaxJointVelocity):
         """
         parked_body_parts = [
             part
-            for part in self.robot._robot_parts
-            if isinstance(part, (Torso, Neck))
-            and part.has_joint_state_of_type(StaticJointState.PARK)
+            for part in [self.robot.get_torso_if_specified(), *self.robot.all_necks]
+            if part is not None and part.has_joint_state_of_type(StaticJointState.PARK)
         ]
         return self._joint_state_of_parts(
             [*self.arms, *parked_body_parts], StaticJointState.PARK

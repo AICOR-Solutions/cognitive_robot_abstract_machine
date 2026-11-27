@@ -1622,6 +1622,13 @@ class AbstractRobot(Agent, HasRobotParts, ABC):
         """
         return [part for part in self._robot_parts if isinstance(part, Sensor)]
 
+    @property
+    def all_necks(self) -> list[Neck]:
+        """
+        :return: Every neck of this robot, wherever it sits in the robot's parts.
+        """
+        return [part for part in self._robot_parts if isinstance(part, Neck)]
+
     # %% where the parts of this robot are read from
 
     @property
