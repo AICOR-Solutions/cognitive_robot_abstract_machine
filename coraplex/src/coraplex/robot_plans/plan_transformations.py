@@ -74,7 +74,7 @@ from semantic_digital_twin.robots.robot_part_mixins import (
     HasTwoFingers,
     PinchesWithTheThumb,
 )
-from semantic_digital_twin.robots.robot_parts import Arm
+from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
 from krrood_spatial_math.spatial_types import Pose
@@ -618,6 +618,18 @@ class WriteTheOdometryInsteadOfCommandingAPose(WriteTheOdometryInsteadOfDriving)
 # %% walking the base on legs
 
 
+def _walks_on_legs(robot: AbstractRobot) -> bool:
+    """
+    :return: Whether `robot` has a mobile base that walks on legs, see
+        :attr:`~semantic_digital_twin.robots.robot_parts.MobileBase.walking_controller_type`.
+    """
+    return (
+        isinstance(robot, HasMobileBase)
+        and robot.mobile_base is not None
+        and robot.mobile_base.walking_controller_type is not None
+    )
+
+
 @dataclass
 class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
     """
@@ -627,12 +639,7 @@ class WalkTheBaseOnItsLegs(ConfigurationTransformation[DrivesBase]):
     """
 
     def is_applicable(self, plan_node: DrivesBase) -> bool:
-        robot = plan_node.robot
-        return (
-            isinstance(robot, HasMobileBase)
-            and robot.mobile_base is not None
-            and robot.mobile_base.walking_controller_type is not None
-        )
+        return _walks_on_legs(plan_node.robot)
 
     def apply(self, plan_node: DrivesBase) -> None:
         plan_node.base_goal_type = WalkingBaseGoal
@@ -655,13 +662,8 @@ class HoldTheBaseOnceItStands(SequentialInsertion[DrivesBase]):
         return InsertionPosition.AFTER
 
     def is_applicable(self, plan_node: DrivesBase) -> bool:
-        robot = plan_node.robot
-        return (
-            plan_node.context.get_extension(WalkingBasesHeld) is not None
-            and isinstance(robot, HasMobileBase)
-            and robot.mobile_base is not None
-            and robot.mobile_base.walking_controller_type is not None
-        )
+        bases_held = plan_node.context.get_extension(WalkingBasesHeld) is not None
+        return bases_held and _walks_on_legs(plan_node.robot)
 
     def anchor(self, plan_node: DrivesBase) -> StatechartNode:
         return plan_node
