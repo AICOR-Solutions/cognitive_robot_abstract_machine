@@ -158,12 +158,12 @@ class MotionViolatedCollisionAvoidance(PlanFailure):
 @dataclass(kw_only=True)
 class MotionWouldBreakSafetyLimit(PlanFailure):
     """
-    Raised when a motion tried before it runs, in a copy of the world, broke one of the
-    safety constraints the robot is held to, such as its tool leaving its workspace box.
+    Raised when a motion tried in a copy of the world broke a safety constraint of the
+    robot, such as its tool leaving its workspace box.
 
-    Unlike the :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`
-    that stops a running robot, this says only that the attempt would not do, so a plan
-    can try another candidate, such as the other arm.
+    Unlike a running robot's
+    :class:`~giskardpy.motion_statechart.exceptions.SafetyConstraintViolated`, it only
+    rejects the attempt, so a plan can try another candidate, such as the other arm.
     """
 
     violation: SafetyConstraintViolated
@@ -172,9 +172,15 @@ class MotionWouldBreakSafetyLimit(PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        The message of the :attr:`violation`, unlike :meth:`PlanFailure.error_message`.
+        """
         return self.violation.error_message()
 
     def suggest_correction(self) -> str:
+        """
+        Suggests another arm or place, unlike :meth:`PlanFailure.suggest_correction`.
+        """
         return "Choose another arm, or a place the robot reaches inside the constraint."
 
 
@@ -199,12 +205,19 @@ class TargetLeftFieldOfView(PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        Names the target and the camera, unlike :meth:`PlanFailure.error_message`.
+        """
         return (
             f"{self.target.name.name} is outside the field of view of "
             f"{self.camera.name.name}."
         )
 
     def suggest_correction(self) -> str:
+        """
+        Suggests detecting the target again, unlike
+        :meth:`PlanFailure.suggest_correction`.
+        """
         return (
             "Detect the target again and ground the step anew, or keep the target "
             "where the camera sees it."
@@ -241,6 +254,10 @@ class BodiesMovedSinceGrounding(PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        Names each body that moved and how far, unlike
+        :meth:`PlanFailure.error_message`.
+        """
         moved = ", ".join(
             f"{displacement.body.name.name} lies {displacement.distance * 100:.1f} cm"
             for displacement in self.displacements
@@ -248,6 +265,10 @@ class BodiesMovedSinceGrounding(PlanFailure):
         return f"{moved} from where the plan was grounded."
 
     def suggest_correction(self) -> str:
+        """
+        Suggests perceiving the bodies again, unlike
+        :meth:`PlanFailure.suggest_correction`.
+        """
         return "Perceive the bodies again and ground the rest of the plan anew."
 
 
@@ -269,12 +290,20 @@ class ObjectLeftBehindByTheHand(PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        Names the body and how far it stayed behind the hand, unlike
+        :meth:`PlanFailure.error_message`.
+        """
         return (
             f"{self.held_body.name.name} stayed {self.shortfall * 100:.1f} cm behind the "
             f"hand lifting it, so the grasp did not hold it."
         )
 
     def suggest_correction(self) -> str:
+        """
+        Suggests grasping the object again, unlike
+        :meth:`PlanFailure.suggest_correction`.
+        """
         return "Grasp the object again, closer to its centre."
 
 

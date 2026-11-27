@@ -51,11 +51,8 @@ logger = logging.getLogger(__name__)
 SETTLED_POSITION_THRESHOLD = 0.001
 """
 How near, in metres, the tool center point has to have come to a grasp before the
-fingers are done closing on the object, tighter than the threshold an approach ends at.
-
-A pick-up puts the object under the gripper once the fingers closed: were the arm still
-on its way onto the grasp then, a gripper whose fingers close at once would carry the
-object on down into what it stands on.
+fingers are done closing on the object, tighter than the threshold an approach ends at,
+so that fingers closing at once do not carry the object on down into what it stands on.
 """
 
 SETTLED_ORIENTATION_THRESHOLD = 0.005

@@ -382,6 +382,10 @@ class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        Names how long the answer was waited for and what the pipeline last reported
+        waiting for, unlike :meth:`PlanFailure.error_message`.
+        """
         return (
             f"RoboKudo did not answer within "
             f"{self.answer_timeout.total_seconds():g} s: "
@@ -389,6 +393,10 @@ class PerceptionSourceDidNotAnswer(PerceptionException, PlanFailure):
         )
 
     def suggest_correction(self) -> str:
+        """
+        Points to the log of the pipeline, unlike
+        :meth:`PlanFailure.suggest_correction`.
+        """
         return (
             f"read the log of the pipeline serving '{self.action_name}' for what it "
             "waits for, such as camera images or a transform."
@@ -413,9 +421,17 @@ class PerceptionSourceFailed(PerceptionException, PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        Names the reason the pipeline reported, unlike
+        :meth:`PlanFailure.error_message`.
+        """
         return f"RoboKudo could not answer: {self.reason}"
 
     def suggest_correction(self) -> str:
+        """
+        Suggests nothing, as the reason the pipeline reported says what went wrong, see
+        :meth:`PlanFailure.suggest_correction`.
+        """
         return ""
 
 

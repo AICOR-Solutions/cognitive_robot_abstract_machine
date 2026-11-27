@@ -45,6 +45,10 @@ class ObjectRisesWithTheHand(EndedByOwner, StatechartNode):
     """
 
     def on_start(self) -> None:
+        """
+        Also records the heights of :attr:`held_body` and :attr:`tool_frame`, see
+        :meth:`~cramph.node.StatechartNode.on_start`.
+        """
         super().on_start()
         self._start_heights = self._heights()
 

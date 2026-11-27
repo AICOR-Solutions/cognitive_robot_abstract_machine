@@ -14,6 +14,7 @@ from threading import Event
 import numpy as np
 
 from krrood.patterns.classproperty import classproperty
+from krrood.patterns.called_positionally import called_positionally
 from cramph.node import EndedByOwner, FailsOnObservingFalse
 from cramph.context import ContextExtension
 from cramph.data_types import ObservationStateValue
@@ -165,6 +166,10 @@ class PerceptionQuery(SubclassJSONSerializer):
         return self.robot.get_default_camera().is_in_field_of_view(self.region.center)
 
     def to_json(self, **kwargs) -> dict[str, Any]:
+        """
+        Writes every field of the query, its robot by its identifier, see
+        :meth:`~krrood.adapters.json_serializer.SubclassJSONSerializer.to_json`.
+        """
         result = super().to_json(**kwargs)
         result["semantic_annotation"] = to_json(self.semantic_annotation, **kwargs)
         result["region"] = to_json(self.region, **kwargs)
@@ -176,6 +181,10 @@ class PerceptionQuery(SubclassJSONSerializer):
 
     @classmethod
     def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
+        """
+        Reads what :meth:`to_json` wrote, the robot from the world entity tracker of
+        ``kwargs`` and the world from its ``world``.
+        """
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(from_json_kwargs=kwargs)
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
@@ -257,12 +266,16 @@ class Detection:
         :raises AmbiguousDetection: If the annotation describes more than one body.
         """
         matching_annotations = self.resolve_annotations(world=world, region=region) or [
-            self.add_to(world)
+            self.add_to(world=world)
         ]
-        self.write_into(matching_annotations[0].root, world, trust_orientation)
+        self.write_into(
+            body=matching_annotations[0].root,
+            world=world,
+            trust_orientation=trust_orientation,
+        )
         return matching_annotations
 
-    def add_to(self, world: World) -> HasRootBody:
+    def add_to(self, *, world: World) -> HasRootBody:
         """
         Add the object this detection saw to ``world`` as a new free body: a box of
         :attr:`size` annotated with the detected annotation, at the detected pose.
@@ -284,7 +297,7 @@ class Detection:
             scale=self.size,
         )
 
-    def write_into(self, body: Body, world: World, trust_orientation: bool) -> None:
+    def write_into(self, *, body: Body, world: World, trust_orientation: bool) -> None:
         """
         Move ``body`` to where this detection saw it, raised to
         :attr:`clearance_above_surface` above the supporting surface it stands on where
@@ -296,8 +309,12 @@ class Detection:
         :param trust_orientation: Whether to also apply the detected orientation, see
             :meth:`apply_to`.
         """
-        origin = self.perceived_origin(body, world, trust_orientation)
-        inside = self.depth_inside_surface(body, world, trust_orientation)
+        origin = self.perceived_origin(
+            body=body, world=world, trust_orientation=trust_orientation
+        )
+        inside = self.depth_inside_surface(
+            body=body, world=world, trust_orientation=trust_orientation
+        )
         if inside is not None:
             origin = world.transform(
                 HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -313,7 +330,7 @@ class Detection:
                 body.update_visual_color(self.color.representative_color)
 
     def perceived_origin(
-        self, body: Body, world: World, trust_orientation: bool
+        self, *, body: Body, world: World, trust_orientation: bool
     ) -> HomogeneousTransformationMatrix:
         """
         :param body: The body that was seen.
@@ -346,7 +363,7 @@ class Detection:
         )
 
     def depth_inside_surface(
-        self, body: Body, world: World, trust_orientation: bool = True
+        self, *, body: Body, world: World, trust_orientation: bool = True
     ) -> DepthInsideSurface | None:
         """
         :param body: The body that was seen.
@@ -361,7 +378,10 @@ class Detection:
         if not body.collision.shapes:
             return None
         root_T_body = world.transform(
-            self.perceived_origin(body, world, trust_orientation), world.root
+            self.perceived_origin(
+                body=body, world=world, trust_orientation=trust_orientation
+            ),
+            world.root,
         ).to_np()
         heights = (
             body.collision.combined_mesh.vertices @ root_T_body[2, :3]
@@ -378,7 +398,7 @@ class Detection:
             ).bounding_boxes
             if box.min_x <= middle_x <= box.max_x
             and box.min_y <= middle_y <= box.max_y
-            and self._stands_in(box, lowest, middle_z)
+            and self._stands_in(box=box, lowest=lowest, middle=middle_z)
         ]
         if not tops:
             return None
@@ -389,7 +409,7 @@ class Detection:
         )
 
     def _stands_in(
-        self, box: VolumetricBoundingBox, lowest: float, middle: float
+        self, *, box: VolumetricBoundingBox, lowest: float, middle: float
     ) -> bool:
         """
         :param box: A box of a supporting surface, in the world frame, under the body's
@@ -472,7 +492,7 @@ class Detection:
         return candidates
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DepthInsideSurface:
     """
     How far a detection puts an object inside the supporting surface it stands on, such
@@ -491,7 +511,7 @@ class DepthInsideSurface:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DetectedScene:
     """
     The objects a perception source saw in a region at once, each detection a different
@@ -523,15 +543,19 @@ class DetectedScene:
         """
         bodies: list[Body] = []
         for detection in self.detections:
-            body = self.nearest_free_body(detection, world, bodies)
+            body = self.nearest_free_body(
+                detection=detection, world=world, taken=bodies
+            )
             if body is None:
-                body = detection.add_to(world).root
-            detection.write_into(body, world, trust_orientation)
+                body = detection.add_to(world=world).root
+            detection.write_into(
+                body=body, world=world, trust_orientation=trust_orientation
+            )
             bodies.append(body)
         return bodies
 
     def nearest_free_body(
-        self, detection: Detection, world: World, taken: list[Body]
+        self, *, detection: Detection, world: World, taken: list[Body]
     ) -> Body | None:
         """
         :param detection: One detection of the scene.
@@ -676,7 +700,7 @@ class WorldPerception(PerceptionInterface):
         ]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GroundedDetections:
     """
     The objects a detection reports while a plan is checked, and where they come from.
@@ -693,7 +717,7 @@ class GroundedDetections:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ValidationPerception:
     """
     Answers perception queries while a plan is checked, before it runs: through the
@@ -713,15 +737,18 @@ class ValidationPerception:
         """
         if query.is_region_in_view():
             return GroundedDetections(
-                self.live.look_for(query=query), DetectionGrounding.PERCEIVED
+                detections=self.live.look_for(query=query),
+                grounding=DetectionGrounding.PERCEIVED,
             )
         return GroundedDetections(
-            WorldPerception(reports_unseen_bodies=True).look_for(query=query),
-            DetectionGrounding.ASSUMED,
+            detections=WorldPerception(reports_unseen_bodies=True).look_for(
+                query=query
+            ),
+            grounding=DetectionGrounding.ASSUMED,
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class QueryAnswerWait:
     """
     The wait for the answer to one query sent over an action, bounded by one deadline
@@ -739,6 +766,7 @@ class QueryAnswerWait:
     reported anything.
     """
 
+    @called_positionally
     def record_feedback(self, feedback_message: Any) -> None:
         """
         :param feedback_message: A feedback message of the query, whose ``feedback``
@@ -746,7 +774,7 @@ class QueryAnswerWait:
         """
         self.latest_feedback = feedback_message.feedback.feedback
 
-    def until_done(self, future: Future) -> bool:
+    def until_done(self, *, future: Future) -> bool:
         """
         :param future: A step of the query, completed by the node's executor.
         :return: Whether it completed before the deadline.
@@ -814,13 +842,13 @@ class RoboKudoPerception(PerceptionInterface):
             deadline=time.monotonic() + self.answer_timeout.total_seconds()
         )
         sent = client.send_goal_async(goal, feedback_callback=wait.record_feedback)
-        if not wait.until_done(sent):
-            raise self._unanswered(wait)
+        if not wait.until_done(future=sent):
+            raise self._unanswered(wait=wait)
         goal_handle = sent.result()
         answered = goal_handle.get_result_async()
-        if not wait.until_done(answered):
+        if not wait.until_done(future=answered):
             goal_handle.cancel_goal_async()
-            raise self._unanswered(wait)
+            raise self._unanswered(wait=wait)
         if answered.result().status == GoalStatus.STATUS_ABORTED:
             raise PerceptionSourceFailed(
                 action_name=self.action_name,
@@ -839,7 +867,7 @@ class RoboKudoPerception(PerceptionInterface):
             if query.region.contains(detection.pose.position)
         ]
 
-    def _unanswered(self, wait: QueryAnswerWait) -> PerceptionSourceDidNotAnswer:
+    def _unanswered(self, *, wait: QueryAnswerWait) -> PerceptionSourceDidNotAnswer:
         """
         :param wait: The wait for the query that was not answered.
         :return: The failure naming what the pipeline last reported waiting for.
@@ -909,13 +937,13 @@ class RoboKudoPerception(PerceptionInterface):
                 pose_stamped.pose.orientation.z,
                 pose_stamped.pose.orientation.w,
                 reference_frame=self._reported_frame(
-                    world, pose_stamped.header.frame_id
+                    world=world, frame_id=pose_stamped.header.frame_id
                 ),
             ),
         )
 
     @staticmethod
-    def _reported_frame(world: World, frame_id: str) -> KinematicStructureEntity:
+    def _reported_frame(*, world: World, frame_id: str) -> KinematicStructureEntity:
         """
         The entity a frame RoboKudo reports names.
 

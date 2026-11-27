@@ -32,6 +32,10 @@ class BaseHeldWhereItStands(SucceedsOnObservingTrue, StatechartNode):
     """
 
     def on_tick(self) -> ObservationStateValue | None:
+        """
+        Observes ``TRUE`` once the base stands still and is held, ``UNKNOWN`` until
+        then, see :meth:`~cramph.node.StatechartNode.on_tick`.
+        """
         walking = self.context.require_extension(
             extension_type=WalkingBasesHeld
         ).simulation.walking_robot_rooted_at(self.robot_root)

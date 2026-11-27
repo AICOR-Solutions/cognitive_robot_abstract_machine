@@ -218,12 +218,17 @@ class SteppedSimulationPacer(Pacer):
         ):
             self.sleep()
             readings.append(simulator.get_actuators_lengths(servo_names).result)
-            if self._farthest_travel(readings[-2], readings[-1], servo_names) < (
-                standstill_travel
+            if (
+                self._farthest_travel(
+                    before=readings[-2], after=readings[-1], servo_names=servo_names
+                )
+                < standstill_travel
             ):
                 return
             if len(readings) == readings.maxlen and (
-                self._farthest_travel(readings[0], readings[-1], servo_names)
+                self._farthest_travel(
+                    before=readings[0], after=readings[-1], servo_names=servo_names
+                )
                 < window_travel
             ):
                 return
@@ -234,7 +239,7 @@ class SteppedSimulationPacer(Pacer):
 
     @staticmethod
     def _farthest_travel(
-        before: dict[str, float], after: dict[str, float], servo_names: list[str]
+        *, before: dict[str, float], after: dict[str, float], servo_names: list[str]
     ) -> float:
         """
         :param before: Each servo's joint position at one time.
