@@ -20,6 +20,7 @@ from cramph.node import (
     expanded_child_field,
 )
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from giskardpy.motion_statechart.tasks.balance_tasks import CenterOfMassOverTheFeet
 from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.patterns.field_metadata import JSONMetadata
@@ -27,6 +28,7 @@ from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.robots.robot_part_mixins import HasMobileBase
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.robots.walking import WalkingController
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
@@ -132,9 +134,11 @@ class Action(CompositeNode, ABC):
 
     def keep_base_still(self) -> list[MotionStatechartNode]:
         """
-        :return: The task holding the robot's base where it stands, empty when the robot
+        :return: The tasks holding the robot's base where it stands, empty when the robot
             has no mobile base or may move its whole body. A base walking on legs
-            stands instead where the context lets it, see :class:`WalkingBasesStand`.
+            stands instead where the context lets it, see :class:`WalkingBasesStand`,
+            and keeps its center of mass over its feet, see
+            :class:`~giskardpy.motion_statechart.tasks.balance_tasks.CenterOfMassOverTheFeet`.
 
         A goal relative to the robot is bound when it starts, so a base that moves
         afterwards, which collision avoidance does to buy clearance, carries the goal
@@ -146,24 +150,53 @@ class Action(CompositeNode, ABC):
             or robot.mobile_base.full_body_controlled
         ):
             return []
-        if (
-            robot.mobile_base.walking_controller_type is not None
-            and self.context.get_extension(WalkingBasesStand) is not None
-        ):
+        controller_type = robot.mobile_base.walking_controller_type
+        if controller_type is None:
             return [
                 HoldPose(
-                    name="base stands",
-                    root_link=self.world.root,
-                    tip_link=robot.root,
-                    cruise_linear_velocity=self.creeping_velocity,
-                    cruise_angular_velocity=self.creeping_velocity,
-                    translation_threshold=math.inf,
-                    orientation_threshold=math.inf,
+                    name="hold base", root_link=self.world.root, tip_link=robot.root
                 )
             ]
-        return [
-            HoldPose(name="hold base", root_link=self.world.root, tip_link=robot.root)
-        ]
+        return [self._stand_on_legs(), self._balance_on_the_feet(controller_type)]
+
+    def _stand_on_legs(self) -> HoldPose:
+        """
+        :return: The task holding a base that walks on legs: at the pose it stands at,
+            or, where the context lets it stand, only leading it back at a creep.
+        """
+        robot = self.robot
+        if self.context.get_extension(WalkingBasesStand) is None:
+            return HoldPose(
+                name="hold base", root_link=self.world.root, tip_link=robot.root
+            )
+        return HoldPose(
+            name="base stands",
+            root_link=self.world.root,
+            tip_link=robot.root,
+            cruise_linear_velocity=self.creeping_velocity,
+            cruise_angular_velocity=self.creeping_velocity,
+            translation_threshold=math.inf,
+            orientation_threshold=math.inf,
+        )
+
+    def _balance_on_the_feet(
+        self, controller_type: type[WalkingController]
+    ) -> CenterOfMassOverTheFeet:
+        """
+        :return: The task keeping the robot's center of mass over its feet, as its
+            walking controller asks.
+        """
+        robot = self.robot
+        balance = controller_type.balance
+        return CenterOfMassOverTheFeet(
+            name="balance on the feet",
+            robot_root=robot.root,
+            feet=[
+                self.world.get_body_in_branch_by_name(robot.root, name)
+                for name in balance.foot_names
+            ],
+            balance=balance,
+        )
 
     def expand(self) -> None:
         """
