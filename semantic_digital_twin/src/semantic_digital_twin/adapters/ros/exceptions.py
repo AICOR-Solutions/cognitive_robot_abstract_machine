@@ -127,10 +127,11 @@ class WorldUpdateReferencesUnknownEntityError(UsageError):
 
 
 @dataclass
-class WorldServiceDidNotAnswer(DataclassException):
+class WorldServiceDidNotAnswer(DataclassException, TimeoutError):
     """
     Raised when the service serving a world did not answer a request for it in time,
-    although the request was sent again while unanswered.
+    although the request was sent again while unanswered; a :class:`TimeoutError`, as
+    a fetch that runs out of time raises.
     """
 
     service: str = field(kw_only=True)
