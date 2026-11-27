@@ -75,8 +75,11 @@ def see_frame(
         HomogeneousTransformationMatrix.from_xyz_quaternion(quat_w=1.0)
     )
     cas.color_to_depth_ratio = ColorToDepthRatio(horizontal=1.0, vertical=1.0)
-    cas.set(CASViews.COLOR_IMAGE, np.zeros((*color_shape, 3), dtype=np.uint8))
-    cas.set(CASViews.DEPTH_IMAGE, np.ones(depth_shape, dtype=np.uint16))
+    cas.set(
+        view_name=CASViews.COLOR_IMAGE,
+        value=np.zeros((*color_shape, 3), dtype=np.uint8),
+    )
+    cas.set(view_name=CASViews.DEPTH_IMAGE, value=np.ones(depth_shape, dtype=np.uint16))
 
 
 def test_a_depth_image_not_registered_to_the_color_image_is_reported_to_the_query() -> (
@@ -124,4 +127,4 @@ def test_a_registered_frame_after_an_unregistered_one_is_turned_into_a_point_clo
     status = annotator.update()
 
     assert status is Status.SUCCESS
-    assert annotator.get_cas().get(CASViews.CLOUD) is not None
+    assert annotator.get_cas().get(view_name=CASViews.CLOUD) is not None

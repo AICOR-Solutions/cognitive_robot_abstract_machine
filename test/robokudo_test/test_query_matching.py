@@ -39,25 +39,34 @@ def hypothesis_in(color: str, classname: str | None = None) -> ObjectHypothesis:
 def test_an_unclassified_hypothesis_does_not_match_a_type_by_default():
     requested = designator_messages.ObjectDesignator(type="milk")
 
-    assert not ObjectHypothesisQueryMatcher().matches(hypothesis_in("red"), requested)
+    assert not ObjectHypothesisQueryMatcher().matches(
+        object_hypothesis=hypothesis_in("red"), requested_object=requested
+    )
 
 
 def test_an_unclassified_hypothesis_may_match_every_type():
     requested = designator_messages.ObjectDesignator(type="milk", color=["red"])
     matcher = ObjectHypothesisQueryMatcher(unclassified_objects_match_every_type=True)
 
-    assert matcher.matches(hypothesis_in("red"), requested)
+    assert matcher.matches(
+        object_hypothesis=hypothesis_in("red"), requested_object=requested
+    )
 
 
 def test_an_unclassified_hypothesis_matching_every_type_is_still_matched_by_color():
     requested = designator_messages.ObjectDesignator(type="milk", color=["red"])
     matcher = ObjectHypothesisQueryMatcher(unclassified_objects_match_every_type=True)
 
-    assert not matcher.matches(hypothesis_in("blue"), requested)
+    assert not matcher.matches(
+        object_hypothesis=hypothesis_in("blue"), requested_object=requested
+    )
 
 
 def test_a_classified_hypothesis_is_still_matched_by_its_type():
     requested = designator_messages.ObjectDesignator(type="milk")
     matcher = ObjectHypothesisQueryMatcher(unclassified_objects_match_every_type=True)
 
-    assert not matcher.matches(hypothesis_in("red", classname="cup"), requested)
+    assert not matcher.matches(
+        object_hypothesis=hypothesis_in("red", classname="cup"),
+        requested_object=requested,
+    )

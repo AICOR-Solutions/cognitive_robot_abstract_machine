@@ -155,7 +155,7 @@ def test_camera_info_coefficients_padded_with_zeros_are_read() -> None:
     camera_info.distortion_model = CameraDistortionModel.PLUMB_BOB.value
     camera_info.d = coefficients + [0.0, 0.0, 0.0]
 
-    model = RosCameraModelAdapter.from_camera_info(camera_info)
+    model = RosCameraModelAdapter.from_camera_info(camera_info=camera_info)
 
     assert model.distortion == PlumbBobCameraDistortion(
         radial_coefficient_1=coefficients[0],
@@ -175,4 +175,4 @@ def test_camera_info_rejects_nonzero_coefficients_beyond_the_model() -> None:
     camera_info.d = [0.1, -0.2, 0.01, 0.02, 0.03, 0.0, 0.0, 0.5]
 
     with pytest.raises(InvalidCameraDistortionError):
-        RosCameraModelAdapter.from_camera_info(camera_info)
+        RosCameraModelAdapter.from_camera_info(camera_info=camera_info)

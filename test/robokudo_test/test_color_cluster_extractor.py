@@ -58,8 +58,8 @@ def pipeline_seeing(
     cas = pipeline.cas
     cas.camera_observation = camera_observation
     cas.color_to_depth_ratio = ColorToDepthRatio(horizontal=1.0, vertical=1.0)
-    cas.set(CASViews.COLOR_IMAGE, color_image)
-    cas.set(CASViews.DEPTH_IMAGE, depth_image)
+    cas.set(view_name=CASViews.COLOR_IMAGE, value=color_image)
+    cas.set(view_name=CASViews.DEPTH_IMAGE, value=depth_image)
     return pipeline
 
 
@@ -213,7 +213,7 @@ def extract(
     """
     extractor = extractor or extractor_below_the_surface()
     cas = perceive(frame.create_pipeline([extractor]))
-    return cas.filter_annotations_by_type(ObjectHypothesis)
+    return cas.filter_annotations_by_type(type_to_include=ObjectHypothesis)
 
 
 # %% finding the objects

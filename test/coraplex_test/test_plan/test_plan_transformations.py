@@ -688,7 +688,10 @@ def test_a_robot_that_cannot_turn_its_camera_detects_without_looking(
         world.add_semantic_annotation(milk)
 
     plan = rewritten(
-        ReachAction(grasp=GraspCandidate.from_body_origin(milk), arm=tracy.left_arm),
+        ReachAction(
+            grasp_candidate=GraspCandidate.from_body_origin(graspable=milk),
+            arm=tracy.left_arm,
+        ),
         extensions,
         [DetectBeforeGrasp()],
     )
@@ -1846,7 +1849,7 @@ def test_a_two_finger_gripper_is_closed_to_a_width_not_squeezed_like_a_pinch(
     milk = world.get_semantic_annotations_by_type(Milk)[0]
 
     plan = rewritten(
-        GraspingAction(grasp=grasp_of(milk), arm=left_or_only_arm(view)),
+        GraspingAction(grasp_candidate=grasp_of(milk), arm=left_or_only_arm(view)),
         extensions,
         executor_for=physically_simulated_executor,
     )
@@ -1865,7 +1868,7 @@ def test_a_pick_up_in_physics_checks_that_the_object_rises_with_the_hand(
     arm = left_or_only_arm(view)
 
     plan = rewritten(
-        PickUpAction(grasp=grasp_of(milk), arm=arm),
+        PickUpAction(grasp_candidate=grasp_of(milk), arm=arm),
         extensions,
         executor_for=physically_simulated_executor,
     )
@@ -1890,7 +1893,8 @@ def test_a_kinematic_pick_up_carries_its_object_without_a_check(
     milk = world.get_semantic_annotations_by_type(Milk)[0]
 
     plan = rewritten(
-        PickUpAction(grasp=grasp_of(milk), arm=left_or_only_arm(view)), extensions
+        PickUpAction(grasp_candidate=grasp_of(milk), arm=left_or_only_arm(view)),
+        extensions,
     )
 
     assert [

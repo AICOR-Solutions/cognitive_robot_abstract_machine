@@ -575,8 +575,8 @@ class FinalApproachPath(TickingExecutorExtension):
     """
 
     def after_compile(self, executor: StatechartExecutor) -> None:
-        [reach] = executor.statechart.get_nodes_by_type(ReachAction)
-        self.final_approach = DetectBeforeGrasp().final_approach(reach)
+        [reach] = executor.statechart.get_nodes_by_type(node_type=ReachAction)
+        self.final_approach = DetectBeforeGrasp().final_approach(plan_node=reach)
         self.tool_frame = reach.arm.end_effector.tool_frame
 
     def after_tick(self, executor: StatechartExecutor) -> None:
@@ -614,7 +614,8 @@ def test_a_pick_in_physics_comes_down_onto_the_box_in_a_straight_line(
         nodes=[
             ParkArmsAction(arms=view.all_arms),
             PickUpAction(
-                grasp=grasp_near_the_top(world, box), arm=left_or_only_arm(view)
+                grasp_candidate=grasp_near_the_top(world, box),
+                arm=left_or_only_arm(view),
             ),
         ]
     )

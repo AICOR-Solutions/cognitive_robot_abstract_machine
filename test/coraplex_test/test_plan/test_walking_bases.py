@@ -24,12 +24,12 @@ from coraplex.robot_plans.plan_transformations import (
 )
 from cramph.composites import Sequence
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.statechart import Statechart
-from giskardpy.motion_statechart.goals.base_pose_goals import WalkingBaseGoal
+from giskardpy.motion_statechart.tasks.drive_tasks import WalkingBaseGoal
 from giskardpy.motion_statechart.tasks.balance_tasks import CenterOfMassOverTheFeet
 from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
-from krrood_spatial_math.spatial_types import Pose
+from krrood_spatial_math.spatial_types import Pose2D
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.walking import PhysicalBaseMode
@@ -58,11 +58,11 @@ def navigation_of(robot: AbstractRobot, *extensions) -> NavigateAction:
     :return: A navigation of `robot` in a statechart whose context has `extensions`.
     """
     world = robot._world
-    action = NavigateAction(target_location=Pose(reference_frame=world.root))
+    action = NavigateAction(planar_goal_pose=Pose2D(reference_frame=world.root))
     context = StatechartContext.with_extensions(
-        world, [RobotAccess(robot), *extensions]
+        world=world, extensions=[RobotAccess(robot=robot), *extensions]
     )
-    Statechart(context=context).add_node(action)
+    Statechart(context=context).add_node(node=action)
     return action
 
 
@@ -73,18 +73,16 @@ def test_a_walking_robot_walks_to_where_it_navigates(robot_on_a_leg):
     action = navigation_of(robot_on_a_leg)
     walking = WalkTheBaseOnItsLegs()
 
-    assert walking.is_applicable(action)
-    walking.apply(action)
+    assert walking.is_applicable(plan_node=action)
+    walking.apply(plan_node=action)
     assert action.base_goal_type is WalkingBaseGoal
-    assert (
-        action.base_pose_threshold == RecordingWalkingController.pace.arrival_tolerance
-    )
+    assert action.threshold == RecordingWalkingController.pace.arrival_tolerance
 
 
 def test_a_driven_robot_is_left_to_its_drive(cylinder_bot_world):
     [robot] = cylinder_bot_world.get_semantic_annotations_by_type(RobotOnAnOmniDrive)
 
-    assert not WalkTheBaseOnItsLegs().is_applicable(navigation_of(robot))
+    assert not WalkTheBaseOnItsLegs().is_applicable(plan_node=navigation_of(robot))
 
 
 def test_a_physics_run_walks_walking_robots():
@@ -114,7 +112,7 @@ def test_a_walking_base_stands_where_the_context_lets_it(robot_on_a_leg):
     assert isinstance(stand, HoldPose)
     assert stand.cruise_linear_velocity == NavigateAction.creeping_velocity
     assert stand.cruise_angular_velocity == NavigateAction.creeping_velocity
-    assert (stand.translation_threshold, stand.orientation_threshold) == (
+    assert (stand.position_threshold, stand.orientation_threshold) == (
         math.inf,
         math.inf,
     )
@@ -151,10 +149,13 @@ def test_a_driven_base_is_only_held(cylinder_bot_world):
     [hold] = action.keep_base_still()
 
     assert isinstance(hold, HoldPose)
-    assert (hold.root_link, hold.tip_link) == (cylinder_bot_world.root, robot.root)
-    assert (hold.cruise_linear_velocity, hold.translation_threshold) == (
+    assert (hold.kinematic_chain.root, hold.kinematic_chain.tip) == (
+        cylinder_bot_world.root,
+        robot.root,
+    )
+    assert (hold.cruise_linear_velocity, hold.position_threshold) == (
         HoldPose.cruise_linear_velocity,
-        HoldPose.translation_threshold,
+        HoldPose.position_threshold,
     )
 
 
@@ -175,12 +176,14 @@ def walk_then_fix_simulation(robot_on_a_leg):
 def test_a_walking_base_is_held_once_it_stands_after_it_walked(
     robot_on_a_leg, walk_then_fix_simulation
 ):
-    action = navigation_of(robot_on_a_leg, WalkingBasesHeld(walk_then_fix_simulation))
+    action = navigation_of(
+        robot_on_a_leg, WalkingBasesHeld(simulation=walk_then_fix_simulation)
+    )
     Sequence(nodes=[action])
     holding = HoldTheBaseOnceItStands()
 
-    assert holding.is_applicable(action)
-    holding.apply(action)
+    assert holding.is_applicable(plan_node=action)
+    holding.apply(plan_node=action)
     [_, held] = action.parent_node.nodes
     assert isinstance(held, BaseHeldWhereItStands)
     assert held.robot_root is robot_on_a_leg.root
@@ -189,14 +192,18 @@ def test_a_walking_base_is_held_once_it_stands_after_it_walked(
 def test_a_walking_base_is_not_held_where_the_context_does_not_hold_it(
     robot_on_a_leg,
 ):
-    assert not HoldTheBaseOnceItStands().is_applicable(navigation_of(robot_on_a_leg))
+    assert not HoldTheBaseOnceItStands().is_applicable(
+        plan_node=navigation_of(robot_on_a_leg)
+    )
 
 
 def test_a_driven_base_is_not_held(cylinder_bot_world, walk_then_fix_simulation):
     [robot] = cylinder_bot_world.get_semantic_annotations_by_type(RobotOnAnOmniDrive)
 
     assert not HoldTheBaseOnceItStands().is_applicable(
-        navigation_of(robot, WalkingBasesHeld(walk_then_fix_simulation))
+        plan_node=navigation_of(
+            robot, WalkingBasesHeld(simulation=walk_then_fix_simulation)
+        )
     )
 
 
@@ -224,7 +231,7 @@ def test_a_physics_run_holds_walking_robots_once_they_walked():
 def test_a_physics_run_lets_walking_bases_stand_only_where_they_walk_all_the_time(
     robot_on_a_leg, walking_mode, extension_types
 ):
-    executor = physically_simulated_executor([RobotAccess(robot_on_a_leg)])
+    executor = physically_simulated_executor([RobotAccess(robot=robot_on_a_leg)])
     executor.simulation = SimulationThatCountsItsSteps(walking_mode=walking_mode)
 
     assert [
@@ -245,14 +252,17 @@ def test_the_wait_for_a_held_base_ends_once_the_simulation_holds_it(
     walking.release()
     held = BaseHeldWhereItStands(robot_root=robot_on_a_leg.root)
     context = StatechartContext.with_extensions(
-        robot_on_a_leg._world,
-        [RobotAccess(robot_on_a_leg), WalkingBasesHeld(walk_then_fix_simulation)],
+        world=robot_on_a_leg._world,
+        extensions=[
+            RobotAccess(robot=robot_on_a_leg),
+            WalkingBasesHeld(simulation=walk_then_fix_simulation),
+        ],
     )
-    Statechart(context=context).add_node(held)
+    Statechart(context=context).add_node(node=held)
     waiting = held.on_tick()
     walking.hold()
 
     assert (waiting, held.on_tick()) == (
-        ObservationStateValues.UNKNOWN,
-        ObservationStateValues.TRUE,
+        ObservationStateValue.UNKNOWN,
+        ObservationStateValue.TRUE,
     )

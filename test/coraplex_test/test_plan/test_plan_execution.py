@@ -423,8 +423,8 @@ def test_compiling_watches_the_plan_for_safety_violations(
 
     executor.compile(statechart=statechart_of(executor, plan))
 
-    [monitor] = plan.statechart.get_nodes_by_type(ToolOutsideWorkspace)
-    [cancel] = plan.statechart.get_nodes_by_type(CancelOnSafetyViolation)
+    [monitor] = plan.statechart.get_nodes_by_type(node_type=ToolOutsideWorkspace)
+    [cancel] = plan.statechart.get_nodes_by_type(node_type=CancelOnSafetyViolation)
     assert cancel.monitors == [monitor]
 
 
@@ -451,6 +451,8 @@ def test_a_plan_breaking_a_safety_constraint_is_cancelled_and_no_failure(
     assert violated.value.constraint == constraint.constraint
     assert not isinstance(violated.value, ExecutionFailure)
     assert world.state[torso].position - position_before < 0.01
+
+
 def test_a_plan_whose_motion_is_infeasible_fails_as_a_plan_failure(
     pr2_apartment_context, monkeypatch
 ) -> None:
@@ -727,13 +729,17 @@ def test_the_controller_weighs_the_torsos_joints_by_its_motion_cost(
     config = motion_control.qp_controller_config
     for dof in torso_dofs:
         assert config.get_degree_of_freedom_weight(
-            dof.name, Derivatives.velocity
+            dof_name=dof.name, derivative=Derivatives.velocity
         ) == pytest.approx(
-            unweighed.get_degree_of_freedom_weight(dof.name, Derivatives.velocity)
+            unweighed.get_degree_of_freedom_weight(
+                dof_name=dof.name, derivative=Derivatives.velocity
+            )
             * torso.motion_cost
         )
     assert config.get_degree_of_freedom_weight(
-        arm_dof.name, Derivatives.velocity
+        dof_name=arm_dof.name, derivative=Derivatives.velocity
     ) == pytest.approx(
-        unweighed.get_degree_of_freedom_weight(arm_dof.name, Derivatives.velocity)
+        unweighed.get_degree_of_freedom_weight(
+            dof_name=arm_dof.name, derivative=Derivatives.velocity
+        )
     )

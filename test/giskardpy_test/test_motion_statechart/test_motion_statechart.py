@@ -328,14 +328,16 @@ def test_a_motion_no_degree_of_freedom_moves_is_an_empty_problem(
     )
     statechart = Statechart(context=executor.context)
     pose = CartesianPose(
-        root_link=world.get_kinematic_structure_entity_by_name("base_footprint"),
-        tip_link=world.get_kinematic_structure_entity_by_name("base_link"),
+        kinematic_chain=KinematicChain(
+            root=world.get_kinematic_structure_entity_by_name("base_footprint"),
+            tip=world.get_kinematic_structure_entity_by_name("base_link"),
+        ),
         goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
             x=1, reference_frame=world.root
         ),
     )
-    statechart.add_node(pose)
-    statechart.add_node(EndMotion.when_true(pose))
+    statechart.add_node(node=pose)
+    statechart.add_node(node=EndMotion.when_true(node=pose))
 
     with pytest.raises(EmptyProblemException):
         executor.compile(statechart=statechart)

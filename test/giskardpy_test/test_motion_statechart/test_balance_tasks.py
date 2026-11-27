@@ -23,8 +23,7 @@ from semantic_digital_twin.robots.walking import StandingBalance
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
-    PrismaticConnection,
-    RevoluteConnection,
+    ScrewAxisConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -62,11 +61,13 @@ def standing_world() -> World:
         )
         world.add_degree_of_freedom(lean)
         world.add_connection(
-            RevoluteConnection(
+            ScrewAxisConnection(
                 parent=floor,
                 child=pelvis,
                 raw_dof=lean,
-                axis=Vector3.Y(),
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Y()
+                ),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     z=1.0
                 ),
@@ -103,8 +104,13 @@ def standing_world() -> World:
         )
         world.add_degree_of_freedom(reach)
         world.add_connection(
-            PrismaticConnection(
-                parent=pelvis, child=arm, raw_dof=reach, axis=Vector3.X()
+            ScrewAxisConnection(
+                parent=pelvis,
+                child=arm,
+                raw_dof=reach,
+                screw_axis=ScrewAxisConnection.create_prismatic_screw_axis(
+                    axis=Vector3.X()
+                ),
             )
         )
     MinimalRobot.from_world(world)
@@ -146,7 +152,7 @@ def reach_forward(
     )
     statechart = Statechart(context=executor.context)
     statechart.add_node(
-        JointPositionList(
+        node=JointPositionList(
             goal_state=JointState.from_mapping(
                 {world.get_connection_by_name("pelvis_T_arm"): 1.0}
             )
@@ -155,7 +161,7 @@ def reach_forward(
     if balance is not None:
         pelvis = world.get_body_by_name("pelvis")
         statechart.add_node(
-            CenterOfMassOverTheFeet(
+            node=CenterOfMassOverTheFeet(
                 robot_root=pelvis,
                 feet=[world.get_body_by_name(name) for name in balance.foot_names],
                 balance=balance,

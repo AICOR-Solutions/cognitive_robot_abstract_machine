@@ -58,7 +58,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.robots.robot_parts import Arm, Camera
 from semantic_digital_twin.robots.tracy import Tracy
-from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+from semantic_digital_twin.semantic_annotations.mixins import IsGraspable
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import (
@@ -132,9 +132,7 @@ class CubeOnTheTable:
         """
         [graspable] = [
             annotation
-            for annotation in self.world.get_semantic_annotations_by_type(
-                HasGraspCandidates
-            )
+            for annotation in self.world.get_semantic_annotations_by_type(IsGraspable)
             if annotation.root is self.cube
         ]
         return GraspCandidate(
@@ -182,7 +180,7 @@ def cube_on_the_table(tracy_context) -> CubeOnTheTable:
                 world=world, parent=world.root, child=scene.cube
             )
         )
-        world.add_semantic_annotation(HasGraspCandidates(root=scene.cube))
+        world.add_semantic_annotation(IsGraspable(root=scene.cube))
     scene.put_cube_at(0.55, 0.1)
     return scene
 
@@ -202,14 +200,20 @@ def joint_positions(world: World) -> np.ndarray:
     [
         (
             MotionViolatedCollisionAvoidance(
-                CollisionViolatedError(violated_collisions=[])
+                violation=CollisionViolatedError(violated_collisions=[])
             ),
             FailureCause.COLLISION,
         ),
         (RobotInCollision(), FailureCause.COLLISION),
-        (NothingPerceived(HasGraspCandidates), FailureCause.NOT_PERCEIVED),
-        (UnidentifiedDetections(HasGraspCandidates, 2), FailureCause.AMBIGUOUS),
-        (AmbiguousDetection(HasGraspCandidates, 2), FailureCause.AMBIGUOUS),
+        (NothingPerceived(semantic_annotation=IsGraspable), FailureCause.NOT_PERCEIVED),
+        (
+            UnidentifiedDetections(semantic_annotation=IsGraspable, candidate_count=2),
+            FailureCause.AMBIGUOUS,
+        ),
+        (
+            AmbiguousDetection(semantic_annotation=IsGraspable, body_count=2),
+            FailureCause.AMBIGUOUS,
+        ),
         (
             TargetLeftFieldOfView(
                 camera=Camera(
@@ -226,7 +230,7 @@ def joint_positions(world: World) -> np.ndarray:
         ),
         (
             MotionWouldBreakSafetyLimit(
-                SafetyConstraintViolated(
+                violation=SafetyConstraintViolated(
                     constraint="Left arm workspace", violation="1.0 mm past"
                 )
             ),
@@ -252,7 +256,7 @@ def test_a_pick_in_reach_is_valid_and_leaves_the_world_where_it_was(
 
     check = validation.check(
         PickUpAction(
-            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         )
     )
@@ -271,7 +275,7 @@ def test_a_pick_out_of_reach_fails_as_unreachable(cube_on_the_table: CubeOnTheTa
 
     check = validation.check(
         PickUpAction(
-            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         )
     )
@@ -288,13 +292,16 @@ def test_a_step_starts_where_the_step_before_it_ended(
     copy = validation.copied_world
     grasp = copy.rebind_world_entities(scene.top_down_grasp())
     validation.check(
-        PickUpAction(grasp=grasp, arm=copy.rebind_world_entities(scene.tracy.left_arm))
+        PickUpAction(
+            grasp_candidate=grasp, arm=copy.rebind_world_entities(scene.tracy.left_arm)
+        )
     )
 
     check = validation.check(
         PlaceAction(
-            object_designator=grasp.graspable,
-            target_location=Pose.from_xyz_rpy(
+            arm=copy.rebind_world_entities(scene.tracy.left_arm),
+            graspable=grasp.graspable,
+            goal_pose=Pose.from_xyz_rpy(
                 x=0.6,
                 y=-0.1,
                 z=scene.tracy.table.top_z + 0.025,
@@ -352,7 +359,7 @@ def test_a_step_whose_tool_leaves_a_workspace_box_fails_as_breaking_a_safety_lim
 
     check = validation.check(
         PickUpAction(
-            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         ),
         safety=workspace_below(validation, scene, 0.02),
@@ -372,7 +379,7 @@ def test_a_step_whose_tool_stays_inside_a_workspace_box_is_valid(
 
     check = validation.check(
         PickUpAction(
-            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
             arm=copy.rebind_world_entities(scene.tracy.left_arm),
         ),
         safety=workspace_below(validation, scene, 2.0),
@@ -393,7 +400,7 @@ def any_arm_picking(validation: PlanValidation, scene: CubeOnTheTable) -> Statem
     return StatementNode(
         statement=a(PickUpAction)(
             arm=variable(Arm, domain=tracy.all_arms),
-            grasp=copy.rebind_world_entities(scene.top_down_grasp()),
+            grasp_candidate=copy.rebind_world_entities(scene.top_down_grasp()),
         )
     )
 
@@ -436,10 +443,10 @@ def cube_query(
     """
     copy = validation.copied_world
     return PerceptionQuery(
-        HasGraspCandidates,
-        copy.rebind_world_entities(region),
-        copy.rebind_world_entities(scene.tracy),
-        copy,
+        semantic_annotation=IsGraspable,
+        region=copy.rebind_world_entities(region),
+        robot=copy.rebind_world_entities(scene.tracy),
+        world=copy,
     )
 
 
@@ -518,7 +525,7 @@ class PerceptionSeeingTheCubeSunk(PerceptionInterface):
         resting = query.world.rebind_world_entities(self.scene.cube).global_pose
         return [
             Detection(
-                semantic_annotation=HasGraspCandidates,
+                semantic_annotation=IsGraspable,
                 pose=Pose.from_xyz_rpy(
                     x=float(resting.x),
                     y=float(resting.y),
@@ -589,7 +596,9 @@ def test_a_cube_seen_a_few_millimetres_inside_the_table_is_raised_onto_it(
 
     assert check.verdict is ValidationVerdict.VALID
     [cube] = check.found
-    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    clearance = Detection(
+        semantic_annotation=IsGraspable, pose=Pose()
+    ).clearance_above_surface
     assert lowest_height(cube, validation.copied_world) == pytest.approx(
         scene.tracy.table.top_z + clearance, abs=1e-6
     )
@@ -626,7 +635,9 @@ def test_a_cube_seen_deep_inside_the_table_is_raised_onto_it(
 
     assert check.verdict is ValidationVerdict.VALID
     [cube] = check.found
-    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    clearance = Detection(
+        semantic_annotation=IsGraspable, pose=Pose()
+    ).clearance_above_surface
     assert lowest_height(cube, validation.copied_world) == pytest.approx(
         scene.tracy.table.top_z + clearance, abs=1e-6
     )
@@ -647,7 +658,9 @@ def test_a_cube_seen_completely_inside_the_table_is_raised_onto_it(
 
     assert check.verdict is ValidationVerdict.VALID
     [cube] = check.found
-    clearance = Detection(HasGraspCandidates, Pose()).clearance_above_surface
+    clearance = Detection(
+        semantic_annotation=IsGraspable, pose=Pose()
+    ).clearance_above_surface
     assert lowest_height(cube, validation.copied_world) == pytest.approx(
         scene.tracy.table.top_z + clearance, abs=1e-6
     )
@@ -668,7 +681,7 @@ def sunk_detection(scene: CubeOnTheTable, x: float, depth: float) -> Detection:
         than a cube resting on the table.
     """
     return Detection(
-        semantic_annotation=HasGraspCandidates,
+        semantic_annotation=IsGraspable,
         pose=Pose.from_xyz_rpy(
             x=x,
             y=0.1,

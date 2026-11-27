@@ -160,14 +160,15 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[Camera
     bridge = CVBridgeWorkaround()
     optical_frame = settings.real_camera.tf_from
     color = bridge.cv2_to_imgmsg(
-        np.ascontiguousarray(frame.color_bgr.swapaxes(0, 1)[..., ::-1]), "rgb8"
+        cv_image=np.ascontiguousarray(frame.color_bgr.swapaxes(0, 1)[..., ::-1]),
+        encoding="rgb8",
     )
     color.header.frame_id = optical_frame
     depth = bridge.cv2_to_imgmsg(
-        np.ascontiguousarray(frame.depth_in_millimeters.swapaxes(0, 1)).astype(
+        cv_image=np.ascontiguousarray(frame.depth_in_millimeters.swapaxes(0, 1)).astype(
             np.uint16
         ),
-        "16UC1",
+        encoding="16UC1",
     )
     depth.header.frame_id = optical_frame
     node = rclpy.create_node("tracy_camera_driver")
@@ -176,7 +177,7 @@ def camera_driver(cube_scene: CubeScene, settings_file: Path) -> Iterator[Camera
         color=color,
         depth=depth,
         camera_info=RosCameraModelAdapter.to_camera_info(
-            frame.camera_model, optical_frame
+            camera_model=frame.camera_model, frame_id=optical_frame
         ),
         settings=settings,
     )
@@ -479,7 +480,7 @@ def test_a_calibration_that_cannot_be_read_aborts_the_query_and_ends_the_process
     unreadable = copy.deepcopy(camera_driver.camera_info)
     unreadable.d = list(unreadable.d) + [0.0, 0.0, 0.5]
     with pytest.raises(InvalidCameraDistortionError) as reading:
-        RosCameraModelAdapter.from_camera_info(unreadable)
+        RosCameraModelAdapter.from_camera_info(camera_info=unreadable)
     monkeypatch.setattr(camera_driver, "camera_info", unreadable)
     node = rclpy.create_node("tracy_cubes_unreadable_calibration_client")
     client = ActionClient(node, query_messages.Query, "robokudo/query")
@@ -522,7 +523,8 @@ def test_a_depth_image_not_registered_to_the_color_image_is_logged(
     """
     depth = camera_driver.depth
     unregistered = CVBridgeWorkaround().cv2_to_imgmsg(
-        np.zeros((depth.height // 2, depth.width // 2), dtype=np.uint16), "16UC1"
+        cv_image=np.zeros((depth.height // 2, depth.width // 2), dtype=np.uint16),
+        encoding="16UC1",
     )
     unregistered.header = depth.header
     log_file = tmp_path / "perception.log"

@@ -38,7 +38,7 @@ def test_a_box_reaches_down_to_the_surface_its_object_stands_on(
         frame.create_pipeline([extractor_below_the_surface(), pose_annotator])
     )
 
-    [hypothesis] = cas.filter_annotations_by_type(ObjectHypothesis)
+    [hypothesis] = cas.filter_annotations_by_type(type_to_include=ObjectHypothesis)
     [box] = [
         annotation
         for annotation in hypothesis.annotations

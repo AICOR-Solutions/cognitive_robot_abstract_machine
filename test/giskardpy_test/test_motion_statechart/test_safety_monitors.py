@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.executor import StatechartExecutor
 from cramph.statechart import Statechart
 from giskardpy.motion_control import MotionControl
@@ -27,6 +27,7 @@ from giskardpy.motion_statechart.monitors.safety_monitors import (
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from krrood_spatial_math.spatial_types import Point3
+from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import ActiveConnection1DOF
@@ -84,13 +85,13 @@ def _box_around_tool(world: World, half_size: float) -> WorkspaceBox:
     )
 
 
-def _observe(world: World, monitor: SafetyMonitor) -> ObservationStateValues:
+def _observe(world: World, monitor: SafetyMonitor) -> ObservationStateValue:
     """
     :return: What `monitor` observes of the world as it is, after one tick.
     """
     executor = StatechartExecutor(context=StatechartContext(world=world))
     statechart = Statechart(context=executor.context)
-    statechart.add_node(monitor)
+    statechart.add_node(node=monitor)
     executor.compile(statechart=statechart)
     executor.tick()
     return monitor.observation_state
@@ -102,7 +103,7 @@ def _observe(world: World, monitor: SafetyMonitor) -> ObservationStateValues:
 def test_a_tool_inside_its_box_is_not_a_violation(pr2_world_state_reset):
     box = _box_around_tool(pr2_world_state_reset, 0.1)
     observed = _observe(pr2_world_state_reset, box.create_monitor())
-    assert observed == ObservationStateValues.FALSE
+    assert observed == ObservationStateValue.FALSE
 
 
 def test_a_tool_outside_its_box_is_a_violation(pr2_world_state_reset):
@@ -115,17 +116,17 @@ def test_a_tool_outside_its_box_is_a_violation(pr2_world_state_reset):
         maximum=Point3(*(inside.maximum.to_np()[:3] + 0.5), reference_frame=world.root),
     )
     observed = _observe(world, shifted.create_monitor())
-    assert observed == ObservationStateValues.TRUE
+    assert observed == ObservationStateValue.TRUE
 
 
 @pytest.mark.parametrize(
     "share_of_limit, expected",
     [
-        (0.5, ObservationStateValues.FALSE),
-        (1.0, ObservationStateValues.FALSE),
-        (-1.0, ObservationStateValues.FALSE),
-        (1.01, ObservationStateValues.TRUE),
-        (-1.01, ObservationStateValues.TRUE),
+        (0.5, ObservationStateValue.FALSE),
+        (1.0, ObservationStateValue.FALSE),
+        (-1.0, ObservationStateValue.FALSE),
+        (1.01, ObservationStateValue.TRUE),
+        (-1.01, ObservationStateValue.TRUE),
     ],
 )
 def test_a_joint_faster_than_its_own_velocity_limit_is_a_violation(
@@ -150,7 +151,7 @@ def test_a_joint_passing_its_limit_within_the_tolerance_is_no_violation(
         + JointVelocityExceeded.velocity_limit_tolerance / 2
     )
     limit = MaximumJointVelocity(constraint="torso velocity", connections=[torso])
-    assert _observe(world, limit.create_monitor()) == ObservationStateValues.FALSE
+    assert _observe(world, limit.create_monitor()) == ObservationStateValue.FALSE
 
 
 def test_each_joint_is_held_to_its_own_velocity_limit(pr2_world_state_reset):
@@ -170,7 +171,7 @@ def test_each_joint_is_held_to_its_own_velocity_limit(pr2_world_state_reset):
     )
     monitor = limit.create_monitor()
 
-    assert _observe(world, monitor) == ObservationStateValues.TRUE
+    assert _observe(world, monitor) == ObservationStateValue.TRUE
     assert monitor.describe_violation().startswith(str(shoulder_joint.name))
 
 
@@ -184,12 +185,12 @@ def test_a_joint_is_held_to_its_limit_as_the_robot_tightened_it(
     torso.raw_dof.limits.lower.velocity = -description_limit / 2
     world.state[torso.dof.id].velocity = description_limit * 0.75
     limit = MaximumJointVelocity(constraint="torso velocity", connections=[torso])
-    assert _observe(world, limit.create_monitor()) == ObservationStateValues.TRUE
+    assert _observe(world, limit.create_monitor()) == ObservationStateValue.TRUE
 
 
 @pytest.mark.parametrize(
     "velocity, expected",
-    [(0.05, ObservationStateValues.FALSE), (0.2, ObservationStateValues.TRUE)],
+    [(0.05, ObservationStateValue.FALSE), (0.2, ObservationStateValue.TRUE)],
 )
 def test_a_tool_faster_than_its_limit_is_a_violation(
     pr2_world_state_reset, velocity, expected
@@ -296,10 +297,12 @@ def test_a_motion_leaving_the_box_is_cancelled_at_its_boundary(pr2_world_state_r
         context=StatechartContext(world=world), extensions=[MotionControl()]
     )
     statechart = Statechart(context=executor.context)
-    reach = CartesianPosition(root_link=world.root, tip_link=box.tool, goal_point=goal)
-    statechart.add_node(reach)
-    statechart.add_node(EndMotion.when_true(reach))
-    statechart.add_nodes(SafetyEnvelope(constraints=[box]).create_nodes())
+    reach = CartesianPosition(
+        kinematic_chain=KinematicChain(root=world.root, tip=box.tool), goal_point=goal
+    )
+    statechart.add_node(node=reach)
+    statechart.add_node(node=EndMotion.when_true(node=reach))
+    statechart.add_nodes(nodes=SafetyEnvelope(constraints=[box]).create_nodes())
     executor.compile(statechart=statechart)
 
     with pytest.raises(SafetyConstraintViolated) as violated:
@@ -307,7 +310,7 @@ def test_a_motion_leaving_the_box_is_cancelled_at_its_boundary(pr2_world_state_r
 
     stopped = world.compute_forward_kinematics_np(world.root, box.tool)[:3, 3]
     overshoot = stopped[0] - box.maximum.to_np()[0]
-    [cancel] = statechart.get_nodes_by_type(CancelOnSafetyViolation)
+    [cancel] = statechart.get_nodes_by_type(node_type=CancelOnSafetyViolation)
     assert violated.value.constraint == box.constraint
     assert cancel.violation is violated.value
     assert 0.0 < overshoot < BOUNDARY_TOLERANCE
@@ -329,10 +332,12 @@ def test_a_motion_is_held_below_its_tools_velocity_limit(pr2_world_state_reset):
         context=StatechartContext(world=world), extensions=[MotionControl()]
     )
     statechart = Statechart(context=executor.context)
-    reach = CartesianPosition(root_link=world.root, tip_link=tool, goal_point=goal)
-    statechart.add_node(reach)
-    statechart.add_node(EndMotion.when_true(reach))
-    statechart.add_nodes(SafetyEnvelope(constraints=[limit]).create_nodes())
+    reach = CartesianPosition(
+        kinematic_chain=KinematicChain(root=world.root, tip=tool), goal_point=goal
+    )
+    statechart.add_node(node=reach)
+    statechart.add_node(node=EndMotion.when_true(node=reach))
+    statechart.add_nodes(nodes=SafetyEnvelope(constraints=[limit]).create_nodes())
     executor.compile(statechart=statechart)
 
     executor.tick_until_end()
@@ -368,9 +373,9 @@ def test_a_motion_at_its_joints_velocity_limits_is_not_cancelled(
     reach = JointPositionList(
         goal_state=JointState.from_mapping(goal), cruise_velocity=100.0
     )
-    statechart.add_node(reach)
-    statechart.add_node(EndMotion.when_true(reach))
-    statechart.add_nodes(SafetyEnvelope(constraints=[limit]).create_nodes())
+    statechart.add_node(node=reach)
+    statechart.add_node(node=EndMotion.when_true(node=reach))
+    statechart.add_nodes(nodes=SafetyEnvelope(constraints=[limit]).create_nodes())
     executor.compile(statechart=statechart)
 
     executor.tick_until_end()

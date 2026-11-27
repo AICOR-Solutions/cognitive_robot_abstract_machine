@@ -1495,14 +1495,16 @@ class TestStalledCycleHalt:
         motion_server.control_loop.command_publishers = [recorder]
         statechart = Statechart(context=motion_server.executor.context)
         statechart.add_node(
-            blocking := TickBlockingNode(
-                blocking_seconds=2
-                * motion_server.control_loop.stalled_cycle_halt.stall_timeout,
-                command_events=recorder.events,
+            node=(
+                blocking := TickBlockingNode(
+                    blocking_seconds=2
+                    * motion_server.control_loop.stalled_cycle_halt.stall_timeout,
+                    command_events=recorder.events,
+                )
             )
         )
-        statechart.add_node(EndMotion.when_true(blocking))
-        motion_server.executor.compile(statechart)
+        statechart.add_node(node=EndMotion.when_true(node=blocking))
+        motion_server.executor.compile(statechart=statechart)
 
         motion_server.control_loop.run()
 

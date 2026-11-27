@@ -65,7 +65,9 @@ def test_the_horizon_covers_the_braking_of_a_joint_with_a_low_acceleration_limit
 ):
     world, robot, extensions = tracy_context
     defaults = QPControllerConfig.create_with_physical_simulation_defaults()
-    braking = DegreeOfFreedomLimitProfiler(defaults).braking(slowly_braking_joint)
+    braking = DegreeOfFreedomLimitProfiler(qp_controller_config=defaults).braking(
+        degree_of_freedom=slowly_braking_joint
+    )
 
     configuration = physically_simulated_executor(
         extensions

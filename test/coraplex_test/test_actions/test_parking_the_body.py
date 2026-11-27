@@ -86,10 +86,13 @@ def test_parking_the_arms_holds_a_mobile_base_where_it_stands(
     park = ParkArmsAction(arms=pr2.all_arms)
     executor = simulated_executor(extensions)
 
-    executor.compile(statechart_of(executor, park))
+    executor.compile(statechart=statechart_of(executor, park))
 
-    [hold] = park.statechart.get_nodes_by_type(HoldPose)
-    assert (hold.root_link, hold.tip_link) == (world.root, pr2.root)
+    [hold] = park.statechart.get_nodes_by_type(node_type=HoldPose)
+    assert (hold.kinematic_chain.root, hold.kinematic_chain.tip) == (
+        world.root,
+        pr2.root,
+    )
 
 
 # %% raising the arms clear of a table before they fold
@@ -116,7 +119,7 @@ def compiled_park(plan: list, extensions) -> ParkArmsAction:
     :return: The last step of `plan`, a park, once `plan` is compiled.
     """
     executor = simulated_executor(extensions)
-    executor.compile(statechart_of(executor, Sequence(nodes=plan)))
+    executor.compile(statechart=statechart_of(executor, Sequence(nodes=plan)))
     return plan[-1]
 
 
@@ -126,7 +129,7 @@ def goals_of_park(park: ParkArmsAction, goal_type: type) -> list:
     """
     return [
         node
-        for node in park.statechart.get_nodes_by_type(goal_type)
+        for node in park.statechart.get_nodes_by_type(node_type=goal_type)
         if park in node.path
     ]
 
@@ -136,7 +139,9 @@ def pick_up_the_milk(world: World, arm: Arm) -> PickUpAction:
     :return: A pick-up of the milk carton in the apartment with `arm`.
     """
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    return PickUpAction(grasp=GraspCandidate.from_body_origin(milk), arm=arm)
+    return PickUpAction(
+        grasp_candidate=GraspCandidate.from_body_origin(graspable=milk), arm=arm
+    )
 
 
 def root_P_tool_in_state(
@@ -148,9 +153,9 @@ def root_P_tool_in_state(
     """
     with world.reset_state_context():
         arm.get_joint_state_by_type(state_type).apply_to(world)
-        return world.compute_forward_kinematics_np(
-            root, arm.end_effector.tool_frame
-        )[:3, 3]
+        return world.compute_forward_kinematics_np(root, arm.end_effector.tool_frame)[
+            :3, 3
+        ]
 
 
 def test_an_arm_that_reached_is_drawn_back_through_its_raised_state_before_it_parks(
@@ -173,16 +178,16 @@ def test_an_arm_that_reached_is_drawn_back_through_its_raised_state_before_it_pa
         (raising, StaticJointState.RAISED),
         (lowering, StaticJointState.PARK),
     ):
-        assert (goal.root_link, goal.tip_link) == (
+        assert (goal.kinematic_chain.root, goal.kinematic_chain.tip) == (
             arm.root,
             arm.end_effector.tool_frame,
         )
         assert goal.goal_point.to_np()[:3] == pytest.approx(
             root_P_tool_in_state(world, arm.root, arm, state_type)
         )
-    assert park.statechart.get_preceding_nodes_by_type(parking, CartesianPosition)[
-        :2
-    ] == [lowering, raising]
+    assert park.statechart.get_preceding_nodes_by_type(
+        node=parking, node_type=CartesianPosition
+    )[:2] == [lowering, raising]
 
 
 def test_an_arm_that_did_not_reach_and_stands_parked_parks_straight(
@@ -225,4 +230,4 @@ def test_an_arm_standing_out_over_a_table_is_drawn_back_though_this_plan_did_not
     compiled_park([park], extensions)
 
     raising, lowering = goals_of_park(park, CartesianPosition)
-    assert raising.tip_link is arm.end_effector.tool_frame
+    assert raising.kinematic_chain.tip is arm.end_effector.tool_frame

@@ -173,7 +173,7 @@ def tracy_context(tracy_world):
     The shared Tracy world, its robot and the context extensions of its plans, returned
     to its initial model and state after the test.
     """
-    snapshot = WorldSnapshot.capture(tracy_world)
+    snapshot = WorldSnapshot.capture(world=tracy_world)
     robot = tracy_world.get_semantic_annotations_by_type(Tracy)[0]
     yield tracy_world, robot, robot_extensions(robot)
     snapshot.restore()

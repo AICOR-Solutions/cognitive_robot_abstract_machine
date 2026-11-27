@@ -22,7 +22,7 @@ def count_colors_of_one_pixel(
     """
     hsv_image = np.array([[[hue, 255, 255]]], dtype=np.uint8)
     mask = np.array([[255]], dtype=np.uint8)
-    _, color_count = annotator.count_colors_numba(hsv_image, mask)
+    _, color_count = annotator.count_colors_numba(hsv_image=hsv_image, mask=mask)
     return color_count
 
 

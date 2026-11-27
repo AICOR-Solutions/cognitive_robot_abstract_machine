@@ -11,7 +11,7 @@ from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 
 from giskardpy.motion_statechart.exceptions import RobotDoesNotWalkError
-from giskardpy.motion_statechart.goals.base_pose_goals import WalkingBaseGoal
+from giskardpy.motion_statechart.tasks.drive_tasks import WalkingBaseGoal
 from giskardpy.motion_statechart.tasks.drive_tasks import (
     PacedBaseOrientation,
     PacedBasePosition,
@@ -41,7 +41,9 @@ def test_a_walking_goal_walks_at_the_pace_of_the_robots_controller(robot_on_a_le
         1, 2, 0, yaw=0.5, reference_frame=robot_on_a_leg._world.root
     )
 
-    goal = WalkingBaseGoal.moving_base_of(robot_on_a_leg, target, threshold=0.05)
+    goal = WalkingBaseGoal.moving_base_of(
+        robot=robot_on_a_leg, goal_pose=target, threshold=0.05
+    )
 
     assert goal.mobile_base is robot_on_a_leg.mobile_base
     assert goal.pace == RecordingWalkingController.pace
@@ -54,7 +56,7 @@ def test_a_walking_goal_cannot_walk_a_base_that_does_not_walk(
     target = Pose.from_xyz_rpy(1, 2, 0, reference_frame=cylinder_bot_world.root)
 
     with pytest.raises(RobotDoesNotWalkError) as raised:
-        WalkingBaseGoal.moving_base_of(robot, target, threshold=0.05)
+        WalkingBaseGoal.moving_base_of(robot=robot, goal_pose=target, threshold=0.05)
 
     assert raised.value.robot is robot
 
@@ -63,8 +65,12 @@ def test_a_walking_goal_turns_walks_and_turns_at_its_pace(robot_on_a_leg):
     target = Pose.from_xyz_rpy(
         1, 2, 0, yaw=0.5, reference_frame=robot_on_a_leg._world.root
     )
-    goal = WalkingBaseGoal.moving_base_of(robot_on_a_leg, target, threshold=0.05)
-    Statechart(context=StatechartContext(world=robot_on_a_leg._world)).add_node(goal)
+    goal = WalkingBaseGoal.moving_base_of(
+        robot=robot_on_a_leg, goal_pose=target, threshold=0.05
+    )
+    Statechart(context=StatechartContext(world=robot_on_a_leg._world)).add_node(
+        node=goal
+    )
     goal.expand()
 
     [turn, walk, settle] = goal.sequence.nodes

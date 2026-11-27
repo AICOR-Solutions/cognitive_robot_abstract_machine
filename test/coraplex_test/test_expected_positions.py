@@ -10,7 +10,7 @@ import pytest
 from coraplex.plans.expected_positions import BodiesWhereExpected, ExpectedPosition
 from coraplex.plans.failures import BodiesMovedSinceGrounding
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.executor import StatechartExecutor
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
@@ -53,8 +53,8 @@ def check(cube: Body, tolerance: float) -> BodiesWhereExpected:
         ],
         tolerance=tolerance,
     )
-    statechart.add_node(node)
-    executor.compile(statechart)
+    statechart.add_node(node=node)
+    executor.compile(statechart=statechart)
     executor.tick()
     return node
 
@@ -73,7 +73,7 @@ def move(cube: Body, x: float) -> None:
 
 def test_a_body_within_the_tolerance_is_where_expected(cube):
     move(cube, 0.01)
-    assert check(cube, tolerance=0.02).observation_state == ObservationStateValues.TRUE
+    assert check(cube, tolerance=0.02).observation_state == ObservationStateValue.TRUE
 
 
 def test_a_body_beyond_the_tolerance_fails_the_check_naming_how_far(cube):

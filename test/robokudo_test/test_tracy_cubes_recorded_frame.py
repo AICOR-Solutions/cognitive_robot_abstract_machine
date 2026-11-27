@@ -155,8 +155,10 @@ def test_every_cube_on_the_metal_table_is_found_once_where_it_stands(
     )
 
     cubes = [
-        PerceivedCube.from_hypothesis(hypothesis, cas)
-        for hypothesis in cas.filter_annotations_by_type(ObjectHypothesis)
+        PerceivedCube.from_hypothesis(hypothesis=hypothesis, cas=cas)
+        for hypothesis in cas.filter_annotations_by_type(
+            type_to_include=ObjectHypothesis
+        )
     ]
     assert sorted(cube.color_names for cube in cubes) == sorted(
         [color] for color in expected

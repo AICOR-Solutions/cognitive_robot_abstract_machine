@@ -73,7 +73,9 @@ def test_a_pick_lets_the_cube_touch_the_table_while_it_lifts_it_off(
         cube=scene.cube, end_effector=end_effector, other_body=scene.tracy.table.root
     )
     executor = KinematicallySimulatedPlanExecutor(
-        StatechartContext.with_extensions(scene.world, scene.extensions),
+        context=StatechartContext.with_extensions(
+            world=scene.world, extensions=scene.extensions
+        ),
         collision_avoidance=True,
         plan_adaptations=[LetOnlyTheObjectTouchTheGripper()],
         extensions=[checked_against_the_table],
@@ -85,8 +87,9 @@ def test_a_pick_lets_the_cube_touch_the_table_while_it_lifts_it_off(
         ),
     )
     executor.compile(
-        statechart_of(
-            executor, PickUpAction(grasp=grasp_at_the_top, arm=scene.tracy.left_arm)
+        statechart=statechart_of(
+            executor,
+            PickUpAction(grasp_candidate=grasp_at_the_top, arm=scene.tracy.left_arm),
         )
     )
 

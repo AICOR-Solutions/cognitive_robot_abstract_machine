@@ -246,7 +246,7 @@ def test_a_robot_counts_as_still_while_its_walking_legs_keep_stepping(
 
     controller.leg_targets = stepping
     pacer = SteppedSimulationPacer(
-        walking_simulation, standstill_time_limit=timedelta(seconds=5)
+        simulation=walking_simulation, standstill_time_limit=timedelta(seconds=5)
     )
     pacer.target_frequency = 100
     started = walking_simulation.simulator.current_simulation_time

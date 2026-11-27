@@ -24,7 +24,6 @@ from rclpy.executors import SingleThreadedExecutor
 
 import robokudo.pipeline
 import robokudo.utils.tree_execution
-import robokudo.world
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from robokudo.annotators.cluster_color import Color as SemanticColorName
 from robokudo.behaviours.clear_annotator_outputs import ClearAnnotatorOutputs
@@ -191,9 +190,7 @@ def cube_scene(request: pytest.FixtureRequest) -> CubeScene:
     """
     :return: Tracy with three cubes at random poses, the world RoboKudo runs in.
     """
-    scene = build_cube_scene(request.param)
-    robokudo.world.set_world(scene.world)
-    return scene
+    return build_cube_scene(request.param)
 
 
 # %% what the pipeline reports
@@ -244,12 +241,14 @@ class PerceivedCube:
         )
 
 
-def perceive_cubes(node) -> list[PerceivedCube]:
+def perceive_cubes(node, world: World) -> list[PerceivedCube]:
     """
     :param node: The ROS node the pipeline runs on.
+    :param world: The world the pipeline perceives into.
     :return: The cubes the pipeline perceives in one frame of Tracy's camera.
     """
     pipeline = robokudo.pipeline.Pipeline("TracyCubesTestPipeline")
+    pipeline.world = world
     pipeline.add_children(
         [ClearAnnotatorOutputs(), *AnalysisEngine().perception_annotators()]
     )
@@ -258,8 +257,10 @@ def perceive_cubes(node) -> list[PerceivedCube]:
     )
     assert result is py_trees.common.Status.SUCCESS
     return [
-        PerceivedCube.from_hypothesis(hypothesis, pipeline.cas)
-        for hypothesis in pipeline.cas.filter_annotations_by_type(ObjectHypothesis)
+        PerceivedCube.from_hypothesis(hypothesis=hypothesis, cas=pipeline.cas)
+        for hypothesis in pipeline.cas.filter_annotations_by_type(
+            type_to_include=ObjectHypothesis
+        )
     ]
 
 
@@ -278,7 +279,7 @@ def yaw_difference_modulo_quarter_turn(first: float, second: float) -> float:
 def test_every_cube_is_perceived_in_its_color_within_a_centimetre(
     node, cube_scene: CubeScene
 ) -> None:
-    perceived = perceive_cubes(node)
+    perceived = perceive_cubes(node, cube_scene.world)
 
     for cube in cube_scene.cubes:
         [match] = [
@@ -295,7 +296,7 @@ def test_every_cube_is_perceived_in_its_color_within_a_centimetre(
 def test_every_cube_is_perceived_at_its_yaw_up_to_a_quarter_turn(
     node, cube_scene: CubeScene
 ) -> None:
-    perceived = perceive_cubes(node)
+    perceived = perceive_cubes(node, cube_scene.world)
 
     for cube in cube_scene.cubes:
         [match] = [
@@ -455,8 +456,8 @@ class UnregisterTheDepthOfTheFirstFrame(BaseAnnotator):
 
     def update(self) -> py_trees.common.Status:
         if self.frames_seen == 0:
-            depth = self.get_cas().get(CASViews.DEPTH_IMAGE)
-            self.get_cas().set(CASViews.DEPTH_IMAGE, depth[::2, ::2])
+            depth = self.get_cas().get(view_name=CASViews.DEPTH_IMAGE)
+            self.get_cas().set(view_name=CASViews.DEPTH_IMAGE, value=depth[::2, ::2])
         self.frames_seen += 1
         return py_trees.common.Status.SUCCESS
 

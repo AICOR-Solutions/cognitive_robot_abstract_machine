@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world import World
@@ -31,7 +31,7 @@ from semantic_digital_twin.robots.walking import (
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     OmniDrive,
-    RevoluteConnection,
+    ScrewAxisConnection,
 )
 
 from .robots_on_a_drive import RootBodyBase
@@ -170,11 +170,13 @@ def robot_on_a_leg_drive(odometry_height: float = 1.0) -> OmniDrive:
         )
         robot_world.add_degree_of_freedom(leg_position)
         robot_world.add_connection(
-            RevoluteConnection(
+            ScrewAxisConnection(
                 name=PrefixedName("leg"),
                 parent=pelvis,
                 child=shin,
-                axis=Vector3.Y(reference_frame=shin),
+                screw_axis=ScrewAxisConnection.create_revolute_screw_axis(
+                    axis=Vector3.Y(reference_frame=shin)
+                ),
                 raw_dof=leg_position,
             )
         )

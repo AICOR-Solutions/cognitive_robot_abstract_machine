@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from typing_extensions import Self
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 
 from krrood_spatial_math.spatial_types import (
     Point3,

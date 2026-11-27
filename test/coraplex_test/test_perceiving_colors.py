@@ -25,7 +25,7 @@ from coraplex.perception import (
 )
 from coraplex.robot_plans.actions.core.misc import DetectAction
 from coraplex.robot_plans.plan_transformations import DetectWithRoboKudo
-from cramph.data_types import LifeCycleValues
+from cramph.data_types import LifeCycleValue
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.datastructures.definitions import StaticJointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -115,7 +115,11 @@ class CubesOnTheTable:
         :return: A query for a cube of that color on the table.
         """
         return PerceptionQuery(
-            Milk, self.table_region, self.tracy, self.world, color=color
+            semantic_annotation=Milk,
+            region=self.table_region,
+            robot=self.tracy,
+            world=self.world,
+            color=color,
         )
 
 
@@ -191,7 +195,7 @@ def test_the_world_answers_a_query_without_a_color_with_every_cube(
 def test_the_world_reports_the_cube_in_the_color_asked_for(
     three_cubes: CubesOnTheTable,
 ):
-    detection = WorldPerception().detect(three_cubes.query(ColorName.RED))
+    detection = WorldPerception().detect(query=three_cubes.query(ColorName.RED))
 
     assert detection.color is ColorName.RED
     np.testing.assert_allclose(
@@ -217,7 +221,7 @@ def test_a_detect_action_for_red_succeeds_among_cubes_of_one_type(
 
     run_plan(detection, extensions)
 
-    assert detection.life_cycle_state == LifeCycleValues.SUCCEEDED
+    assert detection.life_cycle_state == LifeCycleValue.SUCCEEDED
 
 
 # %% writing a detection of a color into the world
@@ -240,7 +244,7 @@ def test_a_detection_of_a_color_moves_the_cube_of_that_color(
             *perceived_position, reference_frame=three_cubes.world.root
         ),
         color=ColorName.RED,
-    ).apply_to(three_cubes.world, region=three_cubes.table_region)
+    ).apply_to(world=three_cubes.world, region=three_cubes.table_region)
 
     assert annotation.root is red_cube
     np.testing.assert_allclose(position_of(red_cube), perceived_position, atol=1e-9)
@@ -259,7 +263,7 @@ def test_a_detected_color_is_written_into_a_cube_not_showing_it(
 
     Detection(
         semantic_annotation=Milk, pose=cube.global_pose, color=ColorName.RED
-    ).apply_to(table_without_cubes.world, region=table_without_cubes.table_region)
+    ).apply_to(world=table_without_cubes.world, region=table_without_cubes.table_region)
 
     assert [shape.color for shape in cube.visual] == [
         ColorName.RED.representative_color
@@ -274,7 +278,7 @@ def test_a_cube_showing_the_detected_color_keeps_its_shade(
 
     Detection(
         semantic_annotation=Milk, pose=red_cube.global_pose, color=ColorName.RED
-    ).apply_to(three_cubes.world, region=three_cubes.table_region)
+    ).apply_to(world=three_cubes.world, region=three_cubes.table_region)
 
     assert [shape.color for shape in red_cube.visual] == shades
 
@@ -321,7 +325,7 @@ def test_a_live_detect_action_for_red_succeeds_among_cubes_of_one_type(
         plan_adaptations=[DetectWithRoboKudo()],
     )
 
-    assert detection.life_cycle_state == LifeCycleValues.SUCCEEDED
+    assert detection.life_cycle_state == LifeCycleValue.SUCCEEDED
 
 
 # %% detecting cubes the world does not hold yet
@@ -363,7 +367,7 @@ def test_a_detection_matching_no_body_becomes_a_new_body(
     detection = detection_at(table_without_cubes, ColorName.RED, x=0.6, y=0.1)
 
     [annotation] = detection.apply_to(
-        table_without_cubes.world, region=table_without_cubes.table_region
+        world=table_without_cubes.world, region=table_without_cubes.table_region
     )
 
     assert type(annotation) is Milk
@@ -395,7 +399,7 @@ def test_a_detection_without_a_size_matching_no_body_is_rejected(
 
     with pytest.raises(PerceivedObjectNotInWorld):
         detection.apply_to(
-            table_without_cubes.world, region=table_without_cubes.table_region
+            world=table_without_cubes.world, region=table_without_cubes.table_region
         )
 
 
@@ -415,7 +419,7 @@ def test_a_scene_seen_on_an_empty_table_becomes_one_body_per_cube(
         ]
     ]
 
-    bodies = DetectedScene(detections, scene.table_region).apply_to(scene.world)
+    bodies = DetectedScene(detections, scene.table_region).apply_to(world=scene.world)
 
     assert len(set(bodies)) == len(detections)
     for body, detection in zip(bodies, detections):
@@ -444,7 +448,7 @@ def test_a_scene_seen_again_moves_the_cubes_the_world_holds(
     ]
 
     bodies = DetectedScene(detections, three_cubes.table_region).apply_to(
-        three_cubes.world
+        world=three_cubes.world
     )
 
     assert bodies == list(three_cubes.cubes.values())
@@ -465,7 +469,7 @@ def test_a_scene_seen_does_not_move_a_cube_of_another_color(
 
     [yellow_body] = DetectedScene(
         [detection_at(scene, ColorName.YELLOW, x=0.6, y=0.0)], scene.table_region
-    ).apply_to(scene.world)
+    ).apply_to(world=scene.world)
 
     assert yellow_body is not red_cube
     np.testing.assert_allclose(red_cube.global_pose.to_np(), red_pose, atol=1e-9)
@@ -518,8 +522,8 @@ def test_a_query_of_a_region_in_view_is_perceived_while_a_plan_is_checked(
     """
     seen = [detection_at(three_cubes, ColorName.RED, x=0.6, y=-0.15)]
 
-    answer = ValidationPerception(FixedPerception(seen)).look_for(
-        three_cubes.query(ColorName.RED)
+    answer = ValidationPerception(live=FixedPerception(seen)).look_for(
+        query=three_cubes.query(ColorName.RED)
     )
 
     assert answer.grounding is DetectionGrounding.PERCEIVED
@@ -533,10 +537,13 @@ def test_a_query_of_a_region_out_of_view_is_assumed_from_the_world(
     Where the camera does not see the region, the world model answers, assumed.
     """
     query = PerceptionQuery(
-        Milk, region_out_of_view, three_cubes.tracy, three_cubes.world
+        semantic_annotation=Milk,
+        region=region_out_of_view,
+        robot=three_cubes.tracy,
+        world=three_cubes.world,
     )
 
-    answer = ValidationPerception(FixedPerception([])).look_for(query)
+    answer = ValidationPerception(live=FixedPerception([])).look_for(query=query)
 
     assert answer.grounding is DetectionGrounding.ASSUMED
     [assumed] = answer.detections

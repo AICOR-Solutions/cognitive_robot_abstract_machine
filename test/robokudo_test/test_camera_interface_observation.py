@@ -647,19 +647,23 @@ def test_live_reader_places_a_camera_sampled_below_a_robot_link_in_the_world(
     interface.lookup_viewpoint = True
     interface.tf_from = "color_optical_frame"
     interface.tf_to = "camera_link"
-    interface._world_T_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
-        pos_x=0.0, pos_y=0.05, pos_z=0.0
+    interface.latest_frame = CameraFrame(
+        color_image=np.zeros(
+            (camera_info.height, camera_info.width, 3), dtype=np.uint8
+        ),
+        depth_image=np.zeros((camera_info.height, camera_info.width), dtype=np.uint16),
+        camera_info=camera_info,
+        timestamp=Time(sec=10, nanosec=20),
     )
-    interface.color = np.zeros(
-        (camera_info.height, camera_info.width, 3), dtype=np.uint8
+    interface._world_T_camera = tf_sample(
+        x=0.0, y=0.05, z=0.0, stamp=interface.latest_frame.timestamp
     )
-    interface.depth = np.zeros((camera_info.height, camera_info.width), dtype=np.uint16)
-    interface.camera_info = camera_info
-    interface.timestamp = Time(sec=10, nanosec=20)
+    interface.tf_wrapper = Mock()
+    interface.tf_wrapper.lookup_transform.return_value = interface._world_T_camera
     interface.lock = Lock()
     cas = CAS()
 
-    interface.set_data(cas)
+    interface.set_data(cas=cas, world=runtime_world)
 
     observation = cas.require_camera_observation()
     assert observation.world_T_camera.reference_frame is root
@@ -668,7 +672,9 @@ def test_live_reader_places_a_camera_sampled_below_a_robot_link_in_the_world(
         observation.world_T_camera.to_np(),
         (
             camera_link.parent_connection.origin.to_np()
-            @ interface._world_T_camera.to_np()
+            @ HomogeneousTransformationMatrix.from_xyz_quaternion(
+                pos_x=0.0, pos_y=0.05, pos_z=0.0
+            ).to_np()
         ),
     )
 

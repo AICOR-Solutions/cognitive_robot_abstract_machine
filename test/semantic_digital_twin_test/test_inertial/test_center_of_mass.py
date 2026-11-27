@@ -12,7 +12,7 @@ from semantic_digital_twin.exceptions import WeightlessBranchError
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
-    PrismaticConnection,
+    ScrewAxisConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.world_description.geometry import Box, Scale
@@ -51,11 +51,13 @@ def sliding_world() -> World:
         slide = DegreeOfFreedom(name=PrefixedName("slide"))
         world.add_degree_of_freedom(slide)
         world.add_connection(
-            PrismaticConnection(
+            ScrewAxisConnection(
                 parent=root,
                 child=cube_of_water("cube"),
                 raw_dof=slide,
-                axis=Vector3.X(),
+                screw_axis=ScrewAxisConnection.create_prismatic_screw_axis(
+                    axis=Vector3.X()
+                ),
             )
         )
     return world

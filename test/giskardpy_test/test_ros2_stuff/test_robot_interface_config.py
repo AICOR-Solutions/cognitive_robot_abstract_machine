@@ -18,7 +18,7 @@ from giskardpy.middleware.ros2.robot_interface_config import (
     StandAloneRobotInterfaceConfig,
 )
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
-from semantic_digital_twin.adapters.ros import rospy
+from semantic_digital_twin.adapters.ros import background_node
 from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
 from semantic_digital_twin.adapters.ros.world_fetcher import FetchWorldServer
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
@@ -261,7 +261,7 @@ def world_following(world: World) -> World:
         as a process fetching it from Giskard or following it on the world's topics
         receives them.
     """
-    server = FetchWorldServer(node=rospy.get_node(), world=world)
+    server = FetchWorldServer(node=background_node.get_node(), world=world)
     payload = json.loads(server.get_payload_as_json())
     server.close()
     follower = World()
@@ -274,7 +274,7 @@ def world_following(world: World) -> World:
 
 
 def test_a_world_following_giskard_controls_the_joints_it_commands(
-    init_rospy, pr2_world_specification
+    init_background_node, pr2_world_specification
 ) -> None:
     interface = GroupCommandingInterface(
         joint_names=[PR2Joint.HEAD_PAN, PR2Joint.HEAD_TILT]

@@ -217,7 +217,7 @@ def test_a_region_tells_apart_the_bodies_an_annotation_describes(
     [annotation] = Detection(
         semantic_annotation=Milk,
         pose=Pose.from_xyz_rpy(*PERCEIVED_MILK_POSITION, reference_frame=world.root),
-    ).apply_to(world, region=around_the_milk)
+    ).apply_to(world=world, region=around_the_milk)
 
     assert annotation.root is milk_body
     np.testing.assert_allclose(
@@ -761,9 +761,11 @@ def test_robokudo_detection_in_the_root_frame_of_a_real_robots_world(
         max_z=10,
     )
     [tracy] = world.get_semantic_annotations_by_type(Tracy)
-    query = PerceptionQuery(Milk, region, tracy, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=region, robot=tracy, world=world
+    )
 
-    [detection] = RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+    [detection] = RoboKudoPerception(ros_node=rclpy_node).look_for(query=query)
 
     assert detection.pose.reference_frame is world.root
     np.testing.assert_allclose(
@@ -782,11 +784,17 @@ def test_robokudo_detection_carries_the_size_the_pipeline_measured(
     world, view, extensions = pr2_apartment_context
     measured = Scale(0.05, 0.06, 0.07)
     query_server_reporting(
-        [ReportedObject("Milk", PERCEIVED_MILK_POSITION, size=measured)]
+        [
+            ReportedObject(
+                class_label="Milk", position=PERCEIVED_MILK_POSITION, size=measured
+            )
+        ]
     )
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     assert detection.size == measured
 
@@ -897,8 +905,8 @@ def test_objects_reported_outside_the_region_are_not_candidates(
     world, view, extensions = pr2_apartment_context
     query_server_reporting(
         [
-            ReportedObject("", PERCEIVED_MILK_POSITION),
-            ReportedObject("", (1.0, 1.0, 1.0)),
+            ReportedObject(class_label="", position=PERCEIVED_MILK_POSITION),
+            ReportedObject(class_label="", position=(1.0, 1.0, 1.0)),
         ]
     )
     around_the_perceived_milk = VolumetricBoundingBox(
@@ -910,9 +918,14 @@ def test_objects_reported_outside_the_region_are_not_candidates(
         max_y=PERCEIVED_MILK_POSITION[1] + 0.1,
         max_z=PERCEIVED_MILK_POSITION[2] + 0.1,
     )
-    query = PerceptionQuery(Milk, around_the_perceived_milk, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk,
+        region=around_the_perceived_milk,
+        robot=view,
+        world=world,
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     np.testing.assert_allclose(
         detection.pose.position.to_np().flatten()[:3],
@@ -957,15 +970,15 @@ def test_robokudo_is_asked_for_the_color_and_attributes_of_the_query(
     world, view, extensions = pr2_apartment_context
     attributes = ["wooden"]
     query = PerceptionQuery(
-        Milk,
-        whole_scene_region,
-        view,
-        world,
+        semantic_annotation=Milk,
+        region=whole_scene_region,
+        robot=view,
+        world=world,
         color=ColorName.RED,
         attributes=attributes,
     )
 
-    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+    RoboKudoPerception(ros_node=rclpy_node).look_for(query=query)
 
     [request] = robokudo_query_server.received_requests
     assert list(request.color) == [ColorName.RED.value]
@@ -976,9 +989,11 @@ def test_a_query_without_a_color_asks_robokudo_for_none(
     pr2_apartment_context, whole_scene_region, rclpy_node, robokudo_query_server
 ):
     world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
-    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
+    RoboKudoPerception(ros_node=rclpy_node).look_for(query=query)
 
     [request] = robokudo_query_server.received_requests
     assert list(request.color) == []
@@ -994,13 +1009,27 @@ def test_candidates_reported_in_another_color_are_not_the_requested_object(
     world, view, extensions = pr2_apartment_context
     query_server_reporting(
         [
-            ReportedObject("", (1.0, 1.0, 1.0), [ColorName.BLUE.value]),
-            ReportedObject("", PERCEIVED_MILK_POSITION, [ColorName.RED.value]),
+            ReportedObject(
+                class_label="",
+                position=(1.0, 1.0, 1.0),
+                color_names=[ColorName.BLUE.value],
+            ),
+            ReportedObject(
+                class_label="",
+                position=PERCEIVED_MILK_POSITION,
+                color_names=[ColorName.RED.value],
+            ),
         ]
     )
-    query = PerceptionQuery(Milk, whole_scene_region, view, world, color=ColorName.RED)
+    query = PerceptionQuery(
+        semantic_annotation=Milk,
+        region=whole_scene_region,
+        robot=view,
+        world=world,
+        color=ColorName.RED,
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     np.testing.assert_allclose(
         detection.pose.position.to_np().flatten()[:3],
@@ -1016,15 +1045,17 @@ def test_a_robokudo_detection_carries_the_dominant_color_reported(
     query_server_reporting(
         [
             ReportedObject(
-                "",
-                PERCEIVED_MILK_POSITION,
-                [ColorName.RED.value, ColorName.GREY.value],
+                class_label="",
+                position=PERCEIVED_MILK_POSITION,
+                color_names=[ColorName.RED.value, ColorName.GREY.value],
             )
         ]
     )
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     assert detection.color is ColorName.RED
 
@@ -1039,15 +1070,21 @@ def test_a_robokudo_detection_carries_the_queried_color_it_was_reported_in(
     query_server_reporting(
         [
             ReportedObject(
-                "",
-                PERCEIVED_MILK_POSITION,
-                [ColorName.BLACK.value, ColorName.RED.value],
+                class_label="",
+                position=PERCEIVED_MILK_POSITION,
+                color_names=[ColorName.BLACK.value, ColorName.RED.value],
             )
         ]
     )
-    query = PerceptionQuery(Milk, whole_scene_region, view, world, color=ColorName.RED)
+    query = PerceptionQuery(
+        semantic_annotation=Milk,
+        region=whole_scene_region,
+        robot=view,
+        world=world,
+        color=ColorName.RED,
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     assert detection.color is ColorName.RED
 
@@ -1056,10 +1093,18 @@ def test_a_robokudo_detection_without_a_known_color_carries_none(
     pr2_apartment_context, whole_scene_region, rclpy_node, query_server_reporting
 ):
     world, view, extensions = pr2_apartment_context
-    query_server_reporting([ReportedObject("", PERCEIVED_MILK_POSITION, ["mauve"])])
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query_server_reporting(
+        [
+            ReportedObject(
+                class_label="", position=PERCEIVED_MILK_POSITION, color_names=["mauve"]
+            )
+        ]
+    )
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
-    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query)
+    detection = RoboKudoPerception(ros_node=rclpy_node).detect(query=query)
 
     assert detection.color is None
 
@@ -1164,12 +1209,14 @@ def test_a_query_robokudo_does_not_answer_fails_after_the_answer_timeout(
     """
     world, view, extensions = pr2_apartment_context
     unanswered_query_server(waiting_for=None)
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
     with pytest.raises(PerceptionSourceDidNotAnswer) as raised:
         RoboKudoPerception(
             ros_node=rclpy_node, answer_timeout=short_answer_timeout
-        ).look_for(query)
+        ).look_for(query=query)
 
     assert raised.value.answer_timeout == short_answer_timeout
     assert raised.value.waiting_for == ""
@@ -1186,12 +1233,14 @@ def test_a_query_robokudo_does_not_answer_names_what_robokudo_waits_for(
     server = unanswered_query_server(
         waiting_for="synchronized color and depth on /color and /depth"
     )
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
     with pytest.raises(PerceptionSourceDidNotAnswer) as raised:
         RoboKudoPerception(
             ros_node=rclpy_node, answer_timeout=short_answer_timeout
-        ).look_for(query)
+        ).look_for(query=query)
 
     assert raised.value.waiting_for == server.waiting_for
 
@@ -1208,12 +1257,14 @@ def test_a_query_robokudo_does_not_answer_is_canceled(
     """
     world, view, extensions = pr2_apartment_context
     server = unanswered_query_server(waiting_for=None)
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
 
     with pytest.raises(PerceptionSourceDidNotAnswer):
         RoboKudoPerception(
             ros_node=rclpy_node, answer_timeout=short_answer_timeout
-        ).look_for(query)
+        ).look_for(query=query)
 
     assert server.cancel_requested.wait(timeout=2.0)
 
@@ -1226,7 +1277,9 @@ def test_a_query_robokudo_did_not_answer_survives_a_json_round_trip(
     failure back to the plan as JSON.
     """
     failure = PerceptionSourceDidNotAnswer(
-        ROBOKUDO_QUERY_ACTION_NAME, short_answer_timeout, "camera data"
+        action_name=ROBOKUDO_QUERY_ACTION_NAME,
+        answer_timeout=short_answer_timeout,
+        waiting_for="camera data",
     )
 
     restored = from_json(json.loads(json.dumps(to_json(failure))))
@@ -1299,13 +1352,15 @@ def test_a_query_robokudo_aborts_fails_at_once_with_robokudos_reason(
     timeout, and names RoboKudo's reason whole.
     """
     world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
     started = time.monotonic()
 
     with pytest.raises(PerceptionSourceFailed) as raised:
         RoboKudoPerception(
             ros_node=rclpy_node, answer_timeout=timedelta(seconds=30)
-        ).look_for(query)
+        ).look_for(query=query)
 
     assert time.monotonic() - started < 5.0
     assert raised.value.reason == aborting_query_server.reason
@@ -1313,7 +1368,9 @@ def test_a_query_robokudo_aborts_fails_at_once_with_robokudos_reason(
 
 
 def test_a_query_robokudo_aborted_survives_a_json_round_trip() -> None:
-    failure = PerceptionSourceFailed(ROBOKUDO_QUERY_ACTION_NAME, "no point cloud")
+    failure = PerceptionSourceFailed(
+        action_name=ROBOKUDO_QUERY_ACTION_NAME, reason="no point cloud"
+    )
 
     restored = from_json(json.loads(json.dumps(to_json(failure))))
 
@@ -1606,7 +1663,7 @@ def test_a_detection_waits_for_robokudo_as_long_as_the_plan_allows(
         ],
     )
 
-    executor.prepare(statechart_of(executor, plan))
+    executor.prepare(statechart=statechart_of(executor, plan))
 
     [task] = [node for node in plan.descendants if isinstance(node, PerceptionTask)]
     assert task.answer_timeout == short_answer_timeout
@@ -1616,7 +1673,9 @@ def test_a_perception_task_asks_robokudo_with_its_answer_timeout(
     pr2_apartment_context, whole_scene_region, rclpy_node, short_answer_timeout
 ) -> None:
     world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+    query = PerceptionQuery(
+        semantic_annotation=Milk, region=whole_scene_region, robot=view, world=world
+    )
     task = PerceptionTask(
         query=query,
         answered_by=PerceptionSource.ROBOKUDO,
@@ -1844,10 +1903,10 @@ def test_a_query_keeps_its_color_and_attributes_through_json(
     receiving_world = deepcopy(world)
     attributes = ["wooden"]
     query = PerceptionQuery(
-        Milk,
-        whole_scene_region,
-        view,
-        world,
+        semantic_annotation=Milk,
+        region=whole_scene_region,
+        robot=view,
+        world=world,
         color=ColorName.RED,
         attributes=attributes,
     )

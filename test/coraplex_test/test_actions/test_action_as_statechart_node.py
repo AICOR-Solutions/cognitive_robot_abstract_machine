@@ -714,18 +714,20 @@ def test_a_grasp_closes_only_once_the_gripper_settled_at_the_grasp(
     """
     world, robot, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+    pick_up = PickUpAction(
+        grasp_candidate=milk.grasp_candidates()[0], arm=robot.left_arm
+    )
 
     _expanded(pick_up, extensions)
 
     [grasping] = nodes_of_type(pick_up, GraspingAction)
     reach, closing = grasping.nodes
     [holding] = nodes_of_type(closing, CartesianPose)
-    assert holding.translation_threshold == SETTLED_POSITION_THRESHOLD
+    assert holding.position_threshold == SETTLED_POSITION_THRESHOLD
     assert holding.orientation_threshold == SETTLED_ORIENTATION_THRESHOLD
     assert SETTLED_POSITION_THRESHOLD < grasping.position_threshold
     assert all(
-        approach.translation_threshold == grasping.position_threshold
+        approach.position_threshold == grasping.position_threshold
         for approach in nodes_of_type(reach, CartesianPose)
     )
 
@@ -760,7 +762,9 @@ def test_a_pick_up_letting_only_its_object_touch_allows_the_gripper_that_alone(
     world, robot, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
     end_effector = robot.left_arm.end_effector
-    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+    pick_up = PickUpAction(
+        grasp_candidate=milk.grasp_candidates()[0], arm=robot.left_arm
+    )
     executor = simulated_executor(
         extensions, plan_adaptations=[LetOnlyTheObjectTouchTheGripper()]
     )
@@ -781,10 +785,13 @@ def test_a_place_letting_only_its_object_touch_lets_the_object_touch_while_set_d
 ) -> None:
     world, robot, extensions = pr2_apartment_context
     milk = world.get_semantic_annotations_by_type(Milk)[0]
-    pick_up = PickUpAction(grasp=milk.grasp_candidates()[0], arm=robot.left_arm)
+    pick_up = PickUpAction(
+        grasp_candidate=milk.grasp_candidates()[0], arm=robot.left_arm
+    )
     place = PlaceAction(
-        object_designator=milk,
-        target_location=Pose.from_xyz_rpy(0.8, -1.9, 0.7, reference_frame=world.root),
+        arm=robot.left_arm,
+        graspable=milk,
+        goal_pose=Pose.from_xyz_rpy(0.8, -1.9, 0.7, reference_frame=world.root),
     )
     executor = simulated_executor(
         extensions, plan_adaptations=[LetOnlyTheObjectTouchTheGripper()]

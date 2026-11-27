@@ -9,7 +9,7 @@ import pytest
 from coraplex.plans.failures import ObjectLeftBehindByTheHand
 from coraplex.plans.held_objects import ObjectRisesWithTheHand
 from cramph.context import StatechartContext
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.executor import StatechartExecutor
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
@@ -58,8 +58,8 @@ def lift(hand: Body, cube: Body, hand_rise: float, cube_rise: float):
     executor = StatechartExecutor(context=StatechartContext(world=world))
     statechart = Statechart(context=executor.context)
     node = ObjectRisesWithTheHand(held_body=cube, tool_frame=hand)
-    statechart.add_node(node)
-    executor.compile(statechart)
+    statechart.add_node(node=node)
+    executor.compile(statechart=statechart)
     executor.tick()
     raise_by(hand, hand_rise)
     raise_by(cube, cube_rise)
@@ -73,7 +73,7 @@ def lift(hand: Body, cube: Body, hand_rise: float, cube_rise: float):
 def test_an_object_rising_with_the_hand_passes_the_check(hand_and_cube):
     hand, cube = hand_and_cube
     node = lift(hand, cube, hand_rise=0.1, cube_rise=0.095)
-    assert node.observation_state == ObservationStateValues.TRUE
+    assert node.observation_state == ObservationStateValue.TRUE
 
 
 def test_an_object_left_on_the_table_fails_the_check_naming_the_shortfall(
